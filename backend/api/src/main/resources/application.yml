@@ -4,6 +4,15 @@ server:
 spring:
   application:
     name: pulsar-admin-api
+  datasource:
+    url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5432/pulsar_admin}
+    username: ${APP_DATASOURCE_USERNAME:pulsar}
+    password: ${APP_DATASOURCE_PASSWORD:pulsar}
+  sql:
+    init:
+      mode: always
+      schema-locations:
+        - classpath:schema.sql
 
 app:
   cors:

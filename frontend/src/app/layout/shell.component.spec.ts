@@ -23,7 +23,10 @@ describe('ShellComponent', () => {
                 status: 'HEALTHY',
                 region: 'us-east-1',
                 clusterLabel: 'cluster-a',
-                summary: 'Primary traffic'
+                summary: 'Primary traffic',
+                syncStatus: 'SYNCED',
+                lastSyncedAt: null,
+                lastTestStatus: 'SUCCESS'
               }
             ])
           }

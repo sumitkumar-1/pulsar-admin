@@ -1,115 +1,76 @@
 package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
+import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
+import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.EnvironmentStatus;
-import com.pulsaradmin.shared.model.EnvironmentSummary;
-import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicHealth;
-import com.pulsaradmin.shared.model.TopicListItem;
 import com.pulsaradmin.shared.model.TopicPartitionSummary;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
 public class MockPulsarAdminGateway implements PulsarAdminGateway {
-  private final List<EnvironmentSummary> environments;
-  private final Map<String, EnvironmentHealth> environmentHealth;
-  private final Map<String, List<TopicDetails>> topicsByEnvironment;
+  @Override
+  public EnvironmentConnectionTestResult testConnection(EnvironmentDetails environment) {
+    boolean validBroker = environment.brokerUrl().startsWith("pulsar://") || environment.brokerUrl().startsWith("pulsar+ssl://");
+    boolean validAdmin = environment.adminUrl().startsWith("http://") || environment.adminUrl().startsWith("https://");
+    boolean flaggedFailure = environment.brokerUrl().contains("invalid")
+        || environment.adminUrl().contains("invalid")
+        || environment.brokerUrl().contains("fail")
+        || environment.adminUrl().contains("fail");
 
-  public MockPulsarAdminGateway() {
-    this.environments = seedEnvironments();
-    this.environmentHealth = seedEnvironmentHealth();
-    this.topicsByEnvironment = seedTopics();
+    boolean successful = validBroker && validAdmin && !flaggedFailure;
+
+    return new EnvironmentConnectionTestResult(
+        environment.id(),
+        successful,
+        successful ? "SUCCESS" : "FAILED",
+        successful ? "Connection verified. Metadata sync was triggered." : "Unable to validate the broker or admin endpoint details.",
+        Instant.now(),
+        successful);
   }
 
   @Override
-  public List<EnvironmentSummary> getEnvironments() {
-    return environments;
+  public EnvironmentSnapshot syncMetadata(EnvironmentDetails environment) {
+    Map<String, List<TopicDetails>> topicsByEnvironment = seedTopics();
+    List<TopicDetails> topics = topicsByEnvironment.getOrDefault(environment.id(), List.of());
+
+    if (topics.isEmpty()) {
+      topics = createCustomEnvironmentTopics(environment);
+    }
+
+    List<String> tenants = topics.stream().map(TopicDetails::tenant).distinct().toList();
+    List<String> namespaces = topics.stream().map(topic -> topic.tenant() + "/" + topic.namespace()).distinct().toList();
+
+    EnvironmentHealth health = new EnvironmentHealth(
+        environment.id(),
+        deriveStatus(environment, topics),
+        environment.brokerUrl(),
+        environment.adminUrl(),
+        environment.kind().equals("prod") ? "4.0.2" : "4.0.1",
+        topics.isEmpty() ? "Connected, but no topic metadata is available yet." : "Metadata sync completed successfully.");
+
+    return new EnvironmentSnapshot(health, tenants, namespaces, topics);
   }
 
-  @Override
-  public Optional<EnvironmentHealth> getEnvironmentHealth(String environmentId) {
-    return Optional.ofNullable(environmentHealth.get(environmentId));
-  }
+  private EnvironmentStatus deriveStatus(EnvironmentDetails environment, List<TopicDetails> topics) {
+    if (topics.stream().anyMatch(topic -> topic.health() == TopicHealth.CRITICAL)) {
+      return EnvironmentStatus.DEGRADED;
+    }
 
-  @Override
-  public PagedResult<TopicListItem> getTopics(
-      String environmentId,
-      String tenant,
-      String namespace,
-      String search,
-      int page,
-      int pageSize) {
-    List<TopicListItem> filtered = topicsByEnvironment.getOrDefault(environmentId, List.of()).stream()
-        .filter(topic -> matches(topic.tenant(), tenant))
-        .filter(topic -> matches(topic.namespace(), namespace))
-        .filter(topic -> search == null || search.isBlank() || matchesSearch(topic, search))
-        .map(this::toListItem)
-        .sorted(Comparator.comparing(TopicListItem::namespace).thenComparing(TopicListItem::topic))
-        .toList();
+    if ("prod".equalsIgnoreCase(environment.kind()) || "stable".equalsIgnoreCase(environment.kind())) {
+      return EnvironmentStatus.HEALTHY;
+    }
 
-    int fromIndex = Math.min(page * pageSize, filtered.size());
-    int toIndex = Math.min(fromIndex + pageSize, filtered.size());
-
-    return new PagedResult<>(filtered.subList(fromIndex, toIndex), page, pageSize, filtered.size());
-  }
-
-  @Override
-  public Optional<TopicDetails> getTopicDetails(String environmentId, String fullTopicName) {
-    return topicsByEnvironment.getOrDefault(environmentId, List.of()).stream()
-        .filter(topic -> topic.fullName().equals(fullTopicName))
-        .findFirst();
-  }
-
-  private boolean matches(String value, String filter) {
-    return filter == null || filter.isBlank() || value.equalsIgnoreCase(filter);
-  }
-
-  private boolean matchesSearch(TopicDetails topic, String search) {
-    String normalized = search.toLowerCase(Locale.ROOT);
-    return topic.fullName().toLowerCase(Locale.ROOT).contains(normalized)
-        || topic.namespace().toLowerCase(Locale.ROOT).contains(normalized)
-        || topic.topic().toLowerCase(Locale.ROOT).contains(normalized);
-  }
-
-  private TopicListItem toListItem(TopicDetails topic) {
-    return new TopicListItem(
-        topic.fullName(),
-        topic.tenant(),
-        topic.namespace(),
-        topic.topic(),
-        topic.partitioned(),
-        topic.partitions(),
-        topic.schema().present(),
-        topic.health(),
-        topic.stats(),
-        topic.notes());
-  }
-
-  private List<EnvironmentSummary> seedEnvironments() {
-    return List.of(
-        new EnvironmentSummary("prod", "Production", "prod", EnvironmentStatus.HEALTHY, "us-east-1", "cluster-a", "Primary customer traffic"),
-        new EnvironmentSummary("stable", "Stable", "stable", EnvironmentStatus.HEALTHY, "us-east-1", "cluster-b", "Pre-release validation"),
-        new EnvironmentSummary("qa", "QA", "qa", EnvironmentStatus.DEGRADED, "us-east-2", "cluster-c", "Regression and release testing"),
-        new EnvironmentSummary("dev", "Development", "dev", EnvironmentStatus.HEALTHY, "local", "cluster-dev", "Everyday engineering workflows"));
-  }
-
-  private Map<String, EnvironmentHealth> seedEnvironmentHealth() {
-    Map<String, EnvironmentHealth> health = new LinkedHashMap<>();
-    health.put("prod", new EnvironmentHealth("prod", EnvironmentStatus.HEALTHY, "pulsar+ssl://prod-brokers:6651", "https://prod-admin.internal", "4.0.2", "All brokers reporting healthy."));
-    health.put("stable", new EnvironmentHealth("stable", EnvironmentStatus.HEALTHY, "pulsar+ssl://stable-brokers:6651", "https://stable-admin.internal", "4.0.2", "Stable cluster available for release validation."));
-    health.put("qa", new EnvironmentHealth("qa", EnvironmentStatus.DEGRADED, "pulsar://qa-brokers:6650", "https://qa-admin.internal", "4.0.1", "Backlog growth detected on two namespaces."));
-    health.put("dev", new EnvironmentHealth("dev", EnvironmentStatus.HEALTHY, "pulsar://dev-brokers:6650", "https://dev-admin.internal", "4.0.1", "Good for day-to-day testing."));
-    return health;
+    return EnvironmentStatus.HEALTHY;
   }
 
   private Map<String, List<TopicDetails>> seedTopics() {
@@ -164,9 +125,7 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
             "Quarantine topic standing by for incident response.",
             List.of("incident-review"))));
 
-    environments.put("stable", environments.get("prod").stream()
-        .map(topic -> cloneForEnvironment(topic, "stable", "Stable mirror topic for release checks."))
-        .collect(Collectors.toList()));
+    environments.put("stable", environments.get("prod"));
 
     environments.put("qa", List.of(
         createTopic(
@@ -213,6 +172,33 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
             List.of("replay-lab-review"))));
 
     return environments;
+  }
+
+  private List<TopicDetails> createCustomEnvironmentTopics(EnvironmentDetails environment) {
+    String tenant = "custom";
+    String namespace = environment.id();
+
+    return List.of(
+        createTopic(
+            "persistent://" + tenant + "/" + namespace + "/operations-sandbox",
+            false,
+            0,
+            TopicHealth.HEALTHY,
+            new TopicStatsSummary(18, 1, 1, 1, 7.2, 7.0, 210, 204, 24_000),
+            new SchemaSummary("JSON", "1", "NONE", true),
+            "Environment Owners",
+            "Auto-generated sandbox topic for the newly added environment.",
+            List.of("sandbox-review")),
+        createTopic(
+            "persistent://" + tenant + "/" + namespace + "/replay-lab",
+            false,
+            0,
+            TopicHealth.INACTIVE,
+            new TopicStatsSummary(0, 0, 1, 0, 0.0, 0.0, 0, 0, 2_048),
+            new SchemaSummary("NONE", "-", "N/A", false),
+            "Environment Owners",
+            "Safe starter topic generated during the first metadata sync.",
+            List.of("replay-review")));
   }
 
   private TopicDetails createTopic(
@@ -283,20 +269,4 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         base.subscriptions());
   }
 
-  private TopicDetails cloneForEnvironment(TopicDetails original, String environmentId, String noteSuffix) {
-    return new TopicDetails(
-        original.fullName().replace("persistent://acme/", "persistent://acme/" + environmentId + "-"),
-        original.tenant(),
-        original.namespace(),
-        original.topic(),
-        original.partitioned(),
-        original.partitions(),
-        original.health(),
-        original.stats(),
-        original.schema(),
-        original.ownerTeam(),
-        noteSuffix,
-        original.partitionSummaries(),
-        original.subscriptions());
-  }
 }

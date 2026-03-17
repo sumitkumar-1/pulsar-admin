@@ -1,35 +1,136 @@
 <section class="hero-card">
-  <p class="eyebrow">Operations-First MVP</p>
-  <h2>Find the right cluster fast, then go straight to the topics that matter.</h2>
+  <p class="eyebrow">Environment Management</p>
+  <h2>Register, test, sync, and manage Pulsar environments without leaving the console.</h2>
   <p class="hero-copy">
-    This first slice focuses on environment discovery, topic exploration, and clear operational context.
-    Write workflows will layer on top of this shell next.
+    Add new environments with the connection details you need, verify connectivity, and automatically bootstrap
+    the metadata required for browsing topics right away.
   </p>
 </section>
 
-<section class="environment-grid">
-  @if (environments$ | async; as environments) {
-    @for (environment of environments; track environment.id) {
-      <a class="environment-card" [routerLink]="['/environments', environment.id, 'topics']">
-        <div class="card-topline">
-          <span class="status-badge" [ngClass]="statusClass(environment.status)">
-            {{ environment.status.toLowerCase() }}
-          </span>
-          <span>{{ environment.region }}</span>
-        </div>
-        <h3>{{ environment.name }}</h3>
-        <p>{{ environment.summary }}</p>
-        <dl>
-          <div>
-            <dt>Cluster</dt>
-            <dd>{{ environment.clusterLabel }}</dd>
+<section class="workspace">
+  <div class="management-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Manage Environments</p>
+        <h3>{{ editing() ? 'Edit environment' : 'Add a new environment' }}</h3>
+      </div>
+      <button class="ghost-button" type="button" (click)="startCreate()">New environment</button>
+    </div>
+
+    <form class="environment-form" [formGroup]="environmentForm" (ngSubmit)="saveEnvironment()">
+      <label>
+        <span>Environment ID</span>
+        <input formControlName="id" type="text" placeholder="dev-eu" />
+      </label>
+      <label>
+        <span>Name</span>
+        <input formControlName="name" type="text" placeholder="Development EU" />
+      </label>
+      <label>
+        <span>Kind</span>
+        <select formControlName="kind">
+          <option value="prod">Prod</option>
+          <option value="stable">Stable</option>
+          <option value="qa">QA</option>
+          <option value="dev">Dev</option>
+          <option value="local">Local</option>
+        </select>
+      </label>
+      <label>
+        <span>Region</span>
+        <input formControlName="region" type="text" placeholder="us-east-1" />
+      </label>
+      <label>
+        <span>Cluster label</span>
+        <input formControlName="clusterLabel" type="text" placeholder="cluster-dev" />
+      </label>
+      <label class="full-width">
+        <span>Summary</span>
+        <input formControlName="summary" type="text" placeholder="Daily engineering workflows" />
+      </label>
+      <label class="full-width">
+        <span>Broker URL</span>
+        <input formControlName="brokerUrl" type="text" placeholder="pulsar://dev-brokers:6650" />
+      </label>
+      <label class="full-width">
+        <span>Admin URL</span>
+        <input formControlName="adminUrl" type="text" placeholder="https://dev-admin.internal" />
+      </label>
+      <label>
+        <span>Auth mode</span>
+        <select formControlName="authMode">
+          <option value="none">None</option>
+          <option value="token">Token</option>
+          <option value="basic">Basic</option>
+          <option value="mtls">mTLS</option>
+        </select>
+      </label>
+      <label>
+        <span>Credential reference</span>
+        <input formControlName="credentialReference" type="text" placeholder="vault://pulsar/dev" />
+      </label>
+      <label class="checkbox-row">
+        <input formControlName="tlsEnabled" type="checkbox" />
+        <span>TLS enabled</span>
+      </label>
+
+      @if (actionState()) {
+        <p class="feedback success">{{ actionState() }}</p>
+      }
+
+      @if (actionError()) {
+        <p class="feedback error">{{ actionError() }}</p>
+      }
+
+      <div class="form-actions">
+        <button type="submit" [disabled]="saving()">
+          {{ saving() ? 'Saving...' : (editing() ? 'Save changes' : 'Create environment') }}
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="environment-grid">
+    @if (environments$ | async; as environments) {
+      @for (environment of environments; track environment.id) {
+        <article class="environment-card">
+          <a class="card-link" [routerLink]="['/environments', environment.id, 'topics']">
+            <div class="card-topline">
+              <span class="status-badge" [ngClass]="statusClass(environment.status)">
+                {{ environment.status.toLowerCase() }}
+              </span>
+              <span>{{ environment.region }}</span>
+            </div>
+            <h3>{{ environment.name }}</h3>
+            <p>{{ environment.summary }}</p>
+            <dl>
+              <div>
+                <dt>Cluster</dt>
+                <dd>{{ environment.clusterLabel }}</dd>
+              </div>
+              <div>
+                <dt>Sync</dt>
+                <dd>{{ environment.syncStatus }}</dd>
+              </div>
+              <div>
+                <dt>Last synced</dt>
+                <dd>{{ environment.lastSyncedAt ? (environment.lastSyncedAt | date: 'medium') : 'Not yet' }}</dd>
+              </div>
+              <div>
+                <dt>Last test</dt>
+                <dd>{{ environment.lastTestStatus }}</dd>
+              </div>
+            </dl>
+          </a>
+
+          <div class="card-actions">
+            <button type="button" (click)="editEnvironment(environment.id, $event)">Edit</button>
+            <button type="button" (click)="testConnection(environment.id, $event)">Test + Sync</button>
+            <button type="button" (click)="syncEnvironment(environment.id, $event)">Sync again</button>
+            <button type="button" class="danger" (click)="deleteEnvironment(environment.id, $event)">Delete</button>
           </div>
-          <div>
-            <dt>Kind</dt>
-            <dd>{{ environment.kind }}</dd>
-          </div>
-        </dl>
-      </a>
+        </article>
+      }
     }
-  }
+  </div>
 </section>

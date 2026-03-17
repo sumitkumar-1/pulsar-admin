@@ -1,9 +1,13 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { BehaviorSubject, Observable, switchMap, tap } from 'rxjs';
 import {
+  EnvironmentConnectionTestResult,
+  EnvironmentDetails,
   EnvironmentHealth,
+  EnvironmentSyncStatus,
   EnvironmentSummary,
+  EnvironmentUpsertRequest,
   TopicDetails,
   TopicPage
 } from '../models/api.models';
@@ -20,9 +24,52 @@ export interface TopicQuery {
 export class PulsarApiService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = '/api/v1';
+  private readonly environmentRefresh$ = new BehaviorSubject<void>(undefined);
 
   getEnvironments(): Observable<EnvironmentSummary[]> {
-    return this.http.get<EnvironmentSummary[]>(`${this.baseUrl}/environments`);
+    return this.environmentRefresh$.pipe(
+      switchMap(() => this.http.get<EnvironmentSummary[]>(`${this.baseUrl}/environments`))
+    );
+  }
+
+  getEnvironment(environmentId: string): Observable<EnvironmentDetails> {
+    return this.http.get<EnvironmentDetails>(`${this.baseUrl}/environments/${environmentId}`);
+  }
+
+  createEnvironment(request: EnvironmentUpsertRequest): Observable<EnvironmentDetails> {
+    return this.http.post<EnvironmentDetails>(`${this.baseUrl}/environments`, request).pipe(
+      tap(() => this.refreshEnvironments())
+    );
+  }
+
+  updateEnvironment(environmentId: string, request: EnvironmentUpsertRequest): Observable<EnvironmentDetails> {
+    return this.http.patch<EnvironmentDetails>(`${this.baseUrl}/environments/${environmentId}`, request).pipe(
+      tap(() => this.refreshEnvironments())
+    );
+  }
+
+  testEnvironmentConnection(environmentId: string): Observable<EnvironmentConnectionTestResult> {
+    return this.http.post<EnvironmentConnectionTestResult>(
+      `${this.baseUrl}/environments/${environmentId}/test-connection`,
+      {}
+    ).pipe(tap(() => this.refreshEnvironments()));
+  }
+
+  syncEnvironment(environmentId: string): Observable<EnvironmentSyncStatus> {
+    return this.http.post<EnvironmentSyncStatus>(
+      `${this.baseUrl}/environments/${environmentId}/sync`,
+      {}
+    ).pipe(tap(() => this.refreshEnvironments()));
+  }
+
+  getEnvironmentSyncStatus(environmentId: string): Observable<EnvironmentSyncStatus> {
+    return this.http.get<EnvironmentSyncStatus>(`${this.baseUrl}/environments/${environmentId}/sync-status`);
+  }
+
+  deleteEnvironment(environmentId: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/environments/${environmentId}`).pipe(
+      tap(() => this.refreshEnvironments())
+    );
   }
 
   getEnvironmentHealth(environmentId: string): Observable<EnvironmentHealth> {
@@ -53,5 +100,9 @@ export class PulsarApiService {
     return this.http.get<TopicDetails>(
       `${this.baseUrl}/environments/${environmentId}/topics/${encodeURIComponent(topicName)}`
     );
+  }
+
+  refreshEnvironments() {
+    this.environmentRefresh$.next();
   }
 }

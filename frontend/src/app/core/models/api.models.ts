@@ -9,6 +9,9 @@ export interface EnvironmentSummary {
   region: string;
   clusterLabel: string;
   summary: string;
+  syncStatus: string;
+  lastSyncedAt: string | null;
+  lastTestStatus: string;
 }
 
 export interface EnvironmentHealth {
@@ -18,6 +21,51 @@ export interface EnvironmentHealth {
   adminUrl: string;
   pulsarVersion: string;
   message: string;
+}
+
+export interface EnvironmentDetails extends EnvironmentSummary {
+  brokerUrl: string;
+  adminUrl: string;
+  authMode: string;
+  credentialReference: string | null;
+  tlsEnabled: boolean;
+  syncMessage: string | null;
+  lastTestMessage: string | null;
+  lastTestedAt: string | null;
+  deleted: boolean;
+}
+
+export interface EnvironmentUpsertRequest {
+  id: string;
+  name: string;
+  kind: string;
+  region: string;
+  clusterLabel: string;
+  summary: string;
+  brokerUrl: string;
+  adminUrl: string;
+  authMode: string;
+  credentialReference: string;
+  tlsEnabled: boolean;
+}
+
+export interface EnvironmentConnectionTestResult {
+  environmentId: string;
+  successful: boolean;
+  status: string;
+  message: string;
+  testedAt: string;
+  syncTriggered: boolean;
+}
+
+export interface EnvironmentSyncStatus {
+  environmentId: string;
+  syncStatus: string;
+  syncMessage: string;
+  lastSyncedAt: string | null;
+  tenantCount: number;
+  namespaceCount: number;
+  topicCount: number;
 }
 
 export interface TopicStatsSummary {
