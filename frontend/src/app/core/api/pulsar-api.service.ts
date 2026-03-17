@@ -9,6 +9,8 @@ import {
   EnvironmentSummary,
   EnvironmentUpsertRequest,
   PeekMessagesResponse,
+  ReplayCopyJobRequest,
+  ReplayCopyJobStatusResponse,
   ResetCursorRequest,
   ResetCursorResponse,
   SkipMessagesRequest,
@@ -125,6 +127,25 @@ export class PulsarApiService {
     return this.http.post<SkipMessagesResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/skip-messages`,
       request
+    );
+  }
+
+  createReplayCopyJob(
+    environmentId: string,
+    request: ReplayCopyJobRequest
+  ): Observable<ReplayCopyJobStatusResponse> {
+    return this.http.post<ReplayCopyJobStatusResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/replay-copy`,
+      request
+    );
+  }
+
+  getReplayCopyJob(
+    environmentId: string,
+    jobId: string
+  ): Observable<ReplayCopyJobStatusResponse> {
+    return this.http.get<ReplayCopyJobStatusResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/jobs/${jobId}`
     );
   }
 

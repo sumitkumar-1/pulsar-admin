@@ -94,6 +94,60 @@ class TopicControllerTest {
   }
 
   @Test
+  void shouldCreateReplayCopyJob() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/replay-copy")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": "payment-settlement",
+                  "operation": "COPY",
+                  "destinationTopicName": "persistent://acme/dev/replay-lab",
+                  "messageLimit": 120,
+                  "filterText": "payment-10412",
+                  "messagesPerSecond": 50,
+                  "reason": "Copy incident-related messages into replay lab"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.jobId").exists())
+        .andExpect(jsonPath("$.jobType").value("COPY"))
+        .andExpect(jsonPath("$.environmentId").value("prod"))
+        .andExpect(jsonPath("$.status").value("QUEUED"))
+        .andExpect(jsonPath("$.destinationTopicName").value("persistent://acme/dev/replay-lab"));
+  }
+
+  @Test
+  void shouldGetReplayCopyJobStatus() throws Exception {
+    String response = mockMvc.perform(post("/api/v1/environments/prod/topics/replay-copy")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": "payment-settlement",
+                  "operation": "REPLAY",
+                  "destinationTopicName": "persistent://acme/dev/replay-lab",
+                  "messageLimit": 75,
+                  "filterText": "",
+                  "messagesPerSecond": 25,
+                  "reason": "Replay a bounded slice for verification"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+
+    String jobId = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("jobId").asText();
+
+    mockMvc.perform(get("/api/v1/environments/prod/topics/jobs/{jobId}", jobId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.jobId").value(jobId))
+        .andExpect(jsonPath("$.status").value("COMPLETED"))
+        .andExpect(jsonPath("$.publishedMessages").exists());
+  }
+
+  @Test
   void shouldRejectInvalidPageSize() throws Exception {
     mockMvc.perform(get("/api/v1/environments/prod/topics").param("pageSize", "7"))
         .andExpect(status().isBadRequest())

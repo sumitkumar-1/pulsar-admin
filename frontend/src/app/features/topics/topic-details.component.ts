@@ -3,10 +3,12 @@ import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { combineLatest, switchMap } from 'rxjs';
+import { combineLatest, Subscription, switchMap, timer } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import {
   PeekMessagesResponse,
+  ReplayCopyJobRequest,
+  ReplayCopyJobStatusResponse,
   ResetCursorRequest,
   ResetCursorResponse,
   SkipMessagesRequest,
@@ -27,6 +29,7 @@ export class TopicDetailsComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly formBuilder = inject(FormBuilder);
+  private replayJobPolling: Subscription | null = null;
 
   readonly details = signal<TopicDetails | null>(null);
   readonly environmentId = signal('');
@@ -42,6 +45,9 @@ export class TopicDetailsComponent {
   readonly skipSaving = signal(false);
   readonly skipResult = signal<SkipMessagesResponse | null>(null);
   readonly skipError = signal<string | null>(null);
+  readonly replaySaving = signal(false);
+  readonly replayResult = signal<ReplayCopyJobStatusResponse | null>(null);
+  readonly replayError = signal<string | null>(null);
 
   readonly resetForm = this.formBuilder.nonNullable.group({
     subscriptionName: ['', [Validators.required]],
@@ -53,6 +59,16 @@ export class TopicDetailsComponent {
   readonly skipForm = this.formBuilder.nonNullable.group({
     subscriptionName: ['', [Validators.required]],
     messageCount: [1, [Validators.required, Validators.min(1), Validators.max(5000)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly replayForm = this.formBuilder.nonNullable.group({
+    subscriptionName: ['', [Validators.required]],
+    operation: ['COPY' as 'COPY' | 'REPLAY', [Validators.required]],
+    destinationTopicName: ['', [Validators.required]],
+    messageLimit: [100, [Validators.required, Validators.min(1), Validators.max(5000)]],
+    filterText: [''],
+    messagesPerSecond: [50, [Validators.required, Validators.min(1), Validators.max(1000)]],
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -84,6 +100,15 @@ export class TopicDetailsComponent {
           this.skipForm.patchValue({
             subscriptionName: firstSubscription,
             messageCount: 1,
+            reason: ''
+          });
+          this.replayForm.patchValue({
+            subscriptionName: firstSubscription,
+            operation: 'COPY',
+            destinationTopicName: this.defaultDestinationTopic(details.fullName),
+            messageLimit: 100,
+            filterText: '',
+            messagesPerSecond: 50,
             reason: ''
           });
           this.loading.set(false);
@@ -160,12 +185,33 @@ export class TopicDetailsComponent {
       }
     }
 
+    if (workflow === 'replay') {
+      const topic = this.details();
+      this.replayError.set(null);
+      this.replayResult.set(null);
+      this.stopReplayPolling();
+
+      if (topic && topic.subscriptions.length > 0) {
+        const currentSubscription = this.replayForm.controls.subscriptionName.value;
+        this.replayForm.patchValue({
+          subscriptionName: currentSubscription || topic.subscriptions[0] || '',
+          operation: this.replayForm.controls.operation.value || 'COPY',
+          destinationTopicName: this.replayForm.controls.destinationTopicName.value || this.defaultDestinationTopic(topic.fullName),
+          messageLimit: this.replayForm.controls.messageLimit.value || 100,
+          filterText: this.replayForm.controls.filterText.value,
+          messagesPerSecond: this.replayForm.controls.messagesPerSecond.value || 50,
+          reason: this.replayForm.controls.reason.value
+        });
+      }
+    }
+
     this.peekLoading.set(false);
     this.peekError.set(null);
   }
 
   closeWorkflow() {
     this.activeWorkflow.set(null);
+    this.stopReplayPolling();
   }
 
   submitResetCursor() {
@@ -275,6 +321,122 @@ export class TopicDetailsComponent {
     }
 
     return `This will advance subscription ${subscriptionName} on ${topic.topic} by ${messageCount} messages. Use this for bounded poison-message cleanup, not broad backlog removal.`;
+  }
+
+  submitReplayCopyJob() {
+    const topic = this.details();
+
+    if (!topic) {
+      this.replayError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.replayForm.invalid) {
+      this.replayForm.markAllAsTouched();
+      return;
+    }
+
+    const formValue = this.replayForm.getRawValue();
+    const request: ReplayCopyJobRequest = {
+      topicName: topic.fullName,
+      subscriptionName: formValue.subscriptionName,
+      operation: formValue.operation,
+      destinationTopicName: formValue.destinationTopicName,
+      messageLimit: Number(formValue.messageLimit),
+      filterText: formValue.filterText?.trim() ? formValue.filterText.trim() : null,
+      messagesPerSecond: Number(formValue.messagesPerSecond),
+      reason: formValue.reason
+    };
+
+    this.replaySaving.set(true);
+    this.replayError.set(null);
+    this.replayResult.set(null);
+    this.stopReplayPolling();
+
+    this.api.createReplayCopyJob(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.replayResult.set(response);
+          this.replaySaving.set(false);
+          this.startReplayPolling(response.jobId);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.replayError.set(error.error?.message ?? 'Unable to start the replay or copy job.');
+          this.replaySaving.set(false);
+        }
+      });
+  }
+
+  replayPreview(): string {
+    const topic = this.details();
+    const { subscriptionName, operation, destinationTopicName, messageLimit, filterText, messagesPerSecond } =
+      this.replayForm.getRawValue();
+
+    if (!topic || !subscriptionName || !destinationTopicName) {
+      return 'Choose a subscription and destination topic to preview this replay or copy job.';
+    }
+
+    const filterSegment = filterText?.trim()
+      ? ` filtered by "${filterText.trim()}"`
+      : ' without additional filtering';
+
+    return `${operation === 'COPY' ? 'Copy' : 'Replay'} up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterSegment} into ${destinationTopicName} at up to ${messagesPerSecond} msg/s.`;
+  }
+
+  replayCanRefresh(): boolean {
+    const result = this.replayResult();
+    return !!result && (result.status === 'QUEUED' || result.status === 'RUNNING');
+  }
+
+  refreshReplayJob() {
+    const result = this.replayResult();
+    if (!result) {
+      return;
+    }
+
+    this.api.getReplayCopyJob(this.environmentId(), result.jobId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.replayResult.set(response);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.replayError.set(error.error?.message ?? 'Unable to refresh replay job status.');
+        }
+      });
+  }
+
+  private startReplayPolling(jobId: string) {
+    this.stopReplayPolling();
+
+    this.replayJobPolling = timer(900, 1200)
+      .pipe(
+        switchMap(() => this.api.getReplayCopyJob(this.environmentId(), jobId)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: (response) => {
+          this.replayResult.set(response);
+          if (response.status === 'COMPLETED' || response.status === 'FAILED') {
+            this.stopReplayPolling();
+          }
+        },
+        error: () => {
+          this.stopReplayPolling();
+        }
+      });
+  }
+
+  private stopReplayPolling() {
+    this.replayJobPolling?.unsubscribe();
+    this.replayJobPolling = null;
+  }
+
+  private defaultDestinationTopic(sourceTopicName: string): string {
+    return sourceTopicName.endsWith('/replay-lab')
+      ? sourceTopicName.replace('/replay-lab', '/replay-output')
+      : sourceTopicName.replace(/\/([^/]+)$/, '/replay-lab');
   }
 
   private toIsoTimestamp(value: string): string {

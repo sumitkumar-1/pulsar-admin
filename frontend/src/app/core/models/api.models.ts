@@ -177,6 +177,35 @@ export interface SkipMessagesResponse {
   message: string;
 }
 
+export interface ReplayCopyJobRequest {
+  topicName: string;
+  subscriptionName: string;
+  operation: 'REPLAY' | 'COPY';
+  destinationTopicName: string;
+  messageLimit: number;
+  filterText: string | null;
+  messagesPerSecond: number;
+  reason: string;
+}
+
+export interface ReplayCopyJobStatusResponse {
+  jobId: string;
+  jobType: 'REPLAY' | 'COPY';
+  environmentId: string;
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  topicName: string;
+  subscriptionName: string;
+  destinationTopicName: string;
+  messageLimit: number;
+  messagesPerSecond: number;
+  filterText: string | null;
+  matchedMessages: number;
+  publishedMessages: number;
+  statusMessage: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TopicPage {
   items: TopicListItem[];
   page: number;

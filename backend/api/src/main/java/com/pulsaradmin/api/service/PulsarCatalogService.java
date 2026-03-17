@@ -3,6 +3,8 @@ package com.pulsaradmin.api.service;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
+import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
@@ -15,12 +17,15 @@ import org.springframework.stereotype.Service;
 public class PulsarCatalogService {
   private final EnvironmentManagementService environmentManagementService;
   private final EnvironmentCatalogService environmentCatalogService;
+  private final ReplayCopyJobService replayCopyJobService;
 
   public PulsarCatalogService(
       EnvironmentManagementService environmentManagementService,
-      EnvironmentCatalogService environmentCatalogService) {
+      EnvironmentCatalogService environmentCatalogService,
+      ReplayCopyJobService replayCopyJobService) {
     this.environmentManagementService = environmentManagementService;
     this.environmentCatalogService = environmentCatalogService;
+    this.replayCopyJobService = replayCopyJobService;
   }
 
   public EnvironmentHealth getEnvironmentHealth(String environmentId) {
@@ -51,5 +56,13 @@ public class PulsarCatalogService {
 
   public SkipMessagesResponse skipMessages(String environmentId, SkipMessagesRequest request) {
     return environmentCatalogService.skipMessages(environmentId, request);
+  }
+
+  public ReplayCopyJobStatusResponse createReplayCopyJob(String environmentId, ReplayCopyJobRequest request) {
+    return replayCopyJobService.createJob(environmentId, request);
+  }
+
+  public ReplayCopyJobStatusResponse getReplayCopyJob(String environmentId, String jobId) {
+    return replayCopyJobService.getJob(environmentId, jobId);
   }
 }

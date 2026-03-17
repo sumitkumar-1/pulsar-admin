@@ -108,6 +108,7 @@
       </article>
     </section>
   }
+}
 
 @if (details(); as topic) {
   @if (activeWorkflow()) {
@@ -315,31 +316,97 @@
               </div>
             </form>
           } @else {
-            <div class="workflow-grid">
-              <article class="workflow-card">
-                <p class="eyebrow">Scope</p>
-                <h4>{{ topic.fullName }}</h4>
-                <p class="workflow-copy">
-                  Environment {{ environmentId() }} · {{ topic.subscriptions.length }} subscriptions · backlog {{ topic.stats.backlog | number }}
-                </p>
-              </article>
+            <form class="reset-form" [formGroup]="replayForm" (ngSubmit)="submitReplayCopyJob()">
+              <label>
+                <span>Subscription</span>
+                <select formControlName="subscriptionName">
+                  @for (subscription of topic.subscriptions; track subscription) {
+                    <option [value]="subscription">{{ subscription }}</option>
+                  }
+                </select>
+              </label>
 
-              <article class="workflow-card">
-                <p class="eyebrow">Safety language</p>
-                <h4>Guided execution</h4>
-                <p class="workflow-copy">
-                  The final flow will explain impact in plain English, require a preview, and keep bulk actions bounded.
-                </p>
-              </article>
-            </div>
+              <label>
+                <span>Operation</span>
+                <select formControlName="operation">
+                  <option value="COPY">Copy</option>
+                  <option value="REPLAY">Replay</option>
+                </select>
+              </label>
 
-            <div class="placeholder-panel">
-              <p>This flow will support filter-based replay or copy jobs with destination selection, rate limits, and job reporting.</p>
-              <button type="button" disabled>Backend implementation coming next</button>
-            </div>
+              <label class="full-width">
+                <span>Destination topic</span>
+                <input
+                  formControlName="destinationTopicName"
+                  type="text"
+                  placeholder="persistent://acme/dev/replay-lab"
+                />
+              </label>
+
+              <label>
+                <span>Message limit</span>
+                <input formControlName="messageLimit" type="number" min="1" max="5000" />
+              </label>
+
+              <label>
+                <span>Rate limit (msg/s)</span>
+                <input formControlName="messagesPerSecond" type="number" min="1" max="1000" />
+              </label>
+
+              <label class="full-width">
+                <span>Filter text</span>
+                <input
+                  formControlName="filterText"
+                  type="text"
+                  placeholder="Optional request id, message key, or payload fragment"
+                />
+              </label>
+
+              <label class="full-width">
+                <span>Reason</span>
+                <textarea
+                  formControlName="reason"
+                  rows="3"
+                  placeholder="Why are we replaying or copying these messages?"
+                ></textarea>
+              </label>
+
+              <div class="preview-panel">
+                <p class="eyebrow">Preview</p>
+                <p>{{ replayPreview() }}</p>
+              </div>
+
+              @if (replayError()) {
+                <div class="placeholder-panel error">
+                  <p>{{ replayError() }}</p>
+                </div>
+              }
+
+              @if (replayResult(); as result) {
+                <div class="placeholder-panel success">
+                  <p>{{ result.statusMessage }}</p>
+                  <p class="result-meta">
+                    Job {{ result.jobId }} · {{ result.jobType.toLowerCase() }} · {{ result.status.toLowerCase() }}
+                  </p>
+                  <p class="result-meta">
+                    Matched {{ result.matchedMessages }} · Published {{ result.publishedMessages }} · Destination {{ result.destinationTopicName }}
+                  </p>
+                </div>
+              }
+
+              <div class="form-button-row">
+                <button type="submit" [disabled]="replaySaving()">
+                  {{ replaySaving() ? 'Submitting...' : 'Start Replay / Copy Job' }}
+                </button>
+                @if (replayCanRefresh()) {
+                  <button type="button" class="secondary-button" (click)="refreshReplayJob()">
+                    Refresh Status
+                  </button>
+                }
+              </div>
+            </form>
           }
       </section>
     </div>
   }
-}
 }

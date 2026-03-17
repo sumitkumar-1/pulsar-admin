@@ -3,6 +3,8 @@ package com.pulsaradmin.api.controller;
 import com.pulsaradmin.api.service.PulsarCatalogService;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
+import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
@@ -65,5 +67,19 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @Valid @RequestBody SkipMessagesRequest request) {
     return pulsarCatalogService.skipMessages(envId, request);
+  }
+
+  @PostMapping("/replay-copy")
+  public ReplayCopyJobStatusResponse createReplayCopyJob(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody ReplayCopyJobRequest request) {
+    return pulsarCatalogService.createReplayCopyJob(envId, request);
+  }
+
+  @GetMapping("/jobs/{jobId}")
+  public ReplayCopyJobStatusResponse getReplayCopyJob(
+      @PathVariable("envId") String envId,
+      @PathVariable("jobId") String jobId) {
+    return pulsarCatalogService.getReplayCopyJob(envId, jobId);
   }
 }

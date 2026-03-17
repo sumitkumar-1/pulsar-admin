@@ -9,5 +9,6 @@ public record JobRecord(
     String environmentId,
     JobStatus status,
     Map<String, Object> parameters,
-    Instant createdAt) {
+    Instant createdAt,
+    Instant updatedAt) {
 }

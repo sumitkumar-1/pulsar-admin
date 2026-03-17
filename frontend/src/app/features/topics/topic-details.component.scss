@@ -392,6 +392,13 @@ dd {
   cursor: pointer;
 }
 
+.form-button-row .secondary-button {
+  margin-left: 0.75rem;
+  background: rgba(248, 250, 252, 0.96);
+  color: #0f172a;
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
 @media (max-width: 900px) {
   .hero-card,
   .detail-grid {
