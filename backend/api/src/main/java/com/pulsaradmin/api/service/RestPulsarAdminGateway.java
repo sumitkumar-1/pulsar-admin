@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
@@ -128,6 +129,34 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
       return new EnvironmentSnapshot(health, tenants, namespaces, topics);
     } catch (RestClientException | IOException exception) {
       throw new BadRequestException("Unable to sync metadata from Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void createTopic(EnvironmentDetails environment, CreateTopicRequest request) {
+    PulsarTopicName topicName = PulsarTopicName.parse(request.fullTopicName());
+
+    try {
+      if (request.partitions() > 0) {
+        putJson(
+            environment,
+            "/admin/v2/" + topicName.domain()
+                + "/" + topicName.tenant()
+                + "/" + topicName.namespace()
+                + "/" + topicName.topic()
+                + "/partitions",
+            String.valueOf(request.partitions()));
+        return;
+      }
+
+      putWithoutBody(
+          environment,
+          "/admin/v2/" + topicName.domain()
+              + "/" + topicName.tenant()
+              + "/" + topicName.namespace()
+              + "/" + topicName.topic());
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to create topic via Pulsar admin REST API: " + exception.getMessage());
     }
   }
 
@@ -261,6 +290,25 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     applyAuthHeaders(request, environment);
 
     request.retrieve().toBodilessEntity();
+  }
+
+  private void putWithoutBody(EnvironmentDetails environment, String path) {
+    var request = restClient.put()
+        .uri(normalizeAdminUrl(environment.adminUrl()) + path);
+
+    applyAuthHeaders(request, environment);
+
+    request.retrieve().toBodilessEntity();
+  }
+
+  private void putJson(EnvironmentDetails environment, String path, String body) {
+    var request = restClient.put()
+        .uri(normalizeAdminUrl(environment.adminUrl()) + path)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+    applyAuthHeaders(request, environment);
+
+    request.body(body).retrieve().toBodilessEntity();
   }
 
   private List<String> readStringArray(JsonNode node) {

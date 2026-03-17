@@ -1,0 +1,96 @@
+@if (open) {
+  <div class="dialog-backdrop" (click)="cancel.emit()"></div>
+  <section class="dialog-shell" role="dialog" aria-modal="true" aria-labelledby="create-topic-title">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Create Topic</p>
+          <h3 id="create-topic-title">Add a new topic to this environment</h3>
+          <p>Start with the topic identity and partitioning plan. The explorer will refresh as soon as it is created.</p>
+        </div>
+        <button type="button" class="ghost-icon" (click)="cancel.emit()" aria-label="Close create topic dialog">Close</button>
+      </div>
+
+      <form class="dialog-form" [formGroup]="form" (ngSubmit)="save.emit()">
+        <label>
+          <span>Topic Domain</span>
+          <select formControlName="domain">
+            <option value="persistent">Persistent</option>
+            <option value="non-persistent">Non-persistent</option>
+          </select>
+        </label>
+
+        @if (namespaceOptions.length > 0) {
+          <label>
+            <span>Reuse Existing Namespace</span>
+            <select (change)="onNamespaceSelection($any($event.target).value)">
+              <option value="">Choose an existing tenant/namespace pair</option>
+              @for (option of namespaceOptions; track option.tenant + '/' + option.namespace) {
+                <option [value]="option.tenant + '/' + option.namespace">
+                  {{ option.tenant }}/{{ option.namespace }}
+                </option>
+              }
+            </select>
+          </label>
+        }
+
+        <div class="split-fields">
+          <label [ngClass]="{ invalid: isInvalid('tenant') }">
+            <span>Tenant</span>
+            <input formControlName="tenant" type="text" placeholder="acme" />
+            @if (isInvalid('tenant')) {
+              <small>Tenant is required.</small>
+            }
+          </label>
+
+          <label [ngClass]="{ invalid: isInvalid('namespace') }">
+            <span>Namespace</span>
+            <input formControlName="namespace" type="text" placeholder="orders" />
+            @if (isInvalid('namespace')) {
+              <small>Namespace is required.</small>
+            }
+          </label>
+        </div>
+
+        <label [ngClass]="{ invalid: isInvalid('topic') }">
+          <span>Topic Name</span>
+          <input formControlName="topic" type="text" placeholder="payment-events-retry" />
+          @if (isInvalid('topic')) {
+            <small>Topic name is required.</small>
+          }
+        </label>
+
+        <label [ngClass]="{ invalid: isInvalid('partitions') }">
+          <span>Partitions</span>
+          <input formControlName="partitions" type="number" min="0" max="128" />
+          <small>Use `0` for a non-partitioned topic. Any value above `0` creates a partitioned topic.</small>
+          @if (isInvalid('partitions')) {
+            <small>Partition count must be between 0 and 128.</small>
+          }
+        </label>
+
+        <label>
+          <span>Operator Notes</span>
+          <textarea formControlName="notes" rows="3" placeholder="Why this topic is being created or what workflow it supports"></textarea>
+        </label>
+
+        <section class="preview-card">
+          <p class="eyebrow">Preview</p>
+          <p>
+            This will create
+            <strong>{{ form.get('domain')?.value }}://{{ form.get('tenant')?.value || 'tenant' }}/{{ form.get('namespace')?.value || 'namespace' }}/{{ form.get('topic')?.value || 'topic' }}</strong>
+            as
+            <strong>{{ isPartitioned() ? form.get('partitions')?.value + ' partitions' : 'a non-partitioned topic' }}</strong>.
+          </p>
+        </section>
+
+        <div class="dialog-actions">
+          <button class="ghost" type="button" (click)="cancel.emit()">Cancel</button>
+          <button type="submit" [disabled]="saving">
+            {{ saving ? 'Creating...' : 'Create Topic' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+}

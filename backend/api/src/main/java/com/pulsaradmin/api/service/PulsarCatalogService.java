@@ -1,6 +1,7 @@
 package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.shared.model.EnvironmentHealth;
+import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
@@ -44,6 +45,10 @@ public class PulsarCatalogService {
 
   public TopicDetails getTopicDetails(String environmentId, String topicName) {
     return environmentCatalogService.getTopicDetails(environmentId, topicName);
+  }
+
+  public TopicDetails createTopic(String environmentId, CreateTopicRequest request) {
+    return environmentCatalogService.createTopic(environmentId, request);
   }
 
   public PeekMessagesResponse peekMessages(String environmentId, String topicName, int limit) {

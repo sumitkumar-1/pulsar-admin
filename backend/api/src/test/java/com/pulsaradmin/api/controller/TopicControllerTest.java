@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -39,6 +40,27 @@ class TopicControllerTest {
         .andExpect(jsonPath("$.fullName").value("persistent://acme/orders/payment-events"))
         .andExpect(jsonPath("$.stats.backlog", greaterThan(1000)))
         .andExpect(jsonPath("$.subscriptions", hasSize(2)));
+  }
+
+  @Test
+  @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+  void shouldCreateTopic() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics")
+            .contentType("application/json")
+            .content("""
+                {
+                  "domain": "persistent",
+                  "tenant": "acme",
+                  "namespace": "orders",
+                  "topic": "payment-events-retry",
+                  "partitions": 0,
+                  "notes": "Create a bounded retry topic for payment incident replay"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.fullName").value("persistent://acme/orders/payment-events-retry"))
+        .andExpect(jsonPath("$.topic").value("payment-events-retry"))
+        .andExpect(jsonPath("$.partitioned").value(false));
   }
 
   @Test
@@ -160,5 +182,23 @@ class TopicControllerTest {
             .param("topic", "persistent://acme/orders/missing"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.message").value("Unknown topic: persistent://acme/orders/missing"));
+  }
+
+  @Test
+  void shouldRejectCreateTopicWhenTopicAlreadyExists() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics")
+            .contentType("application/json")
+            .content("""
+                {
+                  "domain": "persistent",
+                  "tenant": "acme",
+                  "namespace": "orders",
+                  "topic": "payment-events",
+                  "partitions": 0,
+                  "notes": "Duplicate topic"
+                }
+                """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("Topic already exists: persistent://acme/orders/payment-events"));
   }
 }

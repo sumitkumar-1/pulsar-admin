@@ -1,6 +1,7 @@
 package com.pulsaradmin.api.controller;
 
 import com.pulsaradmin.api.service.PulsarCatalogService;
+import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
@@ -45,6 +46,13 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @RequestParam("topic") String topicName) {
     return pulsarCatalogService.getTopicDetails(envId, topicName);
+  }
+
+  @PostMapping
+  public TopicDetails createTopic(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody CreateTopicRequest request) {
+    return pulsarCatalogService.createTopic(envId, request);
   }
 
   @GetMapping("/peek")

@@ -93,6 +93,15 @@ export interface TopicListItem {
   summary: string;
 }
 
+export interface CreateTopicRequest {
+  domain: 'persistent' | 'non-persistent';
+  tenant: string;
+  namespace: string;
+  topic: string;
+  partitions: number;
+  notes: string | null;
+}
+
 export interface TopicPartitionSummary {
   partitionName: string;
   backlog: number;

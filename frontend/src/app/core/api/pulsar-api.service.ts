@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, Observable, switchMap, tap } from 'rxjs';
 import {
+  CreateTopicRequest,
   EnvironmentConnectionTestResult,
   EnvironmentDetails,
   EnvironmentHealth,
@@ -101,6 +102,10 @@ export class PulsarApiService {
     }
 
     return this.http.get<TopicPage>(`${this.baseUrl}/environments/${environmentId}/topics`, { params });
+  }
+
+  createTopic(environmentId: string, request: CreateTopicRequest): Observable<TopicDetails> {
+    return this.http.post<TopicDetails>(`${this.baseUrl}/environments/${environmentId}/topics`, request);
   }
 
   getTopicDetails(environmentId: string, topicName: string): Observable<TopicDetails> {

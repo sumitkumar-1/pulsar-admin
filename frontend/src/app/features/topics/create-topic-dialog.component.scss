@@ -1,0 +1,121 @@
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(6px);
+  z-index: 20;
+}
+
+.dialog-shell {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  z-index: 21;
+}
+
+.dialog-card {
+  width: min(42rem, 100%);
+  border-radius: 1.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.16);
+  padding: 1.5rem;
+}
+
+.dialog-header,
+.split-fields,
+.dialog-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.dialog-header,
+.dialog-actions {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.dialog-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.dialog-form label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.dialog-form input,
+.dialog-form select,
+.dialog-form textarea,
+.dialog-actions button,
+.ghost-icon {
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 0.85rem 1rem;
+  font: inherit;
+}
+
+.dialog-form textarea {
+  resize: vertical;
+}
+
+.preview-card {
+  border-radius: 1.25rem;
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.65), rgba(255, 247, 237, 0.85));
+  padding: 1rem 1.1rem;
+  color: #334155;
+}
+
+.eyebrow {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9a3412;
+}
+
+h3,
+p {
+  margin: 0;
+}
+
+.ghost-icon,
+.dialog-actions .ghost {
+  background: transparent;
+  color: #0f172a;
+}
+
+.dialog-actions button:not(.ghost) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.invalid input,
+.invalid select {
+  border-color: rgba(220, 38, 38, 0.55);
+}
+
+.invalid small {
+  color: #b91c1c;
+}
+
+small {
+  color: #64748b;
+}
+
+@media (max-width: 720px) {
+  .dialog-header,
+  .split-fields,
+  .dialog-actions {
+    flex-direction: column;
+  }
+
+  .dialog-actions button {
+    width: 100%;
+  }
+}

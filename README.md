@@ -89,3 +89,24 @@ The Angular dev server proxies `/api/*` to `http://localhost:8080`.
 - `POST /api/v1/environments/{envId}/topics/skip-messages`
 - `POST /api/v1/environments/{envId}/topics/replay-copy`
 - `GET /api/v1/environments/{envId}/topics/jobs/{jobId}`
+
+## Roadmap
+
+The current implementation already covers the first operator layer:
+
+- environment management and sync
+- topic explorer and details
+- live or mock message peek
+- reset cursor
+- skip messages
+- replay and copy jobs
+
+The next planned expansion is the admin surface that makes this a fuller one-stop Pulsar console:
+
+- create topics
+- create, update, and delete subscriptions
+- unload and terminate topics
+- topic and namespace policy editing
+- later: namespace and tenant management
+
+See [docs/admin-operations.md](/Users/skumar/experimental/pulsar-admin/docs/admin-operations.md) for the recommended rollout.

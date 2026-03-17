@@ -24,12 +24,21 @@
       <p class="eyebrow">Explore Topics</p>
       <h3>Search, scan, and drill into the topics that need attention.</h3>
     </div>
-    <form class="toolbar" (ngSubmit)="applySearch()">
-      <input [formControl]="searchControl" type="search" placeholder="Search by topic, namespace, or full name" />
-      <button type="submit">Search</button>
-      <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
-    </form>
+    <div class="toolbar-stack">
+      <button class="create-button" type="button" (click)="openCreateTopicDialog()">Add Topic</button>
+      <form class="toolbar" (ngSubmit)="applySearch()">
+        <input [formControl]="searchControl" type="search" placeholder="Search by topic, namespace, or full name" />
+        <button type="submit">Search</button>
+        <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
+      </form>
+    </div>
   </div>
+
+  @if (actionFeedback(); as feedback) {
+    <div class="state-card" [ngClass]="feedback.kind">
+      {{ feedback.message }}
+    </div>
+  }
 
   @if (loading()) {
     <div class="state-card">Loading topic inventory for {{ environmentId() }}...</div>
@@ -92,3 +101,12 @@
     }
   }
 </section>
+
+<app-create-topic-dialog
+  [open]="dialogOpen()"
+  [saving]="savingTopic()"
+  [form]="createTopicForm"
+  [namespaceOptions]="namespaceOptions()"
+  (cancel)="closeCreateTopicDialog()"
+  (save)="submitCreateTopic()"
+  (namespaceSelected)="applyNamespaceSelection($event)" />

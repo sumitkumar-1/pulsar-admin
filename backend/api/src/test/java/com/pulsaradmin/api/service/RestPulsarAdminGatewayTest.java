@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.EnvironmentStatus;
@@ -232,6 +233,26 @@ class RestPulsarAdminGatewayTest {
     var result = gateway.testConnection(tokenEnvironment("token:secret-token-value"));
 
     assertThat(result.successful()).isTrue();
+    server.verify();
+  }
+
+  @Test
+  void shouldCreateNonPartitionedTopicViaAdminRest() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events-retry"))
+        .andRespond(withSuccess());
+
+    gateway.createTopic(environment(), new CreateTopicRequest(
+        "persistent",
+        "acme",
+        "orders",
+        "payment-events-retry",
+        0,
+        "Retry topic"));
+
     server.verify();
   }
 

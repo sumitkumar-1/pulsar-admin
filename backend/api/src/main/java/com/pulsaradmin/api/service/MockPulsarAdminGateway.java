@@ -2,6 +2,7 @@ package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
@@ -25,8 +26,12 @@ import java.util.List;
 import java.util.Map;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class MockPulsarAdminGateway implements PulsarAdminGateway {
+  private final ConcurrentMap<String, List<TopicDetails>> createdTopicsByEnvironment = new ConcurrentHashMap<>();
+
   @Override
   public EnvironmentConnectionTestResult testConnection(EnvironmentDetails environment) {
     boolean validBroker = environment.brokerUrl().startsWith("pulsar://") || environment.brokerUrl().startsWith("pulsar+ssl://");
@@ -50,7 +55,8 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public EnvironmentSnapshot syncMetadata(EnvironmentDetails environment) {
     Map<String, List<TopicDetails>> topicsByEnvironment = seedTopics();
-    List<TopicDetails> topics = topicsByEnvironment.getOrDefault(environment.id(), List.of());
+    List<TopicDetails> topics = new ArrayList<>(topicsByEnvironment.getOrDefault(environment.id(), List.of()));
+    topics.addAll(createdTopicsByEnvironment.getOrDefault(environment.id(), List.of()));
 
     if (topics.isEmpty()) {
       topics = createCustomEnvironmentTopics(environment);
@@ -68,6 +74,44 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         topics.isEmpty() ? "Connected, but no topic metadata is available yet." : "Metadata sync completed successfully.");
 
     return new EnvironmentSnapshot(health, tenants, namespaces, topics);
+  }
+
+  @Override
+  public void createTopic(EnvironmentDetails environment, CreateTopicRequest request) {
+    String fullTopicName = request.fullTopicName();
+    TopicDetails createdTopic = request.partitions() > 0
+        ? createPartitionedTopic(
+            fullTopicName,
+            request.partitions(),
+            TopicHealth.INACTIVE,
+            new TopicStatsSummary(0, 0, 0, 0, 0, 0, 0, 0, 0),
+            new SchemaSummary("NONE", "-", "N/A", false),
+            "Unassigned",
+            request.notes() == null || request.notes().isBlank()
+                ? "Topic created from the admin console."
+                : request.notes().trim())
+        : createTopic(
+            fullTopicName,
+            false,
+            0,
+            TopicHealth.INACTIVE,
+            new TopicStatsSummary(0, 0, 0, 0, 0, 0, 0, 0, 0),
+            new SchemaSummary("NONE", "-", "N/A", false),
+            "Unassigned",
+            request.notes() == null || request.notes().isBlank()
+                ? "Topic created from the admin console."
+                : request.notes().trim(),
+            List.of());
+
+    createdTopicsByEnvironment.compute(environment.id(), (key, existing) -> {
+      List<TopicDetails> topics = new ArrayList<>(existing == null ? List.of() : existing);
+      boolean alreadyExists = topics.stream().anyMatch(topic -> topic.fullName().equals(fullTopicName));
+      if (alreadyExists) {
+        throw new BadRequestException("Topic already exists: " + fullTopicName);
+      }
+      topics.add(createdTopic);
+      return topics;
+    });
   }
 
   @Override

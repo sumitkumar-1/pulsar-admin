@@ -3,6 +3,7 @@ package com.pulsaradmin.api.service;
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.api.support.NotFoundException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
@@ -12,6 +13,7 @@ import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
+import java.util.ArrayList;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -99,6 +101,22 @@ public class EnvironmentCatalogService {
         .filter(topic -> topic.fullName().equals(topicName))
         .findFirst()
         .orElseThrow(() -> new NotFoundException("Unknown topic: " + topicName));
+  }
+
+  public TopicDetails createTopic(String environmentId, CreateTopicRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    validateCreateTopicRequest(snapshot, request);
+
+    pulsarAdminGateway.createTopic(environment.toDetails(), request);
+
+    EnvironmentSnapshotRecord refreshedSnapshot = refreshSnapshot(environment);
+
+    return refreshedSnapshot.topics().stream()
+        .filter(topic -> topic.fullName().equals(request.fullTopicName()))
+        .findFirst()
+        .orElseGet(() -> fallbackCreatedTopic(request));
   }
 
   public PeekMessagesResponse peekMessages(String environmentId, String topicName, int limit) {
@@ -202,6 +220,26 @@ public class EnvironmentCatalogService {
     requireEnvironmentRecord(environmentId);
   }
 
+  private void validateCreateTopicRequest(EnvironmentSnapshotRecord snapshot, CreateTopicRequest request) {
+    String domain = request.domain() == null ? "" : request.domain().trim().toLowerCase();
+    if (!domain.equals("persistent") && !domain.equals("non-persistent")) {
+      throw new BadRequestException("Topic domain must be either persistent or non-persistent.");
+    }
+
+    validateTopicSegment("tenant", request.tenant());
+    validateTopicSegment("namespace", request.namespace());
+    validateTopicSegment("topic", request.topic());
+
+    if (request.partitions() < 0 || request.partitions() > 128) {
+      throw new BadRequestException("Partition count must be between 0 and 128.");
+    }
+
+    String fullTopicName = request.fullTopicName();
+    if (snapshot.topics().stream().anyMatch(topic -> topic.fullName().equals(fullTopicName))) {
+      throw new BadRequestException("Topic already exists: " + fullTopicName);
+    }
+  }
+
   private EnvironmentRecord requireEnvironmentRecord(String environmentId) {
     return environmentRepository.findActiveById(environmentId)
         .orElseThrow(() -> new NotFoundException("Unknown environment: " + environmentId));
@@ -215,5 +253,42 @@ public class EnvironmentCatalogService {
     if (!PAGE_SIZES.contains(pageSize)) {
       throw new BadRequestException("Page size must be one of " + PAGE_SIZES + ".");
     }
+  }
+
+  private void validateTopicSegment(String fieldName, String value) {
+    if (value == null || value.isBlank()) {
+      throw new BadRequestException("Topic " + fieldName + " is required.");
+    }
+
+    if (!value.matches("[A-Za-z0-9._-]+")) {
+      throw new BadRequestException(
+          "Topic " + fieldName + " can contain only letters, numbers, dots, dashes, and underscores.");
+    }
+  }
+
+  private EnvironmentSnapshotRecord refreshSnapshot(EnvironmentRecord environment) {
+    var snapshot = pulsarAdminGateway.syncMetadata(environment.toDetails());
+    snapshotRepository.upsert(environment.id(), snapshot);
+    return snapshotRepository.findByEnvironmentId(environment.id())
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environment.id()));
+  }
+
+  private TopicDetails fallbackCreatedTopic(CreateTopicRequest request) {
+    return new TopicDetails(
+        request.fullTopicName(),
+        request.tenant(),
+        request.namespace(),
+        request.topic(),
+        request.partitions() > 0,
+        request.partitions(),
+        com.pulsaradmin.shared.model.TopicHealth.INACTIVE,
+        new com.pulsaradmin.shared.model.TopicStatsSummary(0, 0, 0, 0, 0, 0, 0, 0, 0),
+        new com.pulsaradmin.shared.model.SchemaSummary("NONE", "-", "N/A", false),
+        "Unassigned",
+        request.notes() == null || request.notes().isBlank()
+            ? "Topic created from the admin console. Fresh metadata will populate after the next sync."
+            : request.notes().trim(),
+        new ArrayList<>(),
+        new ArrayList<>());
   }
 }
