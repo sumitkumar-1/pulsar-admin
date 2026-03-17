@@ -12,6 +12,9 @@ Initial implementation of the Pulsar Admin UI kickoff plan.
 - Spring Boot API with mock-first Pulsar admin endpoints
 - Spring Boot worker that processes queued replay and copy jobs
 - PostgreSQL schema bootstrap for `environments`, `jobs`, and `job_events`
+- Configurable Pulsar gateway mode:
+  - `mock` for local-safe development
+  - `rest` for real admin REST connection and metadata sync
 
 ## Local development
 
@@ -41,6 +44,22 @@ mvn spring-boot:run
 
 The install step makes sure the local `shared` module is available before running each Spring Boot app.
 Replay and copy jobs are now queued by the API and completed by the worker.
+
+### Gateway mode
+
+By default the API uses the mock gateway:
+
+```bash
+APP_PULSAR_GATEWAY_MODE=mock
+```
+
+To try real Pulsar admin REST connectivity for environment connection tests and metadata sync:
+
+```bash
+APP_PULSAR_GATEWAY_MODE=rest
+```
+
+In `rest` mode, environment `Test Connection` and `Sync` use the configured `adminUrl` against Pulsar admin REST endpoints. The topic data-plane actions (`Peek Messages`, `Reset Cursor`, `Skip Messages`) still require the mock gateway until the real client-backed integrations are completed.
 
 ### 4. Start the frontend
 
