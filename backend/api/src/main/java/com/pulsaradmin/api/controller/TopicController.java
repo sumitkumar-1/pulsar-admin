@@ -1,6 +1,7 @@
 package com.pulsaradmin.api.controller;
 
 import com.pulsaradmin.api.service.PulsarCatalogService;
+import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
@@ -10,9 +11,11 @@ import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -53,6 +56,21 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @Valid @RequestBody CreateTopicRequest request) {
     return pulsarCatalogService.createTopic(envId, request);
+  }
+
+  @PostMapping("/subscriptions")
+  public SubscriptionMutationResponse createSubscription(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody CreateSubscriptionRequest request) {
+    return pulsarCatalogService.createSubscription(envId, request);
+  }
+
+  @DeleteMapping("/subscriptions")
+  public SubscriptionMutationResponse deleteSubscription(
+      @PathVariable("envId") String envId,
+      @RequestParam("topic") String topicName,
+      @RequestParam("subscription") String subscriptionName) {
+    return pulsarCatalogService.deleteSubscription(envId, topicName, subscriptionName);
   }
 
   @GetMapping("/peek")

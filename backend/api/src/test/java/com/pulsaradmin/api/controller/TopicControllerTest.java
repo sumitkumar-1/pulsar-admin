@@ -2,6 +2,7 @@ package com.pulsaradmin.api.controller;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -61,6 +62,36 @@ class TopicControllerTest {
         .andExpect(jsonPath("$.fullName").value("persistent://acme/orders/payment-events-retry"))
         .andExpect(jsonPath("$.topic").value("payment-events-retry"))
         .andExpect(jsonPath("$.partitioned").value(false));
+  }
+
+  @Test
+  void shouldCreateSubscription() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/subscriptions")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": "payment-incident-review",
+                  "initialPosition": "EARLIEST",
+                  "reason": "Create a fresh subscription for replay verification"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.action").value("CREATE"))
+        .andExpect(jsonPath("$.subscriptionName").value("payment-incident-review"))
+        .andExpect(jsonPath("$.initialPosition").value("EARLIEST"))
+        .andExpect(jsonPath("$.topicDetails.subscriptions", hasSize(3)));
+  }
+
+  @Test
+  void shouldDeleteSubscription() throws Exception {
+    mockMvc.perform(delete("/api/v1/environments/prod/topics/subscriptions")
+            .param("topic", "persistent://acme/orders/payment-events")
+            .param("subscription", "payment-alerts"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.action").value("DELETE"))
+        .andExpect(jsonPath("$.subscriptionName").value("payment-alerts"))
+        .andExpect(jsonPath("$.topicDetails.subscriptions", hasSize(1)));
   }
 
   @Test

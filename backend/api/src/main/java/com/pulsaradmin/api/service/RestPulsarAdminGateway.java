@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
@@ -161,6 +162,45 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   @Override
+  public void createSubscription(EnvironmentDetails environment, CreateSubscriptionRequest request) {
+    PulsarTopicName topicName = PulsarTopicName.parse(request.topicName());
+    String subscriptionName = request.subscriptionName().trim();
+
+    try {
+      putWithoutBody(
+          environment,
+          "/admin/v2/" + topicName.domain()
+              + "/" + topicName.tenant()
+              + "/" + topicName.namespace()
+              + "/" + topicName.topic()
+              + "/subscription/" + subscriptionName);
+
+      if ("EARLIEST".equalsIgnoreCase(request.initialPosition())) {
+        resetCursorToEarliest(environment, topicName, subscriptionName);
+      }
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to create subscription via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void deleteSubscription(EnvironmentDetails environment, String topicName, String subscriptionName) {
+    PulsarTopicName parsed = PulsarTopicName.parse(topicName);
+
+    try {
+      deleteWithoutBody(
+          environment,
+          "/admin/v2/" + parsed.domain()
+              + "/" + parsed.tenant()
+              + "/" + parsed.namespace()
+              + "/" + parsed.topic()
+              + "/subscription/" + subscriptionName);
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to delete subscription via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
   public PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit) {
     try {
       PulsarClient client = getOrCreateClient(environment);
@@ -309,6 +349,15 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     applyAuthHeaders(request, environment);
 
     request.body(body).retrieve().toBodilessEntity();
+  }
+
+  private void deleteWithoutBody(EnvironmentDetails environment, String path) {
+    var request = restClient.delete()
+        .uri(normalizeAdminUrl(environment.adminUrl()) + path);
+
+    applyAuthHeaders(request, environment);
+
+    request.retrieve().toBodilessEntity();
   }
 
   private List<String> readStringArray(JsonNode node) {

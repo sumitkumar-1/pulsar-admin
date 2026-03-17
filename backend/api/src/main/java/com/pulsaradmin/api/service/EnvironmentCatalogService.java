@@ -3,6 +3,7 @@ package com.pulsaradmin.api.service;
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.api.support.NotFoundException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
@@ -11,8 +12,12 @@ import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
+import com.pulsaradmin.shared.model.TopicHealth;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
+import com.pulsaradmin.shared.model.TopicStatsSummary;
+import com.pulsaradmin.shared.model.SchemaSummary;
 import java.util.ArrayList;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -117,6 +122,70 @@ public class EnvironmentCatalogService {
         .filter(topic -> topic.fullName().equals(request.fullTopicName()))
         .findFirst()
         .orElseGet(() -> fallbackCreatedTopic(request));
+  }
+
+  public SubscriptionMutationResponse createSubscription(String environmentId, CreateSubscriptionRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    TopicDetails topic = requireTopic(snapshot, request.topicName());
+    validateSubscriptionName(request.subscriptionName());
+
+    if (topic.subscriptions().stream().anyMatch(subscription -> subscription.equals(request.subscriptionName()))) {
+      throw new BadRequestException("Subscription already exists: " + request.subscriptionName());
+    }
+
+    String normalizedInitialPosition = normalizeInitialPosition(request.initialPosition());
+    pulsarAdminGateway.createSubscription(environment.toDetails(), request);
+
+    TopicDetails updatedTopic = refreshSnapshot(environment).topics().stream()
+        .filter(item -> item.fullName().equals(request.topicName()))
+        .findFirst()
+        .orElseGet(() -> fallbackTopicWithCreatedSubscription(topic, request.subscriptionName()));
+
+    return new SubscriptionMutationResponse(
+        environmentId,
+        request.topicName(),
+        request.subscriptionName(),
+        "CREATE",
+        normalizedInitialPosition,
+        "Created subscription " + request.subscriptionName() + " at " + normalizedInitialPosition.toLowerCase()
+            + " for topic " + request.topicName() + ".",
+        updatedTopic);
+  }
+
+  public SubscriptionMutationResponse deleteSubscription(String environmentId, String topicName, String subscriptionName) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    if (topicName == null || topicName.isBlank()) {
+      throw new BadRequestException("A topic name is required.");
+    }
+
+    validateSubscriptionName(subscriptionName);
+
+    TopicDetails topic = requireTopic(snapshot, topicName);
+    if (topic.subscriptions().stream().noneMatch(subscription -> subscription.equals(subscriptionName))) {
+      throw new NotFoundException("Unknown subscription: " + subscriptionName);
+    }
+
+    pulsarAdminGateway.deleteSubscription(environment.toDetails(), topicName, subscriptionName);
+
+    TopicDetails updatedTopic = refreshSnapshot(environment).topics().stream()
+        .filter(item -> item.fullName().equals(topicName))
+        .findFirst()
+        .orElseGet(() -> fallbackTopicWithoutSubscription(topic, subscriptionName));
+
+    return new SubscriptionMutationResponse(
+        environmentId,
+        topicName,
+        subscriptionName,
+        "DELETE",
+        null,
+        "Deleted subscription " + subscriptionName + " from topic " + topicName + ".",
+        updatedTopic);
   }
 
   public PeekMessagesResponse peekMessages(String environmentId, String topicName, int limit) {
@@ -266,11 +335,41 @@ public class EnvironmentCatalogService {
     }
   }
 
+  private void validateSubscriptionName(String value) {
+    if (value == null || value.isBlank()) {
+      throw new BadRequestException("A subscription name is required.");
+    }
+
+    if (!value.matches("[A-Za-z0-9._-]+")) {
+      throw new BadRequestException(
+          "Subscription name can contain only letters, numbers, dots, dashes, and underscores.");
+    }
+  }
+
+  private String normalizeInitialPosition(String initialPosition) {
+    String normalized = initialPosition == null ? "" : initialPosition.trim().toUpperCase();
+    if (!normalized.equals("EARLIEST") && !normalized.equals("LATEST")) {
+      throw new BadRequestException("Initial position must be EARLIEST or LATEST.");
+    }
+    return normalized;
+  }
+
   private EnvironmentSnapshotRecord refreshSnapshot(EnvironmentRecord environment) {
     var snapshot = pulsarAdminGateway.syncMetadata(environment.toDetails());
     snapshotRepository.upsert(environment.id(), snapshot);
     return snapshotRepository.findByEnvironmentId(environment.id())
         .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environment.id()));
+  }
+
+  private TopicDetails requireTopic(EnvironmentSnapshotRecord snapshot, String topicName) {
+    if (topicName == null || topicName.isBlank()) {
+      throw new BadRequestException("A topic name is required.");
+    }
+
+    return snapshot.topics().stream()
+        .filter(item -> item.fullName().equals(topicName))
+        .findFirst()
+        .orElseThrow(() -> new NotFoundException("Unknown topic: " + topicName));
   }
 
   private TopicDetails fallbackCreatedTopic(CreateTopicRequest request) {
@@ -290,5 +389,73 @@ public class EnvironmentCatalogService {
             : request.notes().trim(),
         new ArrayList<>(),
         new ArrayList<>());
+  }
+
+  private TopicDetails fallbackTopicWithCreatedSubscription(TopicDetails topic, String subscriptionName) {
+    ArrayList<String> subscriptions = new ArrayList<>(topic.subscriptions());
+    subscriptions.add(subscriptionName);
+    subscriptions.sort(String::compareTo);
+
+    TopicStatsSummary stats = new TopicStatsSummary(
+        topic.stats().backlog(),
+        topic.stats().producers(),
+        subscriptions.size(),
+        topic.stats().consumers(),
+        topic.stats().publishRateIn(),
+        topic.stats().dispatchRateOut(),
+        topic.stats().throughputIn(),
+        topic.stats().throughputOut(),
+        topic.stats().storageSize());
+
+    return new TopicDetails(
+        topic.fullName(),
+        topic.tenant(),
+        topic.namespace(),
+        topic.topic(),
+        topic.partitioned(),
+        topic.partitions(),
+        topic.health(),
+        stats,
+        topic.schema(),
+        topic.ownerTeam(),
+        topic.notes(),
+        topic.partitionSummaries(),
+        subscriptions);
+  }
+
+  private TopicDetails fallbackTopicWithoutSubscription(TopicDetails topic, String subscriptionName) {
+    ArrayList<String> subscriptions = new ArrayList<>(topic.subscriptions().stream()
+        .filter(subscription -> !subscription.equals(subscriptionName))
+        .toList());
+
+    TopicStatsSummary stats = new TopicStatsSummary(
+        topic.stats().backlog(),
+        topic.stats().producers(),
+        subscriptions.size(),
+        topic.stats().consumers(),
+        topic.stats().publishRateIn(),
+        topic.stats().dispatchRateOut(),
+        topic.stats().throughputIn(),
+        topic.stats().throughputOut(),
+        topic.stats().storageSize());
+
+    return new TopicDetails(
+        topic.fullName(),
+        topic.tenant(),
+        topic.namespace(),
+        topic.topic(),
+        topic.partitioned(),
+        topic.partitions(),
+        subscriptions.isEmpty() ? TopicHealth.INACTIVE : topic.health(),
+        stats,
+        new SchemaSummary(
+            topic.schema().type(),
+            topic.schema().version(),
+            topic.schema().compatibility(),
+            topic.schema().present()),
+        topic.ownerTeam(),
+        topic.notes(),
+        topic.partitionSummaries(),
+        subscriptions);
   }
 }

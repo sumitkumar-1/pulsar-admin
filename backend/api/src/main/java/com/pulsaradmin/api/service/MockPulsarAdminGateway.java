@@ -2,6 +2,7 @@ package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
@@ -28,9 +29,12 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
 public class MockPulsarAdminGateway implements PulsarAdminGateway {
   private final ConcurrentMap<String, List<TopicDetails>> createdTopicsByEnvironment = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, ConcurrentMap<String, List<String>>> subscriptionsByEnvironment =
+      new ConcurrentHashMap<>();
 
   @Override
   public EnvironmentConnectionTestResult testConnection(EnvironmentDetails environment) {
@@ -61,6 +65,10 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
     if (topics.isEmpty()) {
       topics = createCustomEnvironmentTopics(environment);
     }
+
+    topics = topics.stream()
+        .map(topic -> applySubscriptionOverrides(environment.id(), topic))
+        .collect(Collectors.toList());
 
     List<String> tenants = topics.stream().map(TopicDetails::tenant).distinct().toList();
     List<String> namespaces = topics.stream().map(topic -> topic.tenant() + "/" + topic.namespace()).distinct().toList();
@@ -111,6 +119,40 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
       }
       topics.add(createdTopic);
       return topics;
+    });
+  }
+
+  @Override
+  public void createSubscription(EnvironmentDetails environment, CreateSubscriptionRequest request) {
+    TopicDetails topic = findTopic(environment, request.topicName());
+    String subscriptionName = request.subscriptionName().trim();
+
+    subscriptionsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .compute(request.topicName(), (topicName, existing) -> {
+          List<String> subscriptions = new ArrayList<>(existing == null ? topic.subscriptions() : existing);
+          if (subscriptions.stream().anyMatch(subscription -> subscription.equals(subscriptionName))) {
+            throw new BadRequestException("Subscription already exists: " + subscriptionName);
+          }
+          subscriptions.add(subscriptionName);
+          subscriptions.sort(String::compareTo);
+          return subscriptions;
+        });
+  }
+
+  @Override
+  public void deleteSubscription(EnvironmentDetails environment, String topicName, String subscriptionName) {
+    TopicDetails topic = findTopic(environment, topicName);
+    ConcurrentMap<String, List<String>> topicSubscriptions = subscriptionsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>());
+
+    topicSubscriptions.compute(topicName, (currentTopicName, existing) -> {
+      List<String> subscriptions = new ArrayList<>(existing == null ? topic.subscriptions() : existing);
+      boolean removed = subscriptions.removeIf(subscription -> subscription.equals(subscriptionName));
+      if (!removed) {
+        throw new BadRequestException("Subscription does not exist: " + subscriptionName);
+      }
+      return subscriptions;
     });
   }
 
@@ -425,6 +467,54 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
             "Environment Owners",
             "Safe starter topic generated during the first metadata sync.",
             List.of("replay-review")));
+  }
+
+  private TopicDetails applySubscriptionOverrides(String environmentId, TopicDetails topic) {
+    List<String> overriddenSubscriptions = subscriptionsByEnvironment
+        .getOrDefault(environmentId, new ConcurrentHashMap<>())
+        .get(topic.fullName());
+
+    if (overriddenSubscriptions == null) {
+      return topic;
+    }
+
+    TopicStatsSummary stats = new TopicStatsSummary(
+        topic.stats().backlog(),
+        topic.stats().producers(),
+        overriddenSubscriptions.size(),
+        topic.stats().consumers(),
+        topic.stats().publishRateIn(),
+        topic.stats().dispatchRateOut(),
+        topic.stats().throughputIn(),
+        topic.stats().throughputOut(),
+        topic.stats().storageSize());
+
+    TopicHealth health = overriddenSubscriptions.isEmpty() && topic.stats().backlog() == 0
+        ? TopicHealth.INACTIVE
+        : topic.health();
+
+    return new TopicDetails(
+        topic.fullName(),
+        topic.tenant(),
+        topic.namespace(),
+        topic.topic(),
+        topic.partitioned(),
+        topic.partitions(),
+        health,
+        stats,
+        topic.schema(),
+        topic.ownerTeam(),
+        topic.notes(),
+        topic.partitionSummaries(),
+        overriddenSubscriptions);
+  }
+
+  private TopicDetails findTopic(EnvironmentDetails environment, String topicName) {
+    List<TopicDetails> topics = syncMetadata(environment).topics();
+    return topics.stream()
+        .filter(topic -> topic.fullName().equals(topicName))
+        .findFirst()
+        .orElseThrow(() -> new BadRequestException("Unknown topic: " + topicName));
   }
 
   private TopicDetails createTopic(

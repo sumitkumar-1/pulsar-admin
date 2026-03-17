@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, Observable, switchMap, tap } from 'rxjs';
 import {
+  CreateSubscriptionRequest,
   CreateTopicRequest,
   EnvironmentConnectionTestResult,
   EnvironmentDetails,
@@ -16,6 +17,7 @@ import {
   ResetCursorResponse,
   SkipMessagesRequest,
   SkipMessagesResponse,
+  SubscriptionMutationResponse,
   TopicDetails,
   TopicPage
 } from '../models/api.models';
@@ -106,6 +108,31 @@ export class PulsarApiService {
 
   createTopic(environmentId: string, request: CreateTopicRequest): Observable<TopicDetails> {
     return this.http.post<TopicDetails>(`${this.baseUrl}/environments/${environmentId}/topics`, request);
+  }
+
+  createSubscription(
+    environmentId: string,
+    request: CreateSubscriptionRequest
+  ): Observable<SubscriptionMutationResponse> {
+    return this.http.post<SubscriptionMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/subscriptions`,
+      request
+    );
+  }
+
+  deleteSubscription(
+    environmentId: string,
+    topicName: string,
+    subscriptionName: string
+  ): Observable<SubscriptionMutationResponse> {
+    const params = new HttpParams()
+      .set('topic', topicName)
+      .set('subscription', subscriptionName);
+
+    return this.http.delete<SubscriptionMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/subscriptions`,
+      { params }
+    );
   }
 
   getTopicDetails(environmentId: string, topicName: string): Observable<TopicDetails> {

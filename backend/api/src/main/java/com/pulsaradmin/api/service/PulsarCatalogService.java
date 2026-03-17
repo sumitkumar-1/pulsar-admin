@@ -1,7 +1,8 @@
 package com.pulsaradmin.api.service;
 
-import com.pulsaradmin.shared.model.EnvironmentHealth;
+import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
@@ -10,6 +11,7 @@ import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import org.springframework.stereotype.Service;
@@ -49,6 +51,14 @@ public class PulsarCatalogService {
 
   public TopicDetails createTopic(String environmentId, CreateTopicRequest request) {
     return environmentCatalogService.createTopic(environmentId, request);
+  }
+
+  public SubscriptionMutationResponse createSubscription(String environmentId, CreateSubscriptionRequest request) {
+    return environmentCatalogService.createSubscription(environmentId, request);
+  }
+
+  public SubscriptionMutationResponse deleteSubscription(String environmentId, String topicName, String subscriptionName) {
+    return environmentCatalogService.deleteSubscription(environmentId, topicName, subscriptionName);
   }
 
   public PeekMessagesResponse peekMessages(String environmentId, String topicName, int limit) {

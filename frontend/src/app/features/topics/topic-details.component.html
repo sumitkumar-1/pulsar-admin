@@ -75,13 +75,30 @@
       </article>
 
       <article class="detail-card">
-        <p class="eyebrow">Subscriptions</p>
-        <h3>{{ topic.subscriptions.length }} active subscriptions</h3>
-        <ul class="pill-list">
-          @for (subscription of topic.subscriptions; track subscription) {
-            <li>{{ subscription }}</li>
-          }
-        </ul>
+        <div class="card-header-row">
+          <div>
+            <p class="eyebrow">Subscriptions</p>
+            <h3>{{ topic.subscriptions.length }} active subscriptions</h3>
+          </div>
+          <button type="button" class="secondary-action" (click)="openWorkflow('create-subscription')">
+            Add Subscription
+          </button>
+        </div>
+
+        @if (topic.subscriptions.length === 0) {
+          <p class="summary">No subscriptions are configured yet. Add one at earliest or latest to start consumption safely.</p>
+        } @else {
+          <ul class="subscription-list">
+            @for (subscription of topic.subscriptions; track subscription) {
+              <li>
+                <span>{{ subscription }}</span>
+                <button type="button" class="inline-danger" (click)="openDeleteSubscriptionWorkflow(subscription)">
+                  Delete
+                </button>
+              </li>
+            }
+          </ul>
+        }
       </article>
 
       <article class="detail-card partition-card">
@@ -135,6 +152,16 @@
               <p class="workflow-copy">
                 Choose a subscription, set a bounded message count, preview the effect, and then execute the skip
                 immediately through the backend action.
+              </p>
+            } @else if (activeWorkflow() === 'create-subscription') {
+              <h3>Create subscription</h3>
+              <p class="workflow-copy">
+                Add a new subscription and choose whether it should start at the latest message or from the earliest retained backlog.
+              </p>
+            } @else if (activeWorkflow() === 'delete-subscription') {
+              <h3>Delete subscription</h3>
+              <p class="workflow-copy">
+                Remove a subscription when its state is no longer needed. This is useful for stale test consumers and retired workflows.
               </p>
             } @else {
               <h3>Replay or copy messages</h3>
@@ -313,6 +340,94 @@
               <div class="form-button-row">
                 <button type="submit" [disabled]="skipSaving()">
                   {{ skipSaving() ? 'Skipping...' : 'Skip Messages' }}
+                </button>
+              </div>
+            </form>
+          } @else if (activeWorkflow() === 'create-subscription') {
+            <form class="reset-form" [formGroup]="createSubscriptionForm" (ngSubmit)="submitCreateSubscription()">
+              <label class="full-width">
+                <span>Subscription name</span>
+                <input formControlName="subscriptionName" type="text" placeholder="payment-retry-review" />
+              </label>
+
+              <label>
+                <span>Initial position</span>
+                <select formControlName="initialPosition">
+                  <option value="LATEST">Latest</option>
+                  <option value="EARLIEST">Earliest</option>
+                </select>
+              </label>
+
+              <label class="full-width">
+                <span>Reason</span>
+                <textarea
+                  formControlName="reason"
+                  rows="3"
+                  placeholder="Why are we creating this subscription?"
+                ></textarea>
+              </label>
+
+              <div class="preview-panel">
+                <p class="eyebrow">Preview</p>
+                <p>{{ createSubscriptionPreview() }}</p>
+              </div>
+
+              @if (subscriptionError()) {
+                <div class="placeholder-panel error">
+                  <p>{{ subscriptionError() }}</p>
+                </div>
+              }
+
+              @if (subscriptionResult(); as result) {
+                <div class="placeholder-panel success">
+                  <p>{{ result.message }}</p>
+                  <p class="result-meta">{{ result.topicDetails.subscriptions.length }} subscriptions now tracked for this topic.</p>
+                </div>
+              }
+
+              <div class="form-button-row">
+                <button type="submit" [disabled]="subscriptionSaving()">
+                  {{ subscriptionSaving() ? 'Creating...' : 'Create Subscription' }}
+                </button>
+              </div>
+            </form>
+          } @else if (activeWorkflow() === 'delete-subscription') {
+            <form class="reset-form" [formGroup]="deleteSubscriptionForm" (ngSubmit)="submitDeleteSubscription()">
+              <label class="full-width">
+                <span>Subscription</span>
+                <input [value]="subscriptionPendingDelete() || ''" type="text" readonly />
+              </label>
+
+              <label class="full-width">
+                <span>Reason</span>
+                <textarea
+                  formControlName="reason"
+                  rows="3"
+                  placeholder="Why is this subscription being removed?"
+                ></textarea>
+              </label>
+
+              <div class="preview-panel">
+                <p class="eyebrow">Preview</p>
+                <p>{{ deleteSubscriptionPreview() }}</p>
+              </div>
+
+              @if (subscriptionError()) {
+                <div class="placeholder-panel error">
+                  <p>{{ subscriptionError() }}</p>
+                </div>
+              }
+
+              @if (subscriptionResult(); as result) {
+                <div class="placeholder-panel success">
+                  <p>{{ result.message }}</p>
+                  <p class="result-meta">{{ result.topicDetails.subscriptions.length }} subscriptions remain on this topic.</p>
+                </div>
+              }
+
+              <div class="form-button-row">
+                <button type="submit" class="danger-button" [disabled]="subscriptionSaving()">
+                  {{ subscriptionSaving() ? 'Deleting...' : 'Delete Subscription' }}
                 </button>
               </div>
             </form>

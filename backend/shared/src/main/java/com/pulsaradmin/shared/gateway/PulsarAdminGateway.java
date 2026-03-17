@@ -1,6 +1,7 @@
 package com.pulsaradmin.shared.gateway;
 
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
@@ -16,6 +17,10 @@ public interface PulsarAdminGateway {
   EnvironmentSnapshot syncMetadata(EnvironmentDetails environment);
 
   void createTopic(EnvironmentDetails environment, CreateTopicRequest request);
+
+  void createSubscription(EnvironmentDetails environment, CreateSubscriptionRequest request);
+
+  void deleteSubscription(EnvironmentDetails environment, String topicName, String subscriptionName);
 
   PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit);
 

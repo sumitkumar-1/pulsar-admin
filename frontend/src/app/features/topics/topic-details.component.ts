@@ -6,6 +6,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { combineLatest, Subscription, switchMap, timer } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import {
+  CreateSubscriptionRequest,
   PeekMessagesResponse,
   ReplayCopyJobRequest,
   ReplayCopyJobStatusResponse,
@@ -13,6 +14,7 @@ import {
   ResetCursorResponse,
   SkipMessagesRequest,
   SkipMessagesResponse,
+  SubscriptionMutationResponse,
   TopicDetails
 } from '../../core/models/api.models';
 
@@ -35,7 +37,7 @@ export class TopicDetailsComponent {
   readonly environmentId = signal('');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
-  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'replay' | null>(null);
+  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'replay' | 'create-subscription' | 'delete-subscription' | null>(null);
   readonly peekState = signal<PeekMessagesResponse | null>(null);
   readonly peekLoading = signal(false);
   readonly peekError = signal<string | null>(null);
@@ -48,6 +50,10 @@ export class TopicDetailsComponent {
   readonly replaySaving = signal(false);
   readonly replayResult = signal<ReplayCopyJobStatusResponse | null>(null);
   readonly replayError = signal<string | null>(null);
+  readonly subscriptionSaving = signal(false);
+  readonly subscriptionResult = signal<SubscriptionMutationResponse | null>(null);
+  readonly subscriptionError = signal<string | null>(null);
+  readonly subscriptionPendingDelete = signal<string | null>(null);
 
   readonly resetForm = this.formBuilder.nonNullable.group({
     subscriptionName: ['', [Validators.required]],
@@ -69,6 +75,16 @@ export class TopicDetailsComponent {
     messageLimit: [100, [Validators.required, Validators.min(1), Validators.max(5000)]],
     filterText: [''],
     messagesPerSecond: [50, [Validators.required, Validators.min(1), Validators.max(1000)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly createSubscriptionForm = this.formBuilder.nonNullable.group({
+    subscriptionName: ['', [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)]],
+    initialPosition: ['LATEST' as 'EARLIEST' | 'LATEST', [Validators.required]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly deleteSubscriptionForm = this.formBuilder.nonNullable.group({
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -111,6 +127,12 @@ export class TopicDetailsComponent {
             messagesPerSecond: 50,
             reason: ''
           });
+          this.createSubscriptionForm.patchValue({
+            subscriptionName: '',
+            initialPosition: 'LATEST',
+            reason: ''
+          });
+          this.deleteSubscriptionForm.patchValue({ reason: '' });
           this.loading.set(false);
         },
         error: (error: { error?: { message?: string } }) => {
@@ -124,7 +146,7 @@ export class TopicDetailsComponent {
     return status.toLowerCase();
   }
 
-  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'replay') {
+  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'replay' | 'create-subscription') {
     this.activeWorkflow.set(workflow);
 
     if (workflow === 'peek') {
@@ -205,13 +227,33 @@ export class TopicDetailsComponent {
       }
     }
 
+    if (workflow === 'create-subscription') {
+      this.subscriptionError.set(null);
+      this.subscriptionResult.set(null);
+      this.subscriptionPendingDelete.set(null);
+      this.createSubscriptionForm.patchValue({
+        subscriptionName: '',
+        initialPosition: 'LATEST',
+        reason: this.createSubscriptionForm.controls.reason.value
+      });
+    }
+
     this.peekLoading.set(false);
     this.peekError.set(null);
+  }
+
+  openDeleteSubscriptionWorkflow(subscriptionName: string) {
+    this.activeWorkflow.set('delete-subscription');
+    this.subscriptionError.set(null);
+    this.subscriptionResult.set(null);
+    this.subscriptionPendingDelete.set(subscriptionName);
+    this.deleteSubscriptionForm.patchValue({ reason: '' });
   }
 
   closeWorkflow() {
     this.activeWorkflow.set(null);
     this.stopReplayPolling();
+    this.subscriptionPendingDelete.set(null);
   }
 
   submitResetCursor() {
@@ -368,6 +410,102 @@ export class TopicDetailsComponent {
       });
   }
 
+  submitCreateSubscription() {
+    const topic = this.details();
+
+    if (!topic) {
+      this.subscriptionError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.createSubscriptionForm.invalid) {
+      this.createSubscriptionForm.markAllAsTouched();
+      return;
+    }
+
+    const formValue = this.createSubscriptionForm.getRawValue();
+    const request: CreateSubscriptionRequest = {
+      topicName: topic.fullName,
+      subscriptionName: formValue.subscriptionName.trim(),
+      initialPosition: formValue.initialPosition,
+      reason: formValue.reason.trim() || null
+    };
+
+    this.subscriptionSaving.set(true);
+    this.subscriptionError.set(null);
+    this.subscriptionResult.set(null);
+
+    this.api.createSubscription(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.subscriptionSaving.set(false);
+          this.subscriptionResult.set(response);
+          this.applyUpdatedTopic(response.topicDetails);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.subscriptionSaving.set(false);
+          this.subscriptionError.set(error.error?.message ?? 'Unable to create the subscription.');
+        }
+      });
+  }
+
+  submitDeleteSubscription() {
+    const topic = this.details();
+    const subscriptionName = this.subscriptionPendingDelete();
+
+    if (!topic || !subscriptionName) {
+      this.subscriptionError.set('Choose a subscription to delete.');
+      return;
+    }
+
+    if (this.deleteSubscriptionForm.invalid) {
+      this.deleteSubscriptionForm.markAllAsTouched();
+      return;
+    }
+
+    this.subscriptionSaving.set(true);
+    this.subscriptionError.set(null);
+    this.subscriptionResult.set(null);
+
+    this.api.deleteSubscription(this.environmentId(), topic.fullName, subscriptionName)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.subscriptionSaving.set(false);
+          this.subscriptionResult.set(response);
+          this.applyUpdatedTopic(response.topicDetails);
+          this.subscriptionPendingDelete.set(response.subscriptionName);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.subscriptionSaving.set(false);
+          this.subscriptionError.set(error.error?.message ?? 'Unable to delete the subscription.');
+        }
+      });
+  }
+
+  createSubscriptionPreview(): string {
+    const topic = this.details();
+    const { subscriptionName, initialPosition } = this.createSubscriptionForm.getRawValue();
+
+    if (!topic || !subscriptionName.trim()) {
+      return 'Choose a subscription name and starting position to preview the create action.';
+    }
+
+    return `This will create subscription ${subscriptionName.trim()} on ${topic.topic} and start it at ${initialPosition.toLowerCase()}.`;
+  }
+
+  deleteSubscriptionPreview(): string {
+    const topic = this.details();
+    const subscriptionName = this.subscriptionPendingDelete();
+
+    if (!topic || !subscriptionName) {
+      return 'Choose a subscription to preview the delete action.';
+    }
+
+    return `This will delete subscription ${subscriptionName} from ${topic.topic}. Use this only when the subscription state is no longer needed.`;
+  }
+
   replayPreview(): string {
     const topic = this.details();
     const { subscriptionName, operation, destinationTopicName, messageLimit, filterText, messagesPerSecond } =
@@ -445,5 +583,13 @@ export class TopicDetailsComponent {
     }
 
     return new Date(value).toISOString();
+  }
+
+  private applyUpdatedTopic(topic: TopicDetails) {
+    this.details.set(topic);
+    const firstSubscription = topic.subscriptions[0] ?? '';
+    this.resetForm.patchValue({ subscriptionName: firstSubscription });
+    this.skipForm.patchValue({ subscriptionName: firstSubscription });
+    this.replayForm.patchValue({ subscriptionName: firstSubscription });
   }
 }

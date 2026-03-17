@@ -266,6 +266,241 @@ describe('TopicDetailsComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Skipped 25 messages');
   });
 
+  it('creates a subscription and updates the topic details', async () => {
+    const createSubscription = jasmine.createSpy('createSubscription').and.returnValue(of({
+      environmentId: 'prod',
+      topicName: 'persistent://acme/orders/payment-events',
+      subscriptionName: 'payment-review',
+      action: 'CREATE',
+      initialPosition: 'EARLIEST',
+      message: 'Created subscription payment-review at earliest for topic persistent://acme/orders/payment-events.',
+      topicDetails: {
+        fullName: 'persistent://acme/orders/payment-events',
+        tenant: 'acme',
+        namespace: 'orders',
+        topic: 'payment-events',
+        partitioned: false,
+        partitions: 0,
+        health: 'CRITICAL',
+        stats: {
+          backlog: 18720,
+          producers: 5,
+          subscriptions: 3,
+          consumers: 3,
+          publishRateIn: 190.5,
+          dispatchRateOut: 48.3,
+          throughputIn: 6200,
+          throughputOut: 2100,
+          storageSize: 5880120
+        },
+        schema: {
+          type: 'JSON',
+          version: '9',
+          compatibility: 'BACKWARD',
+          present: true
+        },
+        ownerTeam: 'Payments',
+        notes: 'Backlog-heavy topic.',
+        partitionSummaries: [],
+        subscriptions: ['payment-alerts', 'payment-review', 'payment-settlement']
+      }
+    }));
+
+    await TestBed.configureTestingModule({
+      imports: [TopicDetailsComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ topic: 'persistent://acme/orders/payment-events' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getTopicDetails: () => of({
+              fullName: 'persistent://acme/orders/payment-events',
+              tenant: 'acme',
+              namespace: 'orders',
+              topic: 'payment-events',
+              partitioned: false,
+              partitions: 0,
+              health: 'CRITICAL',
+              stats: {
+                backlog: 18720,
+                producers: 5,
+                subscriptions: 2,
+                consumers: 3,
+                publishRateIn: 190.5,
+                dispatchRateOut: 48.3,
+                throughputIn: 6200,
+                throughputOut: 2100,
+                storageSize: 5880120
+              },
+              schema: {
+                type: 'JSON',
+                version: '9',
+                compatibility: 'BACKWARD',
+                present: true
+              },
+              ownerTeam: 'Payments',
+              notes: 'Backlog-heavy topic.',
+              partitionSummaries: [],
+              subscriptions: ['payment-settlement', 'payment-alerts']
+            }),
+            peekMessages: jasmine.createSpy('peekMessages'),
+            resetCursor: jasmine.createSpy('resetCursor'),
+            skipMessages: jasmine.createSpy('skipMessages'),
+            createSubscription,
+            deleteSubscription: jasmine.createSpy('deleteSubscription'),
+            createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
+            getReplayCopyJob: jasmine.createSpy('getReplayCopyJob')
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicDetailsComponent);
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance;
+    component.openWorkflow('create-subscription');
+    component.createSubscriptionForm.patchValue({
+      subscriptionName: 'payment-review',
+      initialPosition: 'EARLIEST',
+      reason: 'Create review subscription'
+    });
+
+    component.submitCreateSubscription();
+    fixture.detectChanges();
+
+    expect(createSubscription).toHaveBeenCalledWith('prod', {
+      topicName: 'persistent://acme/orders/payment-events',
+      subscriptionName: 'payment-review',
+      initialPosition: 'EARLIEST',
+      reason: 'Create review subscription'
+    });
+    expect(fixture.nativeElement.textContent).toContain('payment-review');
+  });
+
+  it('deletes a subscription and updates the topic details', async () => {
+    const deleteSubscription = jasmine.createSpy('deleteSubscription').and.returnValue(of({
+      environmentId: 'prod',
+      topicName: 'persistent://acme/orders/payment-events',
+      subscriptionName: 'payment-alerts',
+      action: 'DELETE',
+      initialPosition: null,
+      message: 'Deleted subscription payment-alerts from topic persistent://acme/orders/payment-events.',
+      topicDetails: {
+        fullName: 'persistent://acme/orders/payment-events',
+        tenant: 'acme',
+        namespace: 'orders',
+        topic: 'payment-events',
+        partitioned: false,
+        partitions: 0,
+        health: 'CRITICAL',
+        stats: {
+          backlog: 18720,
+          producers: 5,
+          subscriptions: 1,
+          consumers: 3,
+          publishRateIn: 190.5,
+          dispatchRateOut: 48.3,
+          throughputIn: 6200,
+          throughputOut: 2100,
+          storageSize: 5880120
+        },
+        schema: {
+          type: 'JSON',
+          version: '9',
+          compatibility: 'BACKWARD',
+          present: true
+        },
+        ownerTeam: 'Payments',
+        notes: 'Backlog-heavy topic.',
+        partitionSummaries: [],
+        subscriptions: ['payment-settlement']
+      }
+    }));
+
+    await TestBed.configureTestingModule({
+      imports: [TopicDetailsComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ topic: 'persistent://acme/orders/payment-events' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getTopicDetails: () => of({
+              fullName: 'persistent://acme/orders/payment-events',
+              tenant: 'acme',
+              namespace: 'orders',
+              topic: 'payment-events',
+              partitioned: false,
+              partitions: 0,
+              health: 'CRITICAL',
+              stats: {
+                backlog: 18720,
+                producers: 5,
+                subscriptions: 2,
+                consumers: 3,
+                publishRateIn: 190.5,
+                dispatchRateOut: 48.3,
+                throughputIn: 6200,
+                throughputOut: 2100,
+                storageSize: 5880120
+              },
+              schema: {
+                type: 'JSON',
+                version: '9',
+                compatibility: 'BACKWARD',
+                present: true
+              },
+              ownerTeam: 'Payments',
+              notes: 'Backlog-heavy topic.',
+              partitionSummaries: [],
+              subscriptions: ['payment-settlement', 'payment-alerts']
+            }),
+            peekMessages: jasmine.createSpy('peekMessages'),
+            resetCursor: jasmine.createSpy('resetCursor'),
+            skipMessages: jasmine.createSpy('skipMessages'),
+            createSubscription: jasmine.createSpy('createSubscription'),
+            deleteSubscription,
+            createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
+            getReplayCopyJob: jasmine.createSpy('getReplayCopyJob')
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicDetailsComponent);
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance;
+    component.openDeleteSubscriptionWorkflow('payment-alerts');
+    component.deleteSubscriptionForm.patchValue({
+      reason: 'Remove stale test subscription'
+    });
+
+    component.submitDeleteSubscription();
+    fixture.detectChanges();
+
+    expect(deleteSubscription).toHaveBeenCalledWith(
+      'prod',
+      'persistent://acme/orders/payment-events',
+      'payment-alerts'
+    );
+    expect(fixture.nativeElement.textContent).toContain('Deleted subscription payment-alerts');
+  });
+
   it('submits a replay copy job and shows the queued result', async () => {
     const createReplayCopyJob = jasmine.createSpy('createReplayCopyJob').and.returnValue(of({
       jobId: 'job-1a2b3c4d',

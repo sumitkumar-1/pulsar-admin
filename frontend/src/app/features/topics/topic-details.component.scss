@@ -129,6 +129,49 @@ dd {
   color: #1d4ed8;
 }
 
+.card-header-row,
+.subscription-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.secondary-action,
+.inline-danger {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(248, 250, 252, 0.96);
+  font: inherit;
+  cursor: pointer;
+}
+
+.secondary-action {
+  padding: 0.7rem 0.9rem;
+  color: #0f172a;
+}
+
+.subscription-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subscription-list li {
+  border-radius: 1rem;
+  padding: 0.8rem 0.95rem;
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.inline-danger {
+  padding: 0.55rem 0.8rem;
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.18);
+  background: rgba(254, 242, 242, 0.9);
+}
+
 .health-pill {
   padding: 0.35rem 0.7rem;
   text-transform: capitalize;
@@ -399,6 +442,11 @@ dd {
   border-color: rgba(148, 163, 184, 0.28);
 }
 
+.form-button-row .danger-button {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  border-color: rgba(185, 28, 28, 0.35);
+}
+
 @media (max-width: 900px) {
   .hero-card,
   .detail-grid {
@@ -416,5 +464,11 @@ dd {
 
   .reset-form {
     grid-template-columns: 1fr;
+  }
+
+  .card-header-row,
+  .subscription-list li {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

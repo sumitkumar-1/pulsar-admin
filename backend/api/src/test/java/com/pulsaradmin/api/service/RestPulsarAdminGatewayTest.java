@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
@@ -252,6 +253,40 @@ class RestPulsarAdminGatewayTest {
         "payment-events-retry",
         0,
         "Retry topic"));
+
+    server.verify();
+  }
+
+  @Test
+  void shouldCreateSubscriptionViaAdminRest() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/subscription/payment-review"))
+        .andRespond(withSuccess());
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/subscription/payment-review/resetcursor/0"))
+        .andRespond(withSuccess());
+
+    gateway.createSubscription(environment(), new CreateSubscriptionRequest(
+        "persistent://acme/orders/payment-events",
+        "payment-review",
+        "EARLIEST",
+        "Create review subscription"));
+
+    server.verify();
+  }
+
+  @Test
+  void shouldDeleteSubscriptionViaAdminRest() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/subscription/payment-review"))
+        .andRespond(withSuccess());
+
+    gateway.deleteSubscription(environment(), "persistent://acme/orders/payment-events", "payment-review");
 
     server.verify();
   }

@@ -102,6 +102,23 @@ export interface CreateTopicRequest {
   notes: string | null;
 }
 
+export interface CreateSubscriptionRequest {
+  topicName: string;
+  subscriptionName: string;
+  initialPosition: 'EARLIEST' | 'LATEST';
+  reason: string | null;
+}
+
+export interface SubscriptionMutationResponse {
+  environmentId: string;
+  topicName: string;
+  subscriptionName: string;
+  action: 'CREATE' | 'DELETE';
+  initialPosition: 'EARLIEST' | 'LATEST' | null;
+  message: string;
+  topicDetails: TopicDetails;
+}
+
 export interface TopicPartitionSummary {
   partitionName: string;
   backlog: number;
