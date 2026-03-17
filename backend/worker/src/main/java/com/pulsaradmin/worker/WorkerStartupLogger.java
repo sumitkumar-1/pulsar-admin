@@ -11,6 +11,6 @@ public class WorkerStartupLogger {
 
   @PostConstruct
   void logStartup() {
-    log.info("Worker module initialized. Replay and copy jobs will be wired in a later slice.");
+    log.info("Worker module initialized. Replay and copy jobs will now be processed from the shared jobs table.");
   }
 }

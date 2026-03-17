@@ -1,3 +1,14 @@
 spring:
   application:
     name: pulsar-admin-worker
+  datasource:
+    url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5432/pulsar_admin}
+    username: ${APP_DATASOURCE_USERNAME:pulsar}
+    password: ${APP_DATASOURCE_PASSWORD:pulsar}
+
+worker:
+  jobs:
+    scheduling-enabled: ${APP_WORKER_SCHEDULING_ENABLED:true}
+    initial-delay-ms: ${APP_WORKER_INITIAL_DELAY_MS:5000}
+    poll-interval-ms: ${APP_WORKER_POLL_INTERVAL_MS:1500}
+    batch-size: ${APP_WORKER_BATCH_SIZE:5}

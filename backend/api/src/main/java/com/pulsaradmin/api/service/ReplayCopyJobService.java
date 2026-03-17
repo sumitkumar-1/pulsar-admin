@@ -19,14 +19,17 @@ public class ReplayCopyJobService {
   private final EnvironmentRepository environmentRepository;
   private final EnvironmentSnapshotRepository snapshotRepository;
   private final JobRepository jobRepository;
+  private final JobEventRepository jobEventRepository;
 
   public ReplayCopyJobService(
       EnvironmentRepository environmentRepository,
       EnvironmentSnapshotRepository snapshotRepository,
-      JobRepository jobRepository) {
+      JobRepository jobRepository,
+      JobEventRepository jobEventRepository) {
     this.environmentRepository = environmentRepository;
     this.snapshotRepository = snapshotRepository;
     this.jobRepository = jobRepository;
+    this.jobEventRepository = jobEventRepository;
   }
 
   public ReplayCopyJobStatusResponse createJob(String environmentId, ReplayCopyJobRequest request) {
@@ -62,27 +65,14 @@ public class ReplayCopyJobService {
         now,
         now);
     jobRepository.insert(queued);
-
-    int matchedMessages = estimateMatches(request.messageLimit(), request.filterText());
-    int publishedMessages = jobType == JobType.COPY ? matchedMessages : Math.max(1, matchedMessages - 1);
-    String statusMessage = jobType == JobType.COPY
-        ? "Copy job completed in mock mode. Matching messages were republished to the destination topic."
-        : "Replay job completed in mock mode. Matching messages were re-issued for the selected subscription.";
-
-    Map<String, Object> completedParameters = new LinkedHashMap<>(parameters);
-    completedParameters.put("statusMessage", statusMessage);
-    completedParameters.put("matchedMessages", matchedMessages);
-    completedParameters.put("publishedMessages", publishedMessages);
-
-    JobRecord completed = new JobRecord(
+    jobEventRepository.insert(
         queued.id(),
-        queued.type(),
-        queued.environmentId(),
-        JobStatus.COMPLETED,
-        completedParameters,
-        queued.createdAt(),
-        Instant.now());
-    jobRepository.update(completed);
+        "QUEUED",
+        Map.of(
+            "jobType", jobType.name(),
+            "topicName", request.topicName(),
+            "destinationTopicName", request.destinationTopicName(),
+            "messageLimit", request.messageLimit()));
 
     return toResponse(queued);
   }
@@ -139,13 +129,6 @@ public class ReplayCopyJobService {
       case "REPLAY" -> JobType.REPLAY;
       default -> throw new BadRequestException("Operation must be REPLAY or COPY.");
     };
-  }
-
-  private int estimateMatches(int messageLimit, String filterText) {
-    if (filterText == null || filterText.isBlank()) {
-      return Math.max(1, Math.min(messageLimit, 120));
-    }
-    return Math.max(1, Math.min(messageLimit, 36));
   }
 
   private ReplayCopyJobStatusResponse toResponse(JobRecord job) {

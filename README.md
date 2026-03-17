@@ -10,7 +10,7 @@ Initial implementation of the Pulsar Admin UI kickoff plan.
   - topic explorer
   - topic details view
 - Spring Boot API with mock-first Pulsar admin endpoints
-- Spring Boot worker scaffold for later replay and copy jobs
+- Spring Boot worker that processes queued replay and copy jobs
 - PostgreSQL schema bootstrap for `environments`, `jobs`, and `job_events`
 
 ## Local development
@@ -40,6 +40,7 @@ mvn spring-boot:run
 ```
 
 The install step makes sure the local `shared` module is available before running each Spring Boot app.
+Replay and copy jobs are now queued by the API and completed by the worker.
 
 ### 4. Start the frontend
 
@@ -56,4 +57,9 @@ The Angular dev server proxies `/api/*` to `http://localhost:8080`.
 - `GET /api/v1/environments`
 - `GET /api/v1/environments/{envId}/health`
 - `GET /api/v1/environments/{envId}/topics`
-- `GET /api/v1/environments/{envId}/topics/{topicName}`
+- `GET /api/v1/environments/{envId}/topics/detail?topic=...`
+- `GET /api/v1/environments/{envId}/topics/peek?topic=...&limit=...`
+- `POST /api/v1/environments/{envId}/topics/reset-cursor`
+- `POST /api/v1/environments/{envId}/topics/skip-messages`
+- `POST /api/v1/environments/{envId}/topics/replay-copy`
+- `GET /api/v1/environments/{envId}/topics/jobs/{jobId}`

@@ -143,8 +143,8 @@ class TopicControllerTest {
     mockMvc.perform(get("/api/v1/environments/prod/topics/jobs/{jobId}", jobId))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.jobId").value(jobId))
-        .andExpect(jsonPath("$.status").value("COMPLETED"))
-        .andExpect(jsonPath("$.publishedMessages").exists());
+        .andExpect(jsonPath("$.status").value("QUEUED"))
+        .andExpect(jsonPath("$.publishedMessages").value(0));
   }
 
   @Test
