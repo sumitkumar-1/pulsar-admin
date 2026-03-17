@@ -1,0 +1,35 @@
+<section class="hero-card">
+  <p class="eyebrow">Operations-First MVP</p>
+  <h2>Find the right cluster fast, then go straight to the topics that matter.</h2>
+  <p class="hero-copy">
+    This first slice focuses on environment discovery, topic exploration, and clear operational context.
+    Write workflows will layer on top of this shell next.
+  </p>
+</section>
+
+<section class="environment-grid">
+  @if (environments$ | async; as environments) {
+    @for (environment of environments; track environment.id) {
+      <a class="environment-card" [routerLink]="['/environments', environment.id, 'topics']">
+        <div class="card-topline">
+          <span class="status-badge" [ngClass]="statusClass(environment.status)">
+            {{ environment.status.toLowerCase() }}
+          </span>
+          <span>{{ environment.region }}</span>
+        </div>
+        <h3>{{ environment.name }}</h3>
+        <p>{{ environment.summary }}</p>
+        <dl>
+          <div>
+            <dt>Cluster</dt>
+            <dd>{{ environment.clusterLabel }}</dd>
+          </div>
+          <div>
+            <dt>Kind</dt>
+            <dd>{{ environment.kind }}</dd>
+          </div>
+        </dl>
+      </a>
+    }
+  }
+</section>

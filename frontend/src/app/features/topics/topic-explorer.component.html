@@ -1,0 +1,94 @@
+@if (environmentHealth(); as health) {
+  <section class="hero-card" [ngClass]="healthClass(health.status)">
+    <div>
+      <p class="eyebrow">Environment Snapshot</p>
+      <h2>{{ health.environmentId | uppercase }} topic explorer</h2>
+      <p>{{ health.message }}</p>
+    </div>
+    <dl>
+      <div>
+        <dt>Broker</dt>
+        <dd>{{ health.brokerUrl }}</dd>
+      </div>
+      <div>
+        <dt>Pulsar</dt>
+        <dd>{{ health.pulsarVersion }}</dd>
+      </div>
+    </dl>
+  </section>
+}
+
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">Explore Topics</p>
+      <h3>Search, scan, and drill into the topics that need attention.</h3>
+    </div>
+    <form class="toolbar" (ngSubmit)="applySearch()">
+      <input [formControl]="searchControl" type="search" placeholder="Search by topic, namespace, or full name" />
+      <button type="submit">Search</button>
+      <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
+    </form>
+  </div>
+
+  @if (loading()) {
+    <div class="state-card">Loading topic inventory for {{ environmentId() }}...</div>
+  } @else if (loadError()) {
+    <div class="state-card error">{{ loadError() }}</div>
+  } @else if (topicPage()?.items?.length === 0) {
+    <div class="state-card">No topics match the current filters.</div>
+  } @else {
+    <div class="summary-row">
+      <span>{{ topicPage()?.total | number }} topics</span>
+      <span>Page size {{ topicPage()?.pageSize }}</span>
+    </div>
+
+    @for (group of topicGroups(); track group.namespace) {
+      <section class="namespace-block">
+        <div class="namespace-header">
+          <h4>{{ group.namespace }}</h4>
+          <span>{{ group.items.length }} topics</span>
+        </div>
+
+        <div class="topic-grid">
+          @for (topic of group.items; track topic.fullName) {
+            <button type="button" class="topic-card" (click)="openTopic(topic)">
+              <div class="topic-topline">
+                <span class="health-pill" [ngClass]="healthClass(topic.health)">
+                  {{ topic.health.toLowerCase() }}
+                </span>
+                <span>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Non-partitioned' }}</span>
+              </div>
+
+              <div>
+                <h5>{{ topic.topic }}</h5>
+                <p class="topic-name">{{ topic.fullName }}</p>
+              </div>
+
+              <p class="summary">{{ topic.summary }}</p>
+
+              <div class="metrics">
+                <div>
+                  <span>Backlog</span>
+                  <strong>{{ topic.stats.backlog | number }}</strong>
+                </div>
+                <div>
+                  <span>Consumers</span>
+                  <strong>{{ topic.stats.consumers }}</strong>
+                </div>
+                <div>
+                  <span>Publish/s</span>
+                  <strong>{{ topic.stats.publishRateIn }}</strong>
+                </div>
+                <div>
+                  <span>Schema</span>
+                  <strong>{{ topic.schemaPresent ? 'Present' : 'None' }}</strong>
+                </div>
+              </div>
+            </button>
+          }
+        </div>
+      </section>
+    }
+  }
+</section>

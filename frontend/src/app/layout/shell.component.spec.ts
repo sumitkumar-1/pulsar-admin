@@ -1,0 +1,42 @@
+import { TestBed } from '@angular/core/testing';
+import { provideRouter, Router } from '@angular/router';
+import { of } from 'rxjs';
+import { PulsarApiService } from '../core/api/pulsar-api.service';
+import { ShellComponent } from './shell.component';
+
+describe('ShellComponent', () => {
+  it('navigates when an environment is selected', async () => {
+    const navigate = jasmine.createSpy().and.resolveTo(true);
+
+    await TestBed.configureTestingModule({
+      imports: [ShellComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironments: () => of([
+              {
+                id: 'prod',
+                name: 'Production',
+                kind: 'prod',
+                status: 'HEALTHY',
+                region: 'us-east-1',
+                clusterLabel: 'cluster-a',
+                summary: 'Primary traffic'
+              }
+            ])
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(ShellComponent);
+    const component = fixture.componentInstance;
+    TestBed.inject(Router).navigate = navigate;
+
+    component.onEnvironmentSelected('prod');
+
+    expect(navigate).toHaveBeenCalledWith(['/environments', 'prod', 'topics']);
+  });
+});

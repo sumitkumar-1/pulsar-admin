@@ -1,0 +1,110 @@
+<a class="back-link" [routerLink]="['/environments', environmentId(), 'topics']">← Back to topics</a>
+
+@if (loading()) {
+  <div class="state-card">Loading topic details...</div>
+} @else if (loadError()) {
+  <div class="state-card error">{{ loadError() }}</div>
+} @else {
+  @if (details(); as topic) {
+    <section class="hero-card">
+      <div>
+        <div class="hero-topline">
+          <span class="health-pill" [ngClass]="healthClass(topic.health)">
+            {{ topic.health.toLowerCase() }}
+          </span>
+          <span>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Non-partitioned' }}</span>
+        </div>
+        <h2>{{ topic.topic }}</h2>
+        <p class="full-name">{{ topic.fullName }}</p>
+        <p class="summary">{{ topic.notes }}</p>
+      </div>
+
+      <div class="action-strip">
+        <button type="button" disabled>Peek Messages</button>
+        <button type="button" disabled>Reset Cursor</button>
+        <button type="button" disabled>Replay / Copy</button>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="stat-card">
+        <span>Backlog</span>
+        <strong>{{ topic.stats.backlog | number }}</strong>
+      </article>
+      <article class="stat-card">
+        <span>Producers</span>
+        <strong>{{ topic.stats.producers }}</strong>
+      </article>
+      <article class="stat-card">
+        <span>Consumers</span>
+        <strong>{{ topic.stats.consumers }}</strong>
+      </article>
+      <article class="stat-card">
+        <span>Subscriptions</span>
+        <strong>{{ topic.stats.subscriptions }}</strong>
+      </article>
+      <article class="stat-card">
+        <span>Publish / sec</span>
+        <strong>{{ topic.stats.publishRateIn }}</strong>
+      </article>
+      <article class="stat-card">
+        <span>Dispatch / sec</span>
+        <strong>{{ topic.stats.dispatchRateOut }}</strong>
+      </article>
+    </section>
+
+    <section class="detail-grid">
+      <article class="detail-card">
+        <p class="eyebrow">Schema Summary</p>
+        <h3>{{ topic.schema.present ? topic.schema.type : 'No schema' }}</h3>
+        <dl>
+          <div>
+            <dt>Version</dt>
+            <dd>{{ topic.schema.version }}</dd>
+          </div>
+          <div>
+            <dt>Compatibility</dt>
+            <dd>{{ topic.schema.compatibility }}</dd>
+          </div>
+          <div>
+            <dt>Owner</dt>
+            <dd>{{ topic.ownerTeam }}</dd>
+          </div>
+        </dl>
+      </article>
+
+      <article class="detail-card">
+        <p class="eyebrow">Subscriptions</p>
+        <h3>{{ topic.subscriptions.length }} active subscriptions</h3>
+        <ul class="pill-list">
+          @for (subscription of topic.subscriptions; track subscription) {
+            <li>{{ subscription }}</li>
+          }
+        </ul>
+      </article>
+
+      <article class="detail-card partition-card">
+        <p class="eyebrow">Partition Overview</p>
+        <h3>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Single topic view' }}</h3>
+
+        @if (topic.partitionSummaries.length === 0) {
+          <p class="summary">This topic is not partitioned, so the aggregate topic stats are the primary signal.</p>
+        } @else {
+          <div class="partition-list">
+            @for (partition of topic.partitionSummaries; track partition.partitionName) {
+              <div class="partition-row">
+                <div>
+                  <strong>{{ partition.partitionName }}</strong>
+                  <p>Backlog {{ partition.backlog | number }} · Consumers {{ partition.consumers }}</p>
+                </div>
+                <span class="health-pill" [ngClass]="healthClass(partition.health)">
+                  {{ partition.health.toLowerCase() }}
+                </span>
+              </div>
+            }
+          </div>
+        }
+      </article>
+    </section>
+  }
+}

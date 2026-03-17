@@ -1,0 +1,70 @@
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">P</div>
+      <div>
+        <p class="eyebrow">Operations Console</p>
+        <h1>Pulsar Admin</h1>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a routerLink="/environments" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+        Environment Overview
+      </a>
+    </nav>
+
+    @if (environments$ | async; as environments) {
+      <section class="env-list">
+        <p class="section-label">Environments</p>
+        @for (environment of environments; track environment.id) {
+          <button
+            type="button"
+            class="env-item"
+            [class.selected]="environment.id === currentEnvironmentId()"
+            (click)="onEnvironmentSelected(environment.id)">
+            <span class="status-dot" [ngClass]="statusClass(environment.status)"></span>
+            <span>
+              <strong>{{ environment.name }}</strong>
+              <small>{{ environment.clusterLabel }}</small>
+            </span>
+          </button>
+        }
+      </section>
+    }
+  </aside>
+
+  <div class="content-frame">
+    <header class="topbar">
+      @if (environments$ | async; as environments) {
+        @if (resolveCurrentEnvironment(environments); as activeEnvironment) {
+          <div class="environment-pill" [ngClass]="statusClass(activeEnvironment.status)">
+            <span class="pill-label">{{ activeEnvironment.name }}</span>
+            <span>{{ activeEnvironment.region }}</span>
+          </div>
+        } @else {
+          <div class="environment-pill neutral">
+            <span class="pill-label">All Environments</span>
+            <span>Mock-first discovery slice</span>
+          </div>
+        }
+
+        <label class="environment-switcher">
+          <span>Jump to</span>
+          <select
+            [value]="currentEnvironmentId() ?? ''"
+            (change)="onEnvironmentSelected(($any($event.target).value))">
+            <option value="" disabled>Select environment</option>
+            @for (environment of environments; track environment.id) {
+              <option [value]="environment.id">{{ environment.name }}</option>
+            }
+          </select>
+        </label>
+      }
+    </header>
+
+    <main class="page-body">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>

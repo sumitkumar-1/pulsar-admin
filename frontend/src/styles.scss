@@ -1,0 +1,28 @@
+/* You can add global styles to this file, and also import other style files */
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: #0f172a;
+  background: #f8fafc;
+  font-family:
+    "Sora",
+    "Avenir Next",
+    "Segoe UI",
+    sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
