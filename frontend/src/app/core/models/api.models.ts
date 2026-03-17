@@ -145,6 +145,23 @@ export interface PeekMessagesResponse {
   messages: PeekMessage[];
 }
 
+export interface ResetCursorRequest {
+  topicName: string;
+  subscriptionName: string;
+  target: string;
+  timestamp: string | null;
+  reason: string;
+}
+
+export interface ResetCursorResponse {
+  environmentId: string;
+  topicName: string;
+  subscriptionName: string;
+  target: string;
+  effectiveTimestamp: string | null;
+  message: string;
+}
+
 export interface TopicPage {
   items: TopicListItem[];
   page: number;

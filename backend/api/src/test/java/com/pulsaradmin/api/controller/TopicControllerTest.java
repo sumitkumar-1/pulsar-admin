@@ -3,6 +3,7 @@ package com.pulsaradmin.api.controller;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -51,6 +52,26 @@ class TopicControllerTest {
         .andExpect(jsonPath("$.returnedCount").value(2))
         .andExpect(jsonPath("$.messages", hasSize(2)))
         .andExpect(jsonPath("$.messages[0].messageId").exists());
+  }
+
+  @Test
+  void shouldResetCursor() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/reset-cursor")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": "payment-settlement",
+                  "target": "LATEST",
+                  "timestamp": null,
+                  "reason": "Clear backlog after incident validation"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.environmentId").value("prod"))
+        .andExpect(jsonPath("$.subscriptionName").value("payment-settlement"))
+        .andExpect(jsonPath("$.target").value("LATEST"))
+        .andExpect(jsonPath("$.message").exists());
   }
 
   @Test

@@ -6,6 +6,8 @@ import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.ResetCursorRequest;
+import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import java.util.Set;
@@ -118,6 +120,47 @@ public class EnvironmentCatalogService {
     }
 
     return pulsarAdminGateway.peekMessages(environment.toDetails(), topicName, limit);
+  }
+
+  public ResetCursorResponse resetCursor(String environmentId, ResetCursorRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+
+    if (request.topicName() == null || request.topicName().isBlank()) {
+      throw new BadRequestException("A topic name is required.");
+    }
+
+    if (request.subscriptionName() == null || request.subscriptionName().isBlank()) {
+      throw new BadRequestException("A subscription name is required.");
+    }
+
+    String normalizedTarget = request.target() == null ? "" : request.target().trim().toUpperCase();
+    if (!normalizedTarget.equals("EARLIEST")
+        && !normalizedTarget.equals("LATEST")
+        && !normalizedTarget.equals("TIMESTAMP")) {
+      throw new BadRequestException("Reset target must be EARLIEST, LATEST, or TIMESTAMP.");
+    }
+
+    if (normalizedTarget.equals("TIMESTAMP")
+        && (request.timestamp() == null || request.timestamp().isBlank())) {
+      throw new BadRequestException("A timestamp is required when reset target is TIMESTAMP.");
+    }
+
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    TopicDetails topic = snapshot.topics().stream()
+        .filter(item -> item.fullName().equals(request.topicName()))
+        .findFirst()
+        .orElseThrow(() -> new NotFoundException("Unknown topic: " + request.topicName()));
+
+    boolean subscriptionExists = topic.subscriptions().stream()
+        .anyMatch(subscription -> subscription.equals(request.subscriptionName()));
+
+    if (!subscriptionExists) {
+      throw new NotFoundException("Unknown subscription: " + request.subscriptionName());
+    }
+
+    return pulsarAdminGateway.resetCursor(environment.toDetails(), request);
   }
 
   private void requireEnvironment(String environmentId) {

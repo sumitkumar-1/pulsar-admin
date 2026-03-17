@@ -3,6 +3,8 @@ package com.pulsaradmin.api.service;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.ResetCursorRequest;
+import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import org.springframework.stereotype.Service;
@@ -39,5 +41,9 @@ public class PulsarCatalogService {
 
   public PeekMessagesResponse peekMessages(String environmentId, String topicName, int limit) {
     return environmentCatalogService.peekMessages(environmentId, topicName, limit);
+  }
+
+  public ResetCursorResponse resetCursor(String environmentId, ResetCursorRequest request) {
+    return environmentCatalogService.resetCursor(environmentId, request);
   }
 }

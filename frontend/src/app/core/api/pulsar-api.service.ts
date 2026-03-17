@@ -9,6 +9,8 @@ import {
   EnvironmentSummary,
   EnvironmentUpsertRequest,
   PeekMessagesResponse,
+  ResetCursorRequest,
+  ResetCursorResponse,
   TopicDetails,
   TopicPage
 } from '../models/api.models';
@@ -107,6 +109,13 @@ export class PulsarApiService {
     return this.http.get<PeekMessagesResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/peek`,
       { params: new HttpParams().set('topic', topicName).set('limit', String(limit)) }
+    );
+  }
+
+  resetCursor(environmentId: string, request: ResetCursorRequest): Observable<ResetCursorResponse> {
+    return this.http.post<ResetCursorResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/reset-cursor`,
+      request
     );
   }
 

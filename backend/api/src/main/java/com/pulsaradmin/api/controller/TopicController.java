@@ -3,10 +3,15 @@ package com.pulsaradmin.api.controller;
 import com.pulsaradmin.api.service.PulsarCatalogService;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.ResetCursorRequest;
+import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,5 +49,12 @@ public class TopicController {
       @RequestParam(name = "limit", defaultValue = "5") int limit,
       @RequestParam("topic") String topicName) {
     return pulsarCatalogService.peekMessages(envId, topicName, limit);
+  }
+
+  @PostMapping("/reset-cursor")
+  public ResetCursorResponse resetCursor(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody ResetCursorRequest request) {
+    return pulsarCatalogService.resetCursor(envId, request);
   }
 }

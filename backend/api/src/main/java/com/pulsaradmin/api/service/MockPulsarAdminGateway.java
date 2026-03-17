@@ -1,5 +1,6 @@
 package com.pulsaradmin.api.service;
 
+import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
@@ -8,6 +9,8 @@ import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.EnvironmentStatus;
 import com.pulsaradmin.shared.model.PeekMessage;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.ResetCursorRequest;
+import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicHealth;
@@ -18,6 +21,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 
 public class MockPulsarAdminGateway implements PulsarAdminGateway {
   @Override
@@ -189,6 +194,37 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
 
     List<PeekMessage> messages = seededMessages.stream().limit(limit).toList();
     return new PeekMessagesResponse(environment.id(), topicName, limit, messages.size(), seededMessages.size() > limit, messages);
+  }
+
+  @Override
+  public ResetCursorResponse resetCursor(EnvironmentDetails environment, ResetCursorRequest request) {
+    String normalizedTarget = request.target().trim().toUpperCase();
+    String effectiveTimestamp = null;
+
+    if (normalizedTarget.equals("TIMESTAMP")) {
+      try {
+        effectiveTimestamp = OffsetDateTime.parse(request.timestamp()).toInstant().toString();
+      } catch (DateTimeParseException exception) {
+        throw new BadRequestException("Timestamp must use ISO-8601 format.");
+      }
+    }
+
+    String message = switch (normalizedTarget) {
+      case "EARLIEST" -> "Cursor reset to the earliest available position for subscription "
+          + request.subscriptionName() + ".";
+      case "LATEST" -> "Cursor reset to the latest position for subscription "
+          + request.subscriptionName() + ".";
+      default -> "Cursor reset to messages published after " + effectiveTimestamp
+          + " for subscription " + request.subscriptionName() + ".";
+    };
+
+    return new ResetCursorResponse(
+        environment.id(),
+        request.topicName(),
+        request.subscriptionName(),
+        normalizedTarget,
+        effectiveTimestamp,
+        message);
   }
 
   private EnvironmentStatus deriveStatus(EnvironmentDetails environment, List<TopicDetails> topics) {

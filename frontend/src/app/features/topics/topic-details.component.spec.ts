@@ -71,7 +71,8 @@ describe('TopicDetailsComponent', () => {
               partitionSummaries: [],
               subscriptions: ['payment-settlement', 'payment-alerts']
             }),
-            peekMessages
+            peekMessages,
+            resetCursor: jasmine.createSpy('resetCursor')
           }
         }
       ]
@@ -85,5 +86,91 @@ describe('TopicDetailsComponent', () => {
 
     expect(peekMessages).toHaveBeenCalledWith('prod', 'persistent://acme/orders/payment-events', 5);
     expect(fixture.nativeElement.textContent).toContain('payment-10412');
+  });
+
+  it('submits a reset cursor request and shows the result message', async () => {
+    const resetCursor = jasmine.createSpy('resetCursor').and.returnValue(of({
+      environmentId: 'prod',
+      topicName: 'persistent://acme/orders/payment-events',
+      subscriptionName: 'payment-settlement',
+      target: 'LATEST',
+      effectiveTimestamp: null,
+      message: 'Cursor reset to the latest position for subscription payment-settlement.'
+    }));
+
+    await TestBed.configureTestingModule({
+      imports: [TopicDetailsComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ topic: 'persistent://acme/orders/payment-events' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getTopicDetails: () => of({
+              fullName: 'persistent://acme/orders/payment-events',
+              tenant: 'acme',
+              namespace: 'orders',
+              topic: 'payment-events',
+              partitioned: false,
+              partitions: 0,
+              health: 'CRITICAL',
+              stats: {
+                backlog: 18720,
+                producers: 5,
+                subscriptions: 2,
+                consumers: 3,
+                publishRateIn: 190.5,
+                dispatchRateOut: 48.3,
+                throughputIn: 6200,
+                throughputOut: 2100,
+                storageSize: 5880120
+              },
+              schema: {
+                type: 'JSON',
+                version: '9',
+                compatibility: 'BACKWARD',
+                present: true
+              },
+              ownerTeam: 'Payments',
+              notes: 'Backlog-heavy topic.',
+              partitionSummaries: [],
+              subscriptions: ['payment-settlement', 'payment-alerts']
+            }),
+            peekMessages: jasmine.createSpy('peekMessages'),
+            resetCursor
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicDetailsComponent);
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance;
+    component.openWorkflow('reset');
+    component.resetForm.patchValue({
+      subscriptionName: 'payment-settlement',
+      target: 'LATEST',
+      timestamp: '',
+      reason: 'Clear backlog after incident validation'
+    });
+
+    component.submitResetCursor();
+    fixture.detectChanges();
+
+    expect(resetCursor).toHaveBeenCalledWith('prod', {
+      topicName: 'persistent://acme/orders/payment-events',
+      subscriptionName: 'payment-settlement',
+      target: 'LATEST',
+      timestamp: null,
+      reason: 'Clear backlog after incident validation'
+    });
+    expect(fixture.nativeElement.textContent).toContain('Cursor reset to the latest position');
   });
 });

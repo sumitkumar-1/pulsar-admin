@@ -126,8 +126,8 @@
             } @else if (activeWorkflow() === 'reset') {
               <h3>Reset cursor</h3>
               <p class="workflow-copy">
-                This guided flow will reset a subscription cursor to a chosen checkpoint with preview language and
-                confirmation once the backend operation lands.
+                Choose a subscription and target checkpoint, preview the effect in plain English, and then run the
+                reset through the backend operation.
               </p>
             } @else if (activeWorkflow() === 'skip') {
               <h3>Skip messages</h3>
@@ -219,16 +219,78 @@
             </article>
           </div>
 
-          <div class="placeholder-panel">
-            @if (activeWorkflow() === 'reset') {
-              <p>This flow will support earliest, latest, and timestamp-based cursor resets with subscription selection.</p>
-            } @else if (activeWorkflow() === 'skip') {
+          @if (activeWorkflow() === 'reset') {
+            <form class="reset-form" [formGroup]="resetForm" (ngSubmit)="submitResetCursor()">
+              <label>
+                <span>Subscription</span>
+                <select formControlName="subscriptionName">
+                  @for (subscription of topic.subscriptions; track subscription) {
+                    <option [value]="subscription">{{ subscription }}</option>
+                  }
+                </select>
+              </label>
+
+              <label>
+                <span>Reset target</span>
+                <select formControlName="target">
+                  <option value="LATEST">Latest</option>
+                  <option value="EARLIEST">Earliest</option>
+                  <option value="TIMESTAMP">Timestamp</option>
+                </select>
+              </label>
+
+              @if (resetForm.controls.target.value === 'TIMESTAMP') {
+                <label class="full-width">
+                  <span>Timestamp</span>
+                  <input formControlName="timestamp" type="datetime-local" />
+                </label>
+              }
+
+              <label class="full-width">
+                <span>Reason</span>
+                <textarea
+                  formControlName="reason"
+                  rows="3"
+                  placeholder="Why are we resetting this subscription cursor?"
+                ></textarea>
+              </label>
+
+              <div class="preview-panel">
+                <p class="eyebrow">Preview</p>
+                <p>{{ resetPreview() }}</p>
+              </div>
+
+              @if (resetError()) {
+                <div class="placeholder-panel error">
+                  <p>{{ resetError() }}</p>
+                </div>
+              }
+
+              @if (resetResult(); as result) {
+                <div class="placeholder-panel success">
+                  <p>{{ result.message }}</p>
+                  @if (result.effectiveTimestamp) {
+                    <p class="result-meta">Effective timestamp {{ result.effectiveTimestamp | date: 'medium' }}</p>
+                  }
+                </div>
+              }
+
+              <div class="form-button-row">
+                <button type="submit" [disabled]="resetSaving()">
+                  {{ resetSaving() ? 'Resetting...' : 'Reset Cursor' }}
+                </button>
+              </div>
+            </form>
+          } @else {
+            <div class="placeholder-panel">
+              @if (activeWorkflow() === 'skip') {
               <p>This flow will support skipping a specific count of messages with a confirmation step and outcome summary.</p>
-            } @else {
-              <p>This flow will support filter-based replay or copy jobs with destination selection, rate limits, and job reporting.</p>
-            }
-            <button type="button" disabled>Backend implementation coming next</button>
-          </div>
+              } @else {
+                <p>This flow will support filter-based replay or copy jobs with destination selection, rate limits, and job reporting.</p>
+              }
+              <button type="button" disabled>Backend implementation coming next</button>
+            </div>
+          }
         }
       </section>
     </div>
