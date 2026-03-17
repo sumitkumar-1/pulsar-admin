@@ -21,6 +21,7 @@ import com.pulsaradmin.shared.model.TopicPartitionSummary;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
 import java.io.IOException;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -109,12 +110,47 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
 
   @Override
   public ResetCursorResponse resetCursor(EnvironmentDetails environment, ResetCursorRequest request) {
-    throw new BadRequestException("Reset Cursor is not yet available in REST gateway mode. Keep using mock mode until admin-operation integration is added.");
+    PulsarTopicName topicName = PulsarTopicName.parse(request.topicName());
+
+    try {
+      String normalizedTarget = request.target().trim().toUpperCase();
+
+      return switch (normalizedTarget) {
+        case "TIMESTAMP" -> resetCursorByTimestamp(environment, topicName, request.subscriptionName(), request.timestamp());
+        case "EARLIEST" -> resetCursorToEarliest(environment, topicName, request.subscriptionName());
+        case "LATEST" -> resetCursorToLatest(environment, topicName, request.subscriptionName());
+        default -> throw new BadRequestException("Reset target must be EARLIEST, LATEST, or TIMESTAMP.");
+      };
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to reset the subscription cursor via Pulsar admin REST API: " + exception.getMessage());
+    }
   }
 
   @Override
   public SkipMessagesResponse skipMessages(EnvironmentDetails environment, SkipMessagesRequest request) {
-    throw new BadRequestException("Skip Messages is not yet available in REST gateway mode. Keep using mock mode until admin-operation integration is added.");
+    PulsarTopicName topicName = PulsarTopicName.parse(request.topicName());
+
+    try {
+      postWithoutBody(
+          environment,
+          "/admin/v2/" + topicName.domain()
+              + "/" + topicName.tenant()
+              + "/" + topicName.namespace()
+              + "/" + topicName.topic()
+              + "/subscription/" + request.subscriptionName()
+              + "/skip/" + request.messageCount()
+              + "/skipMessages");
+
+      return new SkipMessagesResponse(
+          environment.id(),
+          request.topicName(),
+          request.subscriptionName(),
+          request.messageCount(),
+          "Skipped " + request.messageCount() + " messages via Pulsar admin REST API for subscription "
+              + request.subscriptionName() + ".");
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to skip messages via Pulsar admin REST API: " + exception.getMessage());
+    }
   }
 
   private TopicDetails toTopicDetails(String fullTopicName, String tenant, String namespace) {
@@ -149,6 +185,13 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return objectMapper.readTree(rawBody);
   }
 
+  private void postWithoutBody(EnvironmentDetails environment, String path) {
+    restClient.post()
+        .uri(normalizeAdminUrl(environment.adminUrl()) + path)
+        .retrieve()
+        .toBodilessEntity();
+  }
+
   private List<String> readStringArray(JsonNode node) {
     List<String> values = new ArrayList<>();
     Set<String> deduped = new HashSet<>();
@@ -166,5 +209,79 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return adminUrl != null && adminUrl.endsWith("/")
         ? adminUrl.substring(0, adminUrl.length() - 1)
         : adminUrl;
+  }
+
+  private ResetCursorResponse resetCursorByTimestamp(
+      EnvironmentDetails environment,
+      PulsarTopicName topicName,
+      String subscriptionName,
+      String timestamp) {
+    if (timestamp == null || timestamp.isBlank()) {
+      throw new BadRequestException("A timestamp is required when reset target is TIMESTAMP.");
+    }
+
+    long millis = OffsetDateTime.parse(timestamp).toInstant().toEpochMilli();
+    postWithoutBody(
+        environment,
+        "/admin/v2/" + topicName.domain()
+            + "/" + topicName.tenant()
+            + "/" + topicName.namespace()
+            + "/" + topicName.topic()
+            + "/subscription/" + subscriptionName
+            + "/resetcursor/" + millis);
+
+    return new ResetCursorResponse(
+        environment.id(),
+        topicName.fullName(),
+        subscriptionName,
+        "TIMESTAMP",
+        Instant.ofEpochMilli(millis).toString(),
+        "Cursor reset by timestamp via Pulsar admin REST API for subscription " + subscriptionName + ".");
+  }
+
+  private ResetCursorResponse resetCursorToEarliest(
+      EnvironmentDetails environment,
+      PulsarTopicName topicName,
+      String subscriptionName) {
+    postWithoutBody(
+        environment,
+        "/admin/v2/" + topicName.domain()
+            + "/" + topicName.tenant()
+            + "/" + topicName.namespace()
+            + "/" + topicName.topic()
+            + "/subscription/" + subscriptionName
+            + "/resetcursor/0");
+
+    return new ResetCursorResponse(
+        environment.id(),
+        topicName.fullName(),
+        subscriptionName,
+        "EARLIEST",
+        Instant.EPOCH.toString(),
+        "Cursor reset to the earliest available position via Pulsar admin REST API for subscription "
+            + subscriptionName + ".");
+  }
+
+  private ResetCursorResponse resetCursorToLatest(
+      EnvironmentDetails environment,
+      PulsarTopicName topicName,
+      String subscriptionName) {
+    postWithoutBody(
+        environment,
+        "/admin/v2/" + topicName.domain()
+            + "/" + topicName.tenant()
+            + "/" + topicName.namespace()
+            + "/" + topicName.topic()
+            + "/subscription/" + subscriptionName
+            + "/skip_all/skipAllMessages");
+
+    return new ResetCursorResponse(
+        environment.id(),
+        topicName.fullName(),
+        subscriptionName,
+        "LATEST",
+        null,
+        "Cursor moved to the latest position by clearing backlog via Pulsar admin REST API for subscription "
+            + subscriptionName + ".");
   }
 }

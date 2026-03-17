@@ -59,7 +59,11 @@ To try real Pulsar admin REST connectivity for environment connection tests and 
 APP_PULSAR_GATEWAY_MODE=rest
 ```
 
-In `rest` mode, environment `Test Connection` and `Sync` use the configured `adminUrl` against Pulsar admin REST endpoints. The topic data-plane actions (`Peek Messages`, `Reset Cursor`, `Skip Messages`) still require the mock gateway until the real client-backed integrations are completed.
+In `rest` mode:
+
+- environment `Test Connection` and `Sync` use the configured `adminUrl` against Pulsar admin REST endpoints
+- `Reset Cursor` and `Skip Messages` use Pulsar admin REST endpoints
+- `Peek Messages` still requires the mock gateway until the client-backed data-plane integration is completed
 
 ### 4. Start the frontend
 
