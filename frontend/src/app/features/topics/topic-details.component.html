@@ -120,8 +120,9 @@
             @if (activeWorkflow() === 'peek') {
               <h3>Peek messages</h3>
               <p class="workflow-copy">
-                Preview representative messages for <strong>{{ topic.topic }}</strong> before we wire in broker-backed
-                peeking. This uses the current topic snapshot to show how the final workflow will read.
+                Preview representative messages for <strong>{{ topic.topic }}</strong> through the backend peek flow.
+                In live REST mode, this now uses a read-only Pulsar client path for environments that use auth mode
+                <strong>none</strong> or <strong>token</strong>.
               </p>
             } @else if (activeWorkflow() === 'reset') {
               <h3>Reset cursor</h3>
@@ -151,13 +152,13 @@
             <article class="workflow-card">
               <p class="eyebrow">Preview</p>
               <h4>Peeked messages</h4>
-              <p class="workflow-copy">These messages now come from the backend peek endpoint, so the workflow is ready for a future real Pulsar reader behind the same contract.</p>
+              <p class="workflow-copy">These messages now come from the backend peek endpoint, and live environments can read real sample payloads without changing the UI flow.</p>
             </article>
 
             <article class="workflow-card">
-              <p class="eyebrow">Next</p>
-              <h4>Live Pulsar reader</h4>
-              <p class="workflow-copy">The next backend slice can swap the mock source for a real read-only Pulsar peek implementation without changing this operator flow.</p>
+              <p class="eyebrow">Mode</p>
+              <h4>Mock or live</h4>
+              <p class="workflow-copy">Mock mode still returns safe seeded samples, while REST mode can now read live retained messages for clusters using the current none-or-token integration path.</p>
             </article>
           </div>
 

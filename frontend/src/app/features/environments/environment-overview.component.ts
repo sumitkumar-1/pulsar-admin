@@ -42,6 +42,14 @@ export class EnvironmentOverviewComponent {
     tlsEnabled: [false]
   });
 
+  constructor() {
+    this.environmentForm.controls.authMode.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.updateCredentialValidators());
+
+    this.updateCredentialValidators();
+  }
+
   statusClass(status: string): string {
     return status.toLowerCase();
   }
@@ -66,6 +74,7 @@ export class EnvironmentOverviewComponent {
       tlsEnabled: false
     });
     this.environmentForm.controls.id.enable();
+    this.updateCredentialValidators();
   }
 
   closeDialog() {
@@ -204,5 +213,19 @@ export class EnvironmentOverviewComponent {
       tlsEnabled: environment.tlsEnabled
     });
     this.environmentForm.controls.id.disable();
+    this.updateCredentialValidators();
+  }
+
+  private updateCredentialValidators() {
+    const authMode = this.environmentForm.controls.authMode.value;
+    const credentialControl = this.environmentForm.controls.credentialReference;
+
+    if (authMode === 'none') {
+      credentialControl.clearValidators();
+    } else {
+      credentialControl.setValidators([Validators.required, Validators.maxLength(255)]);
+    }
+
+    credentialControl.updateValueAndValidity({ emitEvent: false });
   }
 }

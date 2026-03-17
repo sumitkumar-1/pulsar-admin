@@ -12,10 +12,12 @@ import com.pulsaradmin.shared.model.EnvironmentSyncStatus;
 import com.pulsaradmin.shared.model.EnvironmentUpsertRequest;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 
 @Service
 public class EnvironmentManagementService {
+  private static final Set<String> SUPPORTED_AUTH_MODES = Set.of("none", "token", "basic", "mtls");
   private final EnvironmentRepository environmentRepository;
   private final EnvironmentSnapshotRepository snapshotRepository;
   private final PulsarAdminGateway pulsarAdminGateway;
@@ -43,6 +45,8 @@ public class EnvironmentManagementService {
     if (environmentRepository.existsActiveById(request.id())) {
       throw new BadRequestException("Environment id already exists: " + request.id());
     }
+
+    validateRequest(request);
 
     EnvironmentRecord environment = new EnvironmentRecord(
         request.id(),
@@ -73,6 +77,8 @@ public class EnvironmentManagementService {
     if (!environmentId.equals(request.id())) {
       throw new BadRequestException("Environment id cannot be changed.");
     }
+
+    validateRequest(request);
 
     EnvironmentRecord existing = requireEnvironment(environmentId);
 
@@ -219,5 +225,18 @@ public class EnvironmentManagementService {
 
   private String blankToNull(String value) {
     return value == null || value.isBlank() ? null : value;
+  }
+
+  private void validateRequest(EnvironmentUpsertRequest request) {
+    String authMode = request.authMode() == null ? "" : request.authMode().trim().toLowerCase();
+    if (!SUPPORTED_AUTH_MODES.contains(authMode)) {
+      throw new BadRequestException("Auth mode must be one of " + SUPPORTED_AUTH_MODES + ".");
+    }
+
+    boolean requiresCredential = !"none".equals(authMode);
+    boolean hasCredential = request.credentialReference() != null && !request.credentialReference().isBlank();
+    if (requiresCredential && !hasCredential) {
+      throw new BadRequestException("Credential reference is required when auth mode is " + authMode + ".");
+    }
   }
 }

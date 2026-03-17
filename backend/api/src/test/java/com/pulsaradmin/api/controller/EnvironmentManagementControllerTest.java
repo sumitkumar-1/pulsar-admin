@@ -70,6 +70,29 @@ class EnvironmentManagementControllerTest {
   }
 
   @Test
+  void shouldRequireCredentialsForTokenAuth() throws Exception {
+    mockMvc.perform(post("/api/v1/environments")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "id": "prod-eu",
+                  "name": "Production EU",
+                  "kind": "prod",
+                  "region": "eu-west-1",
+                  "clusterLabel": "cluster-eu",
+                  "summary": "Production token environment",
+                  "brokerUrl": "pulsar+ssl://prod-eu-brokers:6651",
+                  "adminUrl": "https://prod-eu-admin.internal",
+                  "authMode": "token",
+                  "credentialReference": "",
+                  "tlsEnabled": true
+                }
+                """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("Credential reference is required when auth mode is token."));
+  }
+
+  @Test
   void shouldTestConnectionAndTriggerSync() throws Exception {
     mockMvc.perform(post("/api/v1/environments/dev/test-connection"))
         .andExpect(status().isOk())

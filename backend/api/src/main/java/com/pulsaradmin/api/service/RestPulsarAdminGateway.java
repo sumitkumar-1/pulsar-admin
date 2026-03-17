@@ -20,22 +20,50 @@ import com.pulsaradmin.shared.model.TopicHealth;
 import com.pulsaradmin.shared.model.TopicPartitionSummary;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.StreamSupport;
+import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.AuthenticationFactory;
+import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Reader;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 public class RestPulsarAdminGateway implements PulsarAdminGateway {
+  private static final int CLIENT_OPERATION_TIMEOUT_SECONDS = 5;
+  private static final int PEEK_READ_TIMEOUT_MS = 250;
+  private static final int PEEK_ROLLBACK_DAYS = 3650;
+  private static final int MAX_PAYLOAD_PREVIEW_CHARS = 1600;
+  private static final int MAX_SUMMARY_CHARS = 140;
+
   private final RestClient restClient;
   private final ObjectMapper objectMapper;
+  private final PulsarClientFactory pulsarClientFactory;
+  private final ConcurrentMap<String, PulsarClient> clientCache = new ConcurrentHashMap<>();
 
   public RestPulsarAdminGateway(RestClient restClient, ObjectMapper objectMapper) {
+    this(restClient, objectMapper, RestPulsarAdminGateway::buildClient);
+  }
+
+  RestPulsarAdminGateway(
+      RestClient restClient,
+      ObjectMapper objectMapper,
+      PulsarClientFactory pulsarClientFactory) {
     this.restClient = restClient;
     this.objectMapper = objectMapper;
+    this.pulsarClientFactory = pulsarClientFactory;
   }
 
   @Override
@@ -81,7 +109,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
 
           JsonNode topicsNode = getJson(environment, "/admin/v2/persistent/" + namespacePath);
           for (String fullTopicName : readStringArray(topicsNode)) {
-            topics.add(toTopicDetails(fullTopicName, namespaceSegments[0], namespaceSegments[1]));
+            topics.add(toTopicDetails(environment, fullTopicName, namespaceSegments[0], namespaceSegments[1]));
           }
         }
       }
@@ -105,7 +133,24 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
 
   @Override
   public PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit) {
-    throw new BadRequestException("Peek Messages is not yet available in REST gateway mode. Keep using mock mode until client-backed data-plane integration is added.");
+    try {
+      PulsarClient client = getOrCreateClient(environment);
+      List<String> targetTopics = resolveTargetTopics(client, topicName);
+      List<com.pulsaradmin.shared.model.PeekMessage> messages = readMessages(client, targetTopics, limit);
+
+      return new PeekMessagesResponse(
+          environment.id(),
+          topicName,
+          limit,
+          messages.size(),
+          messages.size() == limit,
+          messages);
+    } catch (PulsarClientException | ExecutionException | InterruptedException exception) {
+      if (exception instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      throw new BadRequestException("Unable to peek messages through the Pulsar client: " + exception.getMessage());
+    }
   }
 
   @Override
@@ -153,30 +198,46 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     }
   }
 
-  private TopicDetails toTopicDetails(String fullTopicName, String tenant, String namespace) {
+  private TopicDetails toTopicDetails(
+      EnvironmentDetails environment,
+      String fullTopicName,
+      String tenant,
+      String namespace) {
     PulsarTopicName parsed = PulsarTopicName.parse(fullTopicName);
-    boolean partitioned = parsed.topic().contains("-partition-");
+    JsonNode statsNode = safeGetJson(environment, statsPath(parsed));
+    JsonNode schemaNode = safeGetJson(environment, schemaPath(parsed));
+
+    TopicStatsSummary stats = toTopicStats(statsNode);
+    List<String> subscriptions = readSubscriptions(statsNode);
+    List<TopicPartitionSummary> partitionSummaries = readPartitionSummaries(statsNode);
+    boolean partitioned = !partitionSummaries.isEmpty() || parsed.topic().contains("-partition-");
+    SchemaSummary schema = toSchemaSummary(schemaNode);
+    TopicHealth health = deriveTopicHealth(stats, subscriptions);
+    String notes = buildTopicNotes(schema, statsNode, subscriptions);
+
     return new TopicDetails(
         parsed.fullName(),
         tenant,
         namespace,
         parsed.topic(),
         partitioned,
-        partitioned ? 1 : 0,
-        TopicHealth.HEALTHY,
-        new TopicStatsSummary(0, 0, 0, 0, 0, 0, 0, 0, 0),
-        new SchemaSummary("UNKNOWN", "-", "UNKNOWN", false),
+        partitioned ? Math.max(1, partitionSummaries.size()) : 0,
+        health,
+        stats,
+        schema,
         "Unassigned",
-        "Imported from Pulsar admin REST sync. Live stats and schema details will be enriched in later integration steps.",
-        List.<TopicPartitionSummary>of(),
-        List.of());
+        notes,
+        partitionSummaries,
+        subscriptions);
   }
 
   private JsonNode getJson(EnvironmentDetails environment, String path) throws IOException {
-    String rawBody = restClient.get()
-        .uri(normalizeAdminUrl(environment.adminUrl()) + path)
-        .retrieve()
-        .body(String.class);
+    var request = restClient.get()
+        .uri(normalizeAdminUrl(environment.adminUrl()) + path);
+
+    applyAuthHeaders(request, environment);
+
+    String rawBody = request.retrieve().body(String.class);
 
     if (rawBody == null || rawBody.isBlank()) {
       return objectMapper.createArrayNode();
@@ -185,11 +246,21 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return objectMapper.readTree(rawBody);
   }
 
+  private JsonNode safeGetJson(EnvironmentDetails environment, String path) {
+    try {
+      return getJson(environment, path);
+    } catch (IOException | RestClientException exception) {
+      return objectMapper.createObjectNode();
+    }
+  }
+
   private void postWithoutBody(EnvironmentDetails environment, String path) {
-    restClient.post()
-        .uri(normalizeAdminUrl(environment.adminUrl()) + path)
-        .retrieve()
-        .toBodilessEntity();
+    var request = restClient.post()
+        .uri(normalizeAdminUrl(environment.adminUrl()) + path);
+
+    applyAuthHeaders(request, environment);
+
+    request.retrieve().toBodilessEntity();
   }
 
   private List<String> readStringArray(JsonNode node) {
@@ -209,6 +280,348 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return adminUrl != null && adminUrl.endsWith("/")
         ? adminUrl.substring(0, adminUrl.length() - 1)
         : adminUrl;
+  }
+
+  private String statsPath(PulsarTopicName topicName) {
+    return "/admin/v2/" + topicName.domain()
+        + "/" + topicName.tenant()
+        + "/" + topicName.namespace()
+        + "/" + topicName.topic()
+        + "/stats";
+  }
+
+  private String schemaPath(PulsarTopicName topicName) {
+    return "/admin/v2/schemas/"
+        + topicName.tenant()
+        + "/" + topicName.namespace()
+        + "/" + topicName.topic()
+        + "/schema";
+  }
+
+  private TopicStatsSummary toTopicStats(JsonNode statsNode) {
+    JsonNode subscriptionsNode = statsNode.path("subscriptions");
+    JsonNode producersNode = statsNode.path("publishers").isArray()
+        ? statsNode.path("publishers")
+        : statsNode.path("producers");
+
+    long backlog = 0;
+    int consumers = 0;
+    int subscriptionCount = 0;
+
+    if (subscriptionsNode.isObject()) {
+      subscriptionCount = subscriptionsNode.size();
+      for (JsonNode subscriptionNode : iterable(subscriptionsNode.elements())) {
+        backlog += subscriptionNode.path("msgBacklog").asLong(0);
+        JsonNode consumerNode = subscriptionNode.path("consumers");
+        if (consumerNode.isArray()) {
+          consumers += consumerNode.size();
+        }
+      }
+    }
+
+    return new TopicStatsSummary(
+        backlog,
+        producersNode.isArray() ? producersNode.size() : 0,
+        subscriptionCount,
+        consumers,
+        statsNode.path("msgRateIn").asDouble(0),
+        statsNode.path("msgRateOut").asDouble(0),
+        statsNode.path("msgThroughputIn").asDouble(0),
+        statsNode.path("msgThroughputOut").asDouble(0),
+        statsNode.path("storageSize").asLong(0));
+  }
+
+  private List<String> readSubscriptions(JsonNode statsNode) {
+    JsonNode subscriptionsNode = statsNode.path("subscriptions");
+    if (!subscriptionsNode.isObject()) {
+      return List.of();
+    }
+
+    return StreamSupport.stream(iterable(subscriptionsNode.fieldNames()).spliterator(), false)
+        .sorted()
+        .toList();
+  }
+
+  private List<TopicPartitionSummary> readPartitionSummaries(JsonNode statsNode) {
+    JsonNode partitionsNode = statsNode.path("partitions");
+    if (!partitionsNode.isObject()) {
+      return List.of();
+    }
+
+    List<TopicPartitionSummary> partitionSummaries = new ArrayList<>();
+    partitionsNode.fields().forEachRemaining(entry -> {
+      JsonNode partitionNode = entry.getValue();
+      long backlog = sumPartitionBacklog(partitionNode.path("subscriptions"));
+      int consumers = sumPartitionConsumers(partitionNode.path("subscriptions"));
+      partitionSummaries.add(new TopicPartitionSummary(
+          entry.getKey(),
+          backlog,
+          consumers,
+          partitionNode.path("msgRateIn").asDouble(0),
+          partitionNode.path("msgRateOut").asDouble(0),
+          derivePartitionHealth(backlog, consumers)));
+    });
+
+    partitionSummaries.sort(Comparator.comparing(TopicPartitionSummary::partitionName));
+    return partitionSummaries;
+  }
+
+  private long sumPartitionBacklog(JsonNode subscriptionsNode) {
+    long backlog = 0;
+    if (subscriptionsNode.isObject()) {
+      for (JsonNode subscriptionNode : iterable(subscriptionsNode.elements())) {
+        backlog += subscriptionNode.path("msgBacklog").asLong(0);
+      }
+    }
+    return backlog;
+  }
+
+  private int sumPartitionConsumers(JsonNode subscriptionsNode) {
+    int consumers = 0;
+    if (subscriptionsNode.isObject()) {
+      for (JsonNode subscriptionNode : iterable(subscriptionsNode.elements())) {
+        JsonNode consumerNode = subscriptionNode.path("consumers");
+        if (consumerNode.isArray()) {
+          consumers += consumerNode.size();
+        }
+      }
+    }
+    return consumers;
+  }
+
+  private TopicHealth deriveTopicHealth(TopicStatsSummary stats, List<String> subscriptions) {
+    if (stats.backlog() > 50_000 && stats.consumers() == 0) {
+      return TopicHealth.CRITICAL;
+    }
+
+    if (stats.backlog() > 5_000 || (!subscriptions.isEmpty() && stats.consumers() == 0)) {
+      return TopicHealth.ATTENTION;
+    }
+
+    return TopicHealth.HEALTHY;
+  }
+
+  private TopicHealth derivePartitionHealth(long backlog, int consumers) {
+    if (backlog > 10_000 && consumers == 0) {
+      return TopicHealth.CRITICAL;
+    }
+
+    if (backlog > 1_000 || consumers == 0) {
+      return TopicHealth.ATTENTION;
+    }
+
+    return TopicHealth.HEALTHY;
+  }
+
+  private SchemaSummary toSchemaSummary(JsonNode schemaNode) {
+    JsonNode dataNode = schemaNode.path("data");
+    boolean present = dataNode.isObject() && dataNode.size() > 0;
+    String type = dataNode.path("type").asText(
+        schemaNode.path("type").asText(present ? "UNKNOWN" : "NONE"));
+    String version = schemaNode.path("version").asText(
+        dataNode.path("version").asText(present ? "latest" : "-"));
+    String compatibility = schemaNode.path("compatibilityStrategy").asText(
+        schemaNode.path("compatibility").asText("UNKNOWN"));
+
+    return new SchemaSummary(type, version, compatibility, present);
+  }
+
+  private String buildTopicNotes(
+      SchemaSummary schema,
+      JsonNode statsNode,
+      List<String> subscriptions) {
+    StringBuilder notes = new StringBuilder("Imported from Pulsar admin REST sync.");
+
+    if (!subscriptions.isEmpty()) {
+      notes.append(" Found ").append(subscriptions.size()).append(" subscriptions.");
+    }
+
+    if (schema.present()) {
+      notes.append(" Schema detected: ").append(schema.type()).append(".");
+    } else {
+      notes.append(" Schema metadata is unavailable for this topic.");
+    }
+
+    if (statsNode.isObject() && statsNode.size() > 0) {
+      notes.append(" Live topic stats were captured during sync.");
+    } else {
+      notes.append(" Topic stats could not be retrieved during sync.");
+    }
+
+    return notes.toString();
+  }
+
+  private <T> Iterable<T> iterable(java.util.Iterator<T> iterator) {
+    return () -> iterator;
+  }
+
+  private PulsarClient getOrCreateClient(EnvironmentDetails environment) throws PulsarClientException {
+    String cacheKey = environment.id()
+        + "|" + environment.brokerUrl()
+        + "|" + environment.tlsEnabled()
+        + "|" + environment.authMode()
+        + "|" + environment.credentialReference();
+    PulsarClient existing = clientCache.get(cacheKey);
+    if (existing != null) {
+      return existing;
+    }
+
+    PulsarClient created = pulsarClientFactory.create(environment);
+    PulsarClient previous = clientCache.putIfAbsent(cacheKey, created);
+    if (previous != null) {
+      closeQuietly(created);
+      return previous;
+    }
+
+    return created;
+  }
+
+  private static PulsarClient buildClient(EnvironmentDetails environment) throws PulsarClientException {
+    var builder = PulsarClient.builder()
+        .serviceUrl(environment.brokerUrl())
+        .enableTls(environment.tlsEnabled())
+        .operationTimeout(CLIENT_OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+    String authMode = environment.authMode() == null ? "" : environment.authMode().trim().toLowerCase();
+    if ("token".equals(authMode)) {
+      String token = EnvironmentCredentials.resolve(environment)
+          .authorizationHeader()
+          .replaceFirst("(?i)^Bearer\\s+", "")
+          .trim();
+      builder.authentication(AuthenticationFactory.token(token));
+    } else if ("basic".equals(authMode)) {
+      throw new BadRequestException("Live peek currently supports auth modes none and token.");
+    } else if ("mtls".equals(authMode)) {
+      throw new BadRequestException("mTLS environments are not yet supported by the live gateway.");
+    }
+
+    return builder.build();
+  }
+
+  private List<String> resolveTargetTopics(PulsarClient client, String topicName)
+      throws ExecutionException, InterruptedException {
+    List<String> partitions = client.getPartitionsForTopic(topicName).get();
+    if (partitions == null || partitions.isEmpty()) {
+      return List.of(topicName);
+    }
+    return partitions;
+  }
+
+  private List<com.pulsaradmin.shared.model.PeekMessage> readMessages(
+      PulsarClient client,
+      List<String> targetTopics,
+      int limit) throws PulsarClientException {
+    List<Reader<byte[]>> readers = new ArrayList<>();
+
+    try {
+      for (String targetTopic : targetTopics) {
+        readers.add(client.newReader()
+            .topic(targetTopic)
+            .startMessageFromRollbackDuration(PEEK_ROLLBACK_DAYS, TimeUnit.DAYS)
+            .create());
+      }
+
+      List<com.pulsaradmin.shared.model.PeekMessage> messages = new ArrayList<>();
+      boolean madeProgress = true;
+
+      while (messages.size() < limit && madeProgress) {
+        madeProgress = false;
+        for (Reader<byte[]> reader : readers) {
+          if (messages.size() >= limit) {
+            break;
+          }
+
+          Message<byte[]> message = reader.readNext(PEEK_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+          if (message != null) {
+            messages.add(toPeekMessage(message));
+            madeProgress = true;
+          }
+        }
+      }
+
+      return messages;
+    } finally {
+      for (Reader<byte[]> reader : readers) {
+        closeQuietly(reader);
+      }
+    }
+  }
+
+  private com.pulsaradmin.shared.model.PeekMessage toPeekMessage(Message<byte[]> message) {
+    String payload = formatPayload(message.getData());
+    String publishTime = toIsoTimestamp(message.getPublishTime());
+    String eventTime = message.getEventTime() > 0 ? toIsoTimestamp(message.getEventTime()) : null;
+    String key = message.hasKey() ? message.getKey() : "No key";
+    String producerName = message.getProducerName() == null || message.getProducerName().isBlank()
+        ? "Unknown producer"
+        : message.getProducerName();
+
+    return new com.pulsaradmin.shared.model.PeekMessage(
+        String.valueOf(message.getMessageId()),
+        key,
+        publishTime,
+        eventTime,
+        producerName,
+        summarizePayload(payload),
+        payload,
+        formatSchemaVersion(message.getSchemaVersion()));
+  }
+
+  private String formatPayload(byte[] payloadBytes) {
+    if (payloadBytes == null || payloadBytes.length == 0) {
+      return "";
+    }
+
+    String payload = new String(payloadBytes, StandardCharsets.UTF_8);
+    if (payload.length() <= MAX_PAYLOAD_PREVIEW_CHARS) {
+      return payload;
+    }
+
+    return payload.substring(0, MAX_PAYLOAD_PREVIEW_CHARS) + "\n...truncated";
+  }
+
+  private String summarizePayload(String payload) {
+    if (payload == null || payload.isBlank()) {
+      return "Message has an empty payload.";
+    }
+
+    String collapsed = payload.replaceAll("\\s+", " ").trim();
+    if (collapsed.length() <= MAX_SUMMARY_CHARS) {
+      return collapsed;
+    }
+
+    return collapsed.substring(0, MAX_SUMMARY_CHARS - 3) + "...";
+  }
+
+  private String formatSchemaVersion(byte[] schemaVersion) {
+    if (schemaVersion == null || schemaVersion.length == 0) {
+      return "unknown";
+    }
+
+    StringBuilder builder = new StringBuilder();
+    for (byte value : schemaVersion) {
+      builder.append(String.format("%02x", value));
+    }
+    return builder.toString();
+  }
+
+  private String toIsoTimestamp(long millis) {
+    return Instant.ofEpochMilli(millis).toString();
+  }
+
+  private void closeQuietly(AutoCloseable closeable) {
+    try {
+      closeable.close();
+    } catch (Exception ignored) {
+      // Best-effort cleanup for transient readers and cached clients.
+    }
+  }
+
+  private void applyAuthHeaders(RestClient.RequestHeadersSpec<?> request, EnvironmentDetails environment) {
+    EnvironmentCredentials.AuthHeaders authHeaders = EnvironmentCredentials.resolve(environment);
+    if (authHeaders.present()) {
+      request.header("Authorization", authHeaders.authorizationHeader());
+    }
   }
 
   private ResetCursorResponse resetCursorByTimestamp(
@@ -283,5 +696,10 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         null,
         "Cursor moved to the latest position by clearing backlog via Pulsar admin REST API for subscription "
             + subscriptionName + ".");
+  }
+
+  @FunctionalInterface
+  interface PulsarClientFactory {
+    PulsarClient create(EnvironmentDetails environment) throws PulsarClientException;
   }
 }

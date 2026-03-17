@@ -92,7 +92,8 @@
 
         <label>
           <span>Credential reference</span>
-          <input formControlName="credentialReference" type="text" placeholder="vault://pulsar/dev" />
+          <input formControlName="credentialReference" type="text" [placeholder]="authMode() === 'token' ? 'env://PULSAR_TOKEN' : 'username:password'" />
+          <small>{{ credentialHint() }}</small>
         </label>
 
         <label class="checkbox-row">

@@ -62,8 +62,11 @@ APP_PULSAR_GATEWAY_MODE=rest
 In `rest` mode:
 
 - environment `Test Connection` and `Sync` use the configured `adminUrl` against Pulsar admin REST endpoints
+- metadata sync now captures tenant and namespace inventory plus live topic subscriptions, stats, partition summaries, and schema presence when the Pulsar cluster exposes them
+- `Peek Messages` now uses a read-only Pulsar client path against the configured `brokerUrl`
 - `Reset Cursor` and `Skip Messages` use Pulsar admin REST endpoints
-- `Peek Messages` still requires the mock gateway until the client-backed data-plane integration is completed
+- the current live integration supports auth mode `none` and token-based environments using a raw token, `token:...`, or `env://VAR_NAME`
+- basic auth can be stored for future work, but live peek still requires `none` or `token`
 
 ### 4. Start the frontend
 
