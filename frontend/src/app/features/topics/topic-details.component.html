@@ -20,9 +20,10 @@
       </div>
 
       <div class="action-strip">
-        <button type="button" disabled>Peek Messages</button>
-        <button type="button" disabled>Reset Cursor</button>
-        <button type="button" disabled>Replay / Copy</button>
+        <button type="button" (click)="openWorkflow('peek')">Peek Messages</button>
+        <button type="button" (click)="openWorkflow('reset')">Reset Cursor</button>
+        <button type="button" (click)="openWorkflow('skip')">Skip Messages</button>
+        <button type="button" (click)="openWorkflow('replay')">Replay / Copy</button>
       </div>
     </section>
 
@@ -106,5 +107,130 @@
         }
       </article>
     </section>
+  }
+}
+
+@if (details(); as topic) {
+  @if (activeWorkflow()) {
+    <div class="workflow-shell" (click)="closeWorkflow()">
+      <section class="workflow-dialog" (click)="$event.stopPropagation()">
+        <div class="workflow-header">
+          <div>
+            <p class="eyebrow">Operator Workflow</p>
+            @if (activeWorkflow() === 'peek') {
+              <h3>Peek messages</h3>
+              <p class="workflow-copy">
+                Preview representative messages for <strong>{{ topic.topic }}</strong> before we wire in broker-backed
+                peeking. This uses the current topic snapshot to show how the final workflow will read.
+              </p>
+            } @else if (activeWorkflow() === 'reset') {
+              <h3>Reset cursor</h3>
+              <p class="workflow-copy">
+                This guided flow will reset a subscription cursor to a chosen checkpoint with preview language and
+                confirmation once the backend operation lands.
+              </p>
+            } @else if (activeWorkflow() === 'skip') {
+              <h3>Skip messages</h3>
+              <p class="workflow-copy">
+                Use this entry point to skip a bounded number of poison messages after we add subscription-aware
+                backend actions.
+              </p>
+            } @else {
+              <h3>Replay or copy messages</h3>
+              <p class="workflow-copy">
+                This wizard will become the launch point for filter-based replay and copy jobs. The UI now captures the
+                intended operator flow and safety language.
+              </p>
+            }
+          </div>
+          <button class="close-workflow" type="button" (click)="closeWorkflow()">Close</button>
+        </div>
+
+        @if (activeWorkflow() === 'peek') {
+          <div class="workflow-grid">
+            <article class="workflow-card">
+              <p class="eyebrow">Preview</p>
+              <h4>Peeked messages</h4>
+              <p class="workflow-copy">These messages now come from the backend peek endpoint, so the workflow is ready for a future real Pulsar reader behind the same contract.</p>
+            </article>
+
+            <article class="workflow-card">
+              <p class="eyebrow">Next</p>
+              <h4>Live Pulsar reader</h4>
+              <p class="workflow-copy">The next backend slice can swap the mock source for a real read-only Pulsar peek implementation without changing this operator flow.</p>
+            </article>
+          </div>
+
+          @if (peekLoading()) {
+            <div class="placeholder-panel">
+              <p>Loading sampled messages for this topic...</p>
+            </div>
+          } @else if (peekError()) {
+            <div class="placeholder-panel error">
+              <p>{{ peekError() }}</p>
+            </div>
+          } @else {
+            @if (peekState(); as peek) {
+              <div class="peek-meta">
+                <span>{{ peek.returnedCount }} messages returned</span>
+                @if (peek.truncated) {
+                  <span>Showing the first {{ peek.requestedCount }} available messages</span>
+                }
+              </div>
+
+              @if (peek.messages.length === 0) {
+                <div class="placeholder-panel">
+                  <p>No peekable messages are currently available for this topic.</p>
+                </div>
+              } @else {
+                <div class="message-list">
+                  @for (message of peek.messages; track message.messageId) {
+                    <article class="message-card">
+                      <div class="message-topline">
+                        <strong>{{ message.messageId }}</strong>
+                        <span>{{ message.publishTime | date: 'medium' }}</span>
+                      </div>
+                      <p class="message-key">Key {{ message.key }} · Producer {{ message.producerName }}</p>
+                      <p class="message-summary">{{ message.summary }}</p>
+                      <p class="message-key">Schema version {{ message.schemaVersion }} · Event time {{ message.eventTime | date: 'medium' }}</p>
+                      <pre>{{ message.payload }}</pre>
+                    </article>
+                  }
+                </div>
+              }
+            }
+          }
+        } @else {
+          <div class="workflow-grid">
+            <article class="workflow-card">
+              <p class="eyebrow">Scope</p>
+              <h4>{{ topic.fullName }}</h4>
+              <p class="workflow-copy">
+                Environment {{ environmentId() }} · {{ topic.subscriptions.length }} subscriptions · backlog {{ topic.stats.backlog | number }}
+              </p>
+            </article>
+
+            <article class="workflow-card">
+              <p class="eyebrow">Safety language</p>
+              <h4>Guided execution</h4>
+              <p class="workflow-copy">
+                The final flow will explain impact in plain English, require a preview, and keep bulk actions bounded.
+              </p>
+            </article>
+          </div>
+
+          <div class="placeholder-panel">
+            @if (activeWorkflow() === 'reset') {
+              <p>This flow will support earliest, latest, and timestamp-based cursor resets with subscription selection.</p>
+            } @else if (activeWorkflow() === 'skip') {
+              <p>This flow will support skipping a specific count of messages with a confirmation step and outcome summary.</p>
+            } @else {
+              <p>This flow will support filter-based replay or copy jobs with destination selection, rate limits, and job reporting.</p>
+            }
+            <button type="button" disabled>Backend implementation coming next</button>
+          </div>
+        }
+      </section>
+    </div>
   }
 }

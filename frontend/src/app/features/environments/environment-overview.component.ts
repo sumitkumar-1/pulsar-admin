@@ -5,11 +5,12 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { EnvironmentDetails, EnvironmentSummary, EnvironmentUpsertRequest } from '../../core/models/api.models';
+import { EnvironmentDialogComponent } from './environment-dialog.component';
 
 @Component({
   selector: 'app-environment-overview',
   standalone: true,
-  imports: [AsyncPipe, DatePipe, NgClass, ReactiveFormsModule, RouterLink],
+  imports: [AsyncPipe, DatePipe, NgClass, ReactiveFormsModule, RouterLink, EnvironmentDialogComponent],
   templateUrl: './environment-overview.component.html',
   styleUrl: './environment-overview.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -25,6 +26,7 @@ export class EnvironmentOverviewComponent {
   readonly actionState = signal<string | null>(null);
   readonly actionError = signal<string | null>(null);
   readonly editing = signal(false);
+  readonly dialogOpen = signal(false);
 
   readonly environmentForm = this.formBuilder.nonNullable.group({
     id: ['', [Validators.required, Validators.pattern(/^[a-z0-9-]{2,32}$/)]],
@@ -44,8 +46,9 @@ export class EnvironmentOverviewComponent {
     return status.toLowerCase();
   }
 
-  startCreate() {
+  openCreateDialog() {
     this.editing.set(false);
+    this.dialogOpen.set(true);
     this.selectedEnvironmentId.set(null);
     this.actionState.set(null);
     this.actionError.set(null);
@@ -65,6 +68,10 @@ export class EnvironmentOverviewComponent {
     this.environmentForm.controls.id.enable();
   }
 
+  closeDialog() {
+    this.dialogOpen.set(false);
+  }
+
   editEnvironment(environmentId: string, event?: Event) {
     event?.stopPropagation();
     event?.preventDefault();
@@ -74,7 +81,10 @@ export class EnvironmentOverviewComponent {
     this.api.getEnvironment(environmentId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (environment) => this.populateForm(environment),
+        next: (environment) => {
+          this.populateForm(environment);
+          this.dialogOpen.set(true);
+        },
         error: (error: { error?: { message?: string } }) => {
           this.actionError.set(error.error?.message ?? 'Unable to load environment details.');
         }
@@ -101,6 +111,7 @@ export class EnvironmentOverviewComponent {
       next: (environment) => {
         this.saving.set(false);
         this.populateForm(environment);
+        this.dialogOpen.set(false);
         this.actionState.set(wasEditing ? 'Environment updated.' : 'Environment created. Test the connection to trigger sync.');
       },
       error: (error: { error?: { message?: string } }) => {
@@ -164,7 +175,9 @@ export class EnvironmentOverviewComponent {
       .subscribe({
         next: () => {
           if (this.selectedEnvironmentId() === environmentId) {
-            this.startCreate();
+            this.dialogOpen.set(false);
+            this.editing.set(false);
+            this.selectedEnvironmentId.set(null);
           }
           this.actionState.set('Environment deleted from active navigation.');
         },

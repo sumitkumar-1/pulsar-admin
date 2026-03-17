@@ -125,6 +125,26 @@ export interface TopicDetails {
   subscriptions: string[];
 }
 
+export interface PeekMessage {
+  messageId: string;
+  key: string;
+  publishTime: string;
+  eventTime: string;
+  producerName: string;
+  summary: string;
+  payload: string;
+  schemaVersion: string;
+}
+
+export interface PeekMessagesResponse {
+  environmentId: string;
+  topicName: string;
+  requestedCount: number;
+  returnedCount: number;
+  truncated: boolean;
+  messages: PeekMessage[];
+}
+
 export interface TopicPage {
   items: TopicListItem[];
   page: number;

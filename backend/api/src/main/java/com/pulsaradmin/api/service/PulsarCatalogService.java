@@ -2,6 +2,7 @@ package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
+import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import org.springframework.stereotype.Service;
@@ -34,5 +35,9 @@ public class PulsarCatalogService {
 
   public TopicDetails getTopicDetails(String environmentId, String topicName) {
     return environmentCatalogService.getTopicDetails(environmentId, topicName);
+  }
+
+  public PeekMessagesResponse peekMessages(String environmentId, String topicName, int limit) {
+    return environmentCatalogService.peekMessages(environmentId, topicName, limit);
   }
 }

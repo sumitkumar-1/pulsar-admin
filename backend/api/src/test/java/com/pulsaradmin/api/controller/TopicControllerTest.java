@@ -32,11 +32,25 @@ class TopicControllerTest {
 
   @Test
   void shouldReturnTopicDetails() throws Exception {
-    mockMvc.perform(get("/api/v1/environments/prod/topics/persistent:%2F%2Facme%2Forders%2Fpayment-events"))
+    mockMvc.perform(get("/api/v1/environments/prod/topics/detail")
+            .param("topic", "persistent://acme/orders/payment-events"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.fullName").value("persistent://acme/orders/payment-events"))
         .andExpect(jsonPath("$.stats.backlog", greaterThan(1000)))
         .andExpect(jsonPath("$.subscriptions", hasSize(2)));
+  }
+
+  @Test
+  void shouldReturnPeekMessages() throws Exception {
+    mockMvc.perform(get("/api/v1/environments/prod/topics/peek")
+            .param("topic", "persistent://acme/orders/payment-events")
+            .param("limit", "2"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.environmentId").value("prod"))
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.returnedCount").value(2))
+        .andExpect(jsonPath("$.messages", hasSize(2)))
+        .andExpect(jsonPath("$.messages[0].messageId").exists());
   }
 
   @Test
@@ -48,7 +62,8 @@ class TopicControllerTest {
 
   @Test
   void shouldReturnNotFoundForUnknownTopic() throws Exception {
-    mockMvc.perform(get("/api/v1/environments/prod/topics/persistent:%2F%2Facme%2Forders%2Fmissing"))
+    mockMvc.perform(get("/api/v1/environments/prod/topics/detail")
+            .param("topic", "persistent://acme/orders/missing"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.message").value("Unknown topic: persistent://acme/orders/missing"));
   }

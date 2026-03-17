@@ -8,6 +8,7 @@ import {
   EnvironmentSyncStatus,
   EnvironmentSummary,
   EnvironmentUpsertRequest,
+  PeekMessagesResponse,
   TopicDetails,
   TopicPage
 } from '../models/api.models';
@@ -97,8 +98,15 @@ export class PulsarApiService {
   }
 
   getTopicDetails(environmentId: string, topicName: string): Observable<TopicDetails> {
-    return this.http.get<TopicDetails>(
-      `${this.baseUrl}/environments/${environmentId}/topics/${encodeURIComponent(topicName)}`
+    return this.http.get<TopicDetails>(`${this.baseUrl}/environments/${environmentId}/topics/detail`, {
+      params: new HttpParams().set('topic', topicName)
+    });
+  }
+
+  peekMessages(environmentId: string, topicName: string, limit = 5): Observable<PeekMessagesResponse> {
+    return this.http.get<PeekMessagesResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/peek`,
+      { params: new HttpParams().set('topic', topicName).set('limit', String(limit)) }
     );
   }
 

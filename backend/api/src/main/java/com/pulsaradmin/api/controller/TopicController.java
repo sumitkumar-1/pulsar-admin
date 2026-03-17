@@ -2,11 +2,9 @@ package com.pulsaradmin.api.controller;
 
 import com.pulsaradmin.api.service.PulsarCatalogService;
 import com.pulsaradmin.shared.model.PagedResult;
+import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
-import jakarta.servlet.http.HttpServletRequest;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,23 +31,18 @@ public class TopicController {
     return pulsarCatalogService.getTopics(envId, tenant, namespace, search, page, pageSize);
   }
 
-  @GetMapping("/**")
+  @GetMapping("/detail")
   public TopicDetails getTopicDetails(
       @PathVariable("envId") String envId,
-      HttpServletRequest request) {
-    String prefix = "/api/v1/environments/" + envId + "/topics/";
-    String encodedTopic = request.getRequestURI().substring(prefix.length());
-    String topicName = decodeTopicName(encodedTopic);
+      @RequestParam("topic") String topicName) {
     return pulsarCatalogService.getTopicDetails(envId, topicName);
   }
 
-  private String decodeTopicName(String encodedTopic) {
-    String decoded = URLDecoder.decode(encodedTopic, StandardCharsets.UTF_8);
-
-    if (decoded.contains("%")) {
-      decoded = URLDecoder.decode(decoded, StandardCharsets.UTF_8);
-    }
-
-    return decoded;
+  @GetMapping("/peek")
+  public PeekMessagesResponse peekMessages(
+      @PathVariable("envId") String envId,
+      @RequestParam(name = "limit", defaultValue = "5") int limit,
+      @RequestParam("topic") String topicName) {
+    return pulsarCatalogService.peekMessages(envId, topicName, limit);
   }
 }

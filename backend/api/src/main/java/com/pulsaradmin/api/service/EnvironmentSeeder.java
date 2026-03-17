@@ -1,5 +1,6 @@
 package com.pulsaradmin.api.service;
 
+import com.pulsaradmin.shared.model.EnvironmentSummary;
 import com.pulsaradmin.shared.model.EnvironmentUpsertRequest;
 import java.util.List;
 import org.springframework.boot.CommandLineRunner;
@@ -19,7 +20,15 @@ public class EnvironmentSeeder implements CommandLineRunner {
 
   @Override
   public void run(String... args) {
-    if (!environmentRepository.findAllActive().isEmpty()) {
+    List<EnvironmentSummary> activeEnvironments = environmentManagementService.getEnvironments();
+    if (!activeEnvironments.isEmpty()) {
+      activeEnvironments.forEach(environment -> {
+        try {
+          environmentManagementService.testConnection(environment.id());
+        } catch (RuntimeException ignored) {
+          // Keep local startup resilient when an older environment cannot be synced automatically.
+        }
+      });
       return;
     }
 

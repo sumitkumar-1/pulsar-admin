@@ -2,8 +2,10 @@ package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.api.support.NotFoundException;
+import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
+import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import java.util.Set;
@@ -15,12 +17,15 @@ public class EnvironmentCatalogService {
 
   private final EnvironmentRepository environmentRepository;
   private final EnvironmentSnapshotRepository snapshotRepository;
+  private final PulsarAdminGateway pulsarAdminGateway;
 
   public EnvironmentCatalogService(
       EnvironmentRepository environmentRepository,
-      EnvironmentSnapshotRepository snapshotRepository) {
+      EnvironmentSnapshotRepository snapshotRepository,
+      PulsarAdminGateway pulsarAdminGateway) {
     this.environmentRepository = environmentRepository;
     this.snapshotRepository = snapshotRepository;
+    this.pulsarAdminGateway = pulsarAdminGateway;
   }
 
   public EnvironmentHealth getEnvironmentHealth(String environmentId) {
@@ -92,10 +97,36 @@ public class EnvironmentCatalogService {
         .orElseThrow(() -> new NotFoundException("Unknown topic: " + topicName));
   }
 
-  private void requireEnvironment(String environmentId) {
-    if (environmentRepository.findActiveById(environmentId).isEmpty()) {
-      throw new NotFoundException("Unknown environment: " + environmentId);
+  public PeekMessagesResponse peekMessages(String environmentId, String topicName, int limit) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+
+    if (topicName == null || topicName.isBlank()) {
+      throw new BadRequestException("A topic name is required.");
     }
+
+    if (limit < 1 || limit > 25) {
+      throw new BadRequestException("Peek limit must be between 1 and 25.");
+    }
+
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    boolean exists = snapshot.topics().stream().anyMatch(topic -> topic.fullName().equals(topicName));
+
+    if (!exists) {
+      throw new NotFoundException("Unknown topic: " + topicName);
+    }
+
+    return pulsarAdminGateway.peekMessages(environment.toDetails(), topicName, limit);
+  }
+
+  private void requireEnvironment(String environmentId) {
+    requireEnvironmentRecord(environmentId);
+  }
+
+  private EnvironmentRecord requireEnvironmentRecord(String environmentId) {
+    return environmentRepository.findActiveById(environmentId)
+        .orElseThrow(() -> new NotFoundException("Unknown environment: " + environmentId));
   }
 
   private void validatePaging(int page, int pageSize) {

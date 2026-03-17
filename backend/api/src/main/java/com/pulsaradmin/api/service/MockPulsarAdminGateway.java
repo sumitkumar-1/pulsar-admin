@@ -6,6 +6,8 @@ import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.EnvironmentStatus;
+import com.pulsaradmin.shared.model.PeekMessage;
+import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicHealth;
@@ -59,6 +61,134 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         topics.isEmpty() ? "Connected, but no topic metadata is available yet." : "Metadata sync completed successfully.");
 
     return new EnvironmentSnapshot(health, tenants, namespaces, topics);
+  }
+
+  @Override
+  public PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit) {
+    List<PeekMessage> seededMessages = switch (topicName) {
+      case "persistent://acme/orders/payment-events" -> List.of(
+          new PeekMessage(
+              "ledger:91:2048",
+              "payment-10412",
+              "2026-03-17T17:18:42Z",
+              "2026-03-17T17:18:41Z",
+              "payments-producer-2",
+              "Payment authorized but settlement consumer is lagging behind the live stream.",
+              """
+              {
+                "paymentId": "10412",
+                "orderId": "A-10412",
+                "state": "AUTHORIZED",
+                "amount": 149.95,
+                "currency": "USD",
+                "riskBand": "review"
+              }
+              """.strip(),
+              "9"),
+          new PeekMessage(
+              "ledger:91:2049",
+              "payment-10413",
+              "2026-03-17T17:19:11Z",
+              "2026-03-17T17:19:10Z",
+              "payments-producer-2",
+              "Settlement retry message carrying the retry counter and downstream routing headers.",
+              """
+              {
+                "paymentId": "10413",
+                "orderId": "A-10413",
+                "state": "SETTLEMENT_PENDING",
+                "retryCount": 3,
+                "targetProcessor": "settlement-west",
+                "lastFailure": "timeout"
+              }
+              """.strip(),
+              "9"),
+          new PeekMessage(
+              "ledger:91:2050",
+              "payment-10414",
+              "2026-03-17T17:20:03Z",
+              "2026-03-17T17:20:02Z",
+              "payments-producer-1",
+              "Compensation event emitted after a duplicate settlement callback was detected.",
+              """
+              {
+                "paymentId": "10414",
+                "orderId": "A-10414",
+                "state": "COMPENSATE",
+                "reason": "duplicate-callback",
+                "source": "gateway-primary"
+              }
+              """.strip(),
+              "9"));
+      case "persistent://acme/orders/order-events" -> List.of(
+          new PeekMessage(
+              "ledger:33:1201",
+              "order-10412",
+              "2026-03-17T17:15:10Z",
+              "2026-03-17T17:15:09Z",
+              "orders-producer-1",
+              "Fresh order created event with fulfillment and priority metadata.",
+              """
+              {
+                "orderId": "10412",
+                "eventType": "ORDER_CREATED",
+                "priority": "high",
+                "region": "us-east-1",
+                "customerTier": "gold"
+              }
+              """.strip(),
+              "18"),
+          new PeekMessage(
+              "ledger:33:1202",
+              "order-10413",
+              "2026-03-17T17:15:44Z",
+              "2026-03-17T17:15:43Z",
+              "orders-producer-1",
+              "Validation completed event emitted after inventory and payment checks passed.",
+              """
+              {
+                "orderId": "10413",
+                "eventType": "ORDER_VALIDATED",
+                "inventoryReserved": true,
+                "paymentReady": true
+              }
+              """.strip(),
+              "18"));
+      default -> List.of(
+          new PeekMessage(
+              "ledger:14:2810",
+              environment.id() + "-sample-1",
+              "2026-03-17T17:10:00Z",
+              "2026-03-17T17:09:59Z",
+              "mock-producer-1",
+              "Representative sample message generated from the current topic snapshot.",
+              """
+              {
+                "topic": "sample",
+                "environment": "mock",
+                "state": "preview"
+              }
+              """.strip(),
+              "1"),
+          new PeekMessage(
+              "ledger:14:2811",
+              environment.id() + "-sample-2",
+              "2026-03-17T17:10:45Z",
+              "2026-03-17T17:10:44Z",
+              "mock-producer-1",
+              "Second sample message to show key metadata and payload readability.",
+              """
+              {
+                "topic": "sample",
+                "environment": "mock",
+                "state": "preview-2"
+              }
+              """.strip(),
+              "1"));
+    };
+
+    List<PeekMessage> messages = seededMessages.stream().limit(limit).toList();
+    return new PeekMessagesResponse(environment.id(), topicName, limit, messages.size(), seededMessages.size() > limit, messages);
   }
 
   private EnvironmentStatus deriveStatus(EnvironmentDetails environment, List<TopicDetails> topics) {

@@ -7,91 +7,32 @@
   </p>
 </section>
 
-<section class="workspace">
-  <div class="management-panel">
-    <div class="panel-header">
-      <div>
-        <p class="eyebrow">Manage Environments</p>
-        <h3>{{ editing() ? 'Edit environment' : 'Add a new environment' }}</h3>
-      </div>
-      <button class="ghost-button" type="button" (click)="startCreate()">New environment</button>
-    </div>
-
-    <form class="environment-form" [formGroup]="environmentForm" (ngSubmit)="saveEnvironment()">
-      <label>
-        <span>Environment ID</span>
-        <input formControlName="id" type="text" placeholder="dev-eu" />
-      </label>
-      <label>
-        <span>Name</span>
-        <input formControlName="name" type="text" placeholder="Development EU" />
-      </label>
-      <label>
-        <span>Kind</span>
-        <select formControlName="kind">
-          <option value="prod">Prod</option>
-          <option value="stable">Stable</option>
-          <option value="qa">QA</option>
-          <option value="dev">Dev</option>
-          <option value="local">Local</option>
-        </select>
-      </label>
-      <label>
-        <span>Region</span>
-        <input formControlName="region" type="text" placeholder="us-east-1" />
-      </label>
-      <label>
-        <span>Cluster label</span>
-        <input formControlName="clusterLabel" type="text" placeholder="cluster-dev" />
-      </label>
-      <label class="full-width">
-        <span>Summary</span>
-        <input formControlName="summary" type="text" placeholder="Daily engineering workflows" />
-      </label>
-      <label class="full-width">
-        <span>Broker URL</span>
-        <input formControlName="brokerUrl" type="text" placeholder="pulsar://dev-brokers:6650" />
-      </label>
-      <label class="full-width">
-        <span>Admin URL</span>
-        <input formControlName="adminUrl" type="text" placeholder="https://dev-admin.internal" />
-      </label>
-      <label>
-        <span>Auth mode</span>
-        <select formControlName="authMode">
-          <option value="none">None</option>
-          <option value="token">Token</option>
-          <option value="basic">Basic</option>
-          <option value="mtls">mTLS</option>
-        </select>
-      </label>
-      <label>
-        <span>Credential reference</span>
-        <input formControlName="credentialReference" type="text" placeholder="vault://pulsar/dev" />
-      </label>
-      <label class="checkbox-row">
-        <input formControlName="tlsEnabled" type="checkbox" />
-        <span>TLS enabled</span>
-      </label>
-
-      @if (actionState()) {
-        <p class="feedback success">{{ actionState() }}</p>
-      }
-
-      @if (actionError()) {
-        <p class="feedback error">{{ actionError() }}</p>
-      }
-
-      <div class="form-actions">
-        <button type="submit" [disabled]="saving()">
-          {{ saving() ? 'Saving...' : (editing() ? 'Save changes' : 'Create environment') }}
-        </button>
-      </div>
-    </form>
+<section class="page-toolbar">
+  <div>
+    <p class="eyebrow">Overview</p>
+    <h3>Connected environments</h3>
   </div>
+  <button class="primary-button" type="button" (click)="openCreateDialog()">Add Environment</button>
+</section>
 
-  <div class="environment-grid">
-    @if (environments$ | async; as environments) {
+@if (actionState()) {
+  <p class="feedback success">{{ actionState() }}</p>
+}
+
+@if (actionError()) {
+  <p class="feedback error">{{ actionError() }}</p>
+}
+
+<section class="environment-grid">
+  @if (environments$ | async; as environments) {
+    @if (environments.length === 0) {
+      <article class="empty-card">
+        <p class="eyebrow">No environments yet</p>
+        <h3>Start by connecting your first Pulsar environment.</h3>
+        <p>Use the Add Environment button to register broker and admin connection details, then test and sync it.</p>
+        <button class="primary-button" type="button" (click)="openCreateDialog()">Add Environment</button>
+      </article>
+    } @else {
       @for (environment of environments; track environment.id) {
         <article class="environment-card">
           <a class="card-link" [routerLink]="['/environments', environment.id, 'topics']">
@@ -132,5 +73,14 @@
         </article>
       }
     }
-  </div>
+  }
 </section>
+
+<app-environment-dialog
+  [open]="dialogOpen()"
+  [editing]="editing()"
+  [saving]="saving()"
+  [form]="environmentForm"
+  (cancel)="closeDialog()"
+  (save)="saveEnvironment()"
+/>

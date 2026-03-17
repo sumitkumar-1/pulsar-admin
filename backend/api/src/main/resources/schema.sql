@@ -22,6 +22,55 @@ create table if not exists environments (
   updated_at timestamp not null default current_timestamp
 );
 
+alter table if exists environments add column if not exists broker_url varchar(255);
+alter table if exists environments add column if not exists admin_url varchar(255);
+alter table if exists environments add column if not exists kind varchar(16);
+alter table if exists environments add column if not exists region varchar(64);
+alter table if exists environments add column if not exists cluster_label varchar(64);
+alter table if exists environments add column if not exists summary varchar(255);
+alter table if exists environments add column if not exists auth_mode varchar(32);
+alter table if exists environments add column if not exists credential_reference varchar(255);
+alter table if exists environments add column if not exists tls_enabled boolean default false;
+alter table if exists environments add column if not exists status varchar(16);
+alter table if exists environments add column if not exists sync_status varchar(32) default 'NOT_SYNCED';
+alter table if exists environments add column if not exists sync_message varchar(255);
+alter table if exists environments add column if not exists last_synced_at timestamp;
+alter table if exists environments add column if not exists last_test_status varchar(32) default 'NOT_TESTED';
+alter table if exists environments add column if not exists last_test_message varchar(255);
+alter table if exists environments add column if not exists last_tested_at timestamp;
+alter table if exists environments add column if not exists deleted_at timestamp;
+alter table if exists environments add column if not exists created_at timestamp default current_timestamp;
+alter table if exists environments add column if not exists updated_at timestamp default current_timestamp;
+
+update environments
+set kind = coalesce(kind, id),
+    region = coalesce(region, 'local'),
+    cluster_label = coalesce(cluster_label, 'cluster-' || id),
+    summary = coalesce(summary, 'Imported local environment configuration'),
+    broker_url = coalesce(broker_url, 'pulsar://' || id || '-brokers:6650'),
+    admin_url = coalesce(admin_url, 'https://' || id || '-admin.internal'),
+    auth_mode = coalesce(auth_mode, 'none'),
+    tls_enabled = coalesce(tls_enabled, false),
+    status = coalesce(status, 'DEGRADED'),
+    sync_status = coalesce(sync_status, 'NOT_SYNCED'),
+    last_test_status = coalesce(last_test_status, 'NOT_TESTED'),
+    created_at = coalesce(created_at, current_timestamp),
+    updated_at = coalesce(updated_at, current_timestamp);
+
+alter table if exists environments alter column kind set not null;
+alter table if exists environments alter column region set not null;
+alter table if exists environments alter column cluster_label set not null;
+alter table if exists environments alter column summary set not null;
+alter table if exists environments alter column broker_url set not null;
+alter table if exists environments alter column admin_url set not null;
+alter table if exists environments alter column auth_mode set not null;
+alter table if exists environments alter column tls_enabled set not null;
+alter table if exists environments alter column status set not null;
+alter table if exists environments alter column sync_status set not null;
+alter table if exists environments alter column last_test_status set not null;
+alter table if exists environments alter column created_at set not null;
+alter table if exists environments alter column updated_at set not null;
+
 create table if not exists environment_snapshots (
   environment_id varchar(32) primary key references environments(id),
   health_status varchar(16) not null,

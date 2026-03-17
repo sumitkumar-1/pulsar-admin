@@ -87,4 +87,106 @@ describe('EnvironmentOverviewComponent', () => {
 
     expect(component.environmentForm.invalid).toBeTrue();
   });
+
+  it('opens add environment dialog from the toolbar', async () => {
+    await TestBed.configureTestingModule({
+      imports: [EnvironmentOverviewComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironments: () => of([]),
+            getEnvironment: () => of(),
+            createEnvironment: jasmine.createSpy('createEnvironment'),
+            updateEnvironment: jasmine.createSpy('updateEnvironment'),
+            testEnvironmentConnection: () => of(),
+            syncEnvironment: () => of(),
+            deleteEnvironment: () => of()
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(EnvironmentOverviewComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    const button = Array.from(root.querySelectorAll('button'))
+      .find((element) => element.textContent?.includes('Add Environment')) as HTMLButtonElement | undefined;
+
+    button?.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Add environment');
+    expect(fixture.nativeElement.textContent).toContain('Create environment');
+  });
+
+  it('loads the edit dialog with environment values', async () => {
+    await TestBed.configureTestingModule({
+      imports: [EnvironmentOverviewComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironments: () => of([
+              {
+                id: 'dev',
+                name: 'Development',
+                kind: 'dev',
+                status: 'HEALTHY',
+                region: 'local',
+                clusterLabel: 'cluster-dev',
+                summary: 'Daily workflows',
+                syncStatus: 'SYNCED',
+                lastSyncedAt: '2026-03-17T10:00:00Z',
+                lastTestStatus: 'SUCCESS'
+              }
+            ]),
+            getEnvironment: () => of({
+              id: 'dev',
+              name: 'Development',
+              kind: 'dev',
+              status: 'HEALTHY',
+              region: 'local',
+              clusterLabel: 'cluster-dev',
+              summary: 'Daily workflows',
+              syncStatus: 'SYNCED',
+              lastSyncedAt: '2026-03-17T10:00:00Z',
+              lastTestStatus: 'SUCCESS',
+              brokerUrl: 'pulsar://dev-brokers:6650',
+              adminUrl: 'https://dev-admin.internal',
+              authMode: 'none',
+              credentialReference: '',
+              tlsEnabled: false,
+              syncMessage: 'Metadata synced successfully.',
+              lastTestMessage: 'Connection successful.',
+              lastTestedAt: '2026-03-17T10:00:00Z',
+              deleted: false
+            }),
+            createEnvironment: jasmine.createSpy('createEnvironment'),
+            updateEnvironment: jasmine.createSpy('updateEnvironment'),
+            testEnvironmentConnection: () => of(),
+            syncEnvironment: () => of(),
+            deleteEnvironment: () => of()
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(EnvironmentOverviewComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    const editButton = Array.from(root.querySelectorAll('.card-actions button'))
+      .find((element) => element.textContent?.includes('Edit')) as HTMLButtonElement | undefined;
+
+    editButton?.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Edit environment');
+    const component = fixture.componentInstance;
+    expect(component.environmentForm.getRawValue().name).toBe('Development');
+  });
 });
