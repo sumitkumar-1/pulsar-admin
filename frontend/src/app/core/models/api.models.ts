@@ -162,6 +162,21 @@ export interface ResetCursorResponse {
   message: string;
 }
 
+export interface SkipMessagesRequest {
+  topicName: string;
+  subscriptionName: string;
+  messageCount: number;
+  reason: string;
+}
+
+export interface SkipMessagesResponse {
+  environmentId: string;
+  topicName: string;
+  subscriptionName: string;
+  skippedMessages: number;
+  message: string;
+}
+
 export interface TopicPage {
   items: TopicListItem[];
   page: number;

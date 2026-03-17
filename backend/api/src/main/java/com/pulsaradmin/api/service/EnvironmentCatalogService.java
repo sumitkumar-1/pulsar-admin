@@ -8,6 +8,8 @@ import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.SkipMessagesRequest;
+import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import java.util.Set;
@@ -161,6 +163,39 @@ public class EnvironmentCatalogService {
     }
 
     return pulsarAdminGateway.resetCursor(environment.toDetails(), request);
+  }
+
+  public SkipMessagesResponse skipMessages(String environmentId, SkipMessagesRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+
+    if (request.topicName() == null || request.topicName().isBlank()) {
+      throw new BadRequestException("A topic name is required.");
+    }
+
+    if (request.subscriptionName() == null || request.subscriptionName().isBlank()) {
+      throw new BadRequestException("A subscription name is required.");
+    }
+
+    if (request.messageCount() < 1 || request.messageCount() > 5000) {
+      throw new BadRequestException("Message count must be between 1 and 5000.");
+    }
+
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    TopicDetails topic = snapshot.topics().stream()
+        .filter(item -> item.fullName().equals(request.topicName()))
+        .findFirst()
+        .orElseThrow(() -> new NotFoundException("Unknown topic: " + request.topicName()));
+
+    boolean subscriptionExists = topic.subscriptions().stream()
+        .anyMatch(subscription -> subscription.equals(request.subscriptionName()));
+
+    if (!subscriptionExists) {
+      throw new NotFoundException("Unknown subscription: " + request.subscriptionName());
+    }
+
+    return pulsarAdminGateway.skipMessages(environment.toDetails(), request);
   }
 
   private void requireEnvironment(String environmentId) {

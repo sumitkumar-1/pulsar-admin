@@ -108,7 +108,6 @@
       </article>
     </section>
   }
-}
 
 @if (details(); as topic) {
   @if (activeWorkflow()) {
@@ -132,8 +131,8 @@
             } @else if (activeWorkflow() === 'skip') {
               <h3>Skip messages</h3>
               <p class="workflow-copy">
-                Use this entry point to skip a bounded number of poison messages after we add subscription-aware
-                backend actions.
+                Choose a subscription, set a bounded message count, preview the effect, and then execute the skip
+                immediately through the backend action.
               </p>
             } @else {
               <h3>Replay or copy messages</h3>
@@ -198,28 +197,13 @@
                   }
                 </div>
               }
+            } @else {
+              <div class="placeholder-panel">
+                <p>Peek results are not available for this topic yet.</p>
+              </div>
             }
           }
-        } @else {
-          <div class="workflow-grid">
-            <article class="workflow-card">
-              <p class="eyebrow">Scope</p>
-              <h4>{{ topic.fullName }}</h4>
-              <p class="workflow-copy">
-                Environment {{ environmentId() }} · {{ topic.subscriptions.length }} subscriptions · backlog {{ topic.stats.backlog | number }}
-              </p>
-            </article>
-
-            <article class="workflow-card">
-              <p class="eyebrow">Safety language</p>
-              <h4>Guided execution</h4>
-              <p class="workflow-copy">
-                The final flow will explain impact in plain English, require a preview, and keep bulk actions bounded.
-              </p>
-            </article>
-          </div>
-
-          @if (activeWorkflow() === 'reset') {
+        } @else if (activeWorkflow() === 'reset') {
             <form class="reset-form" [formGroup]="resetForm" (ngSubmit)="submitResetCursor()">
               <label>
                 <span>Subscription</span>
@@ -281,18 +265,81 @@
                 </button>
               </div>
             </form>
-          } @else {
-            <div class="placeholder-panel">
-              @if (activeWorkflow() === 'skip') {
-              <p>This flow will support skipping a specific count of messages with a confirmation step and outcome summary.</p>
-              } @else {
-                <p>This flow will support filter-based replay or copy jobs with destination selection, rate limits, and job reporting.</p>
+          } @else if (activeWorkflow() === 'skip') {
+            <form class="reset-form" [formGroup]="skipForm" (ngSubmit)="submitSkipMessages()">
+              <label>
+                <span>Subscription</span>
+                <select formControlName="subscriptionName">
+                  @for (subscription of topic.subscriptions; track subscription) {
+                    <option [value]="subscription">{{ subscription }}</option>
+                  }
+                </select>
+              </label>
+
+              <label>
+                <span>Messages to skip</span>
+                <input formControlName="messageCount" type="number" min="1" max="5000" />
+              </label>
+
+              <label class="full-width">
+                <span>Reason</span>
+                <textarea
+                  formControlName="reason"
+                  rows="3"
+                  placeholder="Why are we skipping these messages?"
+                ></textarea>
+              </label>
+
+              <div class="preview-panel">
+                <p class="eyebrow">Preview</p>
+                <p>{{ skipPreview() }}</p>
+              </div>
+
+              @if (skipError()) {
+                <div class="placeholder-panel error">
+                  <p>{{ skipError() }}</p>
+                </div>
               }
+
+              @if (skipResult(); as result) {
+                <div class="placeholder-panel success">
+                  <p>{{ result.message }}</p>
+                  <p class="result-meta">{{ result.skippedMessages }} messages skipped on {{ result.subscriptionName }}.</p>
+                </div>
+              }
+
+              <div class="form-button-row">
+                <button type="submit" [disabled]="skipSaving()">
+                  {{ skipSaving() ? 'Skipping...' : 'Skip Messages' }}
+                </button>
+              </div>
+            </form>
+          } @else {
+            <div class="workflow-grid">
+              <article class="workflow-card">
+                <p class="eyebrow">Scope</p>
+                <h4>{{ topic.fullName }}</h4>
+                <p class="workflow-copy">
+                  Environment {{ environmentId() }} · {{ topic.subscriptions.length }} subscriptions · backlog {{ topic.stats.backlog | number }}
+                </p>
+              </article>
+
+              <article class="workflow-card">
+                <p class="eyebrow">Safety language</p>
+                <h4>Guided execution</h4>
+                <p class="workflow-copy">
+                  The final flow will explain impact in plain English, require a preview, and keep bulk actions bounded.
+                </p>
+              </article>
+            </div>
+
+            <div class="placeholder-panel">
+              <p>This flow will support filter-based replay or copy jobs with destination selection, rate limits, and job reporting.</p>
               <button type="button" disabled>Backend implementation coming next</button>
             </div>
           }
-        }
       </section>
     </div>
   }
+}
 }

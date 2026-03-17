@@ -72,7 +72,8 @@ describe('TopicDetailsComponent', () => {
               subscriptions: ['payment-settlement', 'payment-alerts']
             }),
             peekMessages,
-            resetCursor: jasmine.createSpy('resetCursor')
+            resetCursor: jasmine.createSpy('resetCursor'),
+            skipMessages: jasmine.createSpy('skipMessages')
           }
         }
       ]
@@ -143,7 +144,8 @@ describe('TopicDetailsComponent', () => {
               subscriptions: ['payment-settlement', 'payment-alerts']
             }),
             peekMessages: jasmine.createSpy('peekMessages'),
-            resetCursor
+            resetCursor,
+            skipMessages: jasmine.createSpy('skipMessages')
           }
         }
       ]
@@ -172,5 +174,89 @@ describe('TopicDetailsComponent', () => {
       reason: 'Clear backlog after incident validation'
     });
     expect(fixture.nativeElement.textContent).toContain('Cursor reset to the latest position');
+  });
+
+  it('submits a skip messages request and shows the result message', async () => {
+    const skipMessages = jasmine.createSpy('skipMessages').and.returnValue(of({
+      environmentId: 'prod',
+      topicName: 'persistent://acme/orders/payment-events',
+      subscriptionName: 'payment-settlement',
+      skippedMessages: 25,
+      message: 'Skipped 25 messages for subscription payment-settlement.'
+    }));
+
+    await TestBed.configureTestingModule({
+      imports: [TopicDetailsComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ topic: 'persistent://acme/orders/payment-events' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getTopicDetails: () => of({
+              fullName: 'persistent://acme/orders/payment-events',
+              tenant: 'acme',
+              namespace: 'orders',
+              topic: 'payment-events',
+              partitioned: false,
+              partitions: 0,
+              health: 'CRITICAL',
+              stats: {
+                backlog: 18720,
+                producers: 5,
+                subscriptions: 2,
+                consumers: 3,
+                publishRateIn: 190.5,
+                dispatchRateOut: 48.3,
+                throughputIn: 6200,
+                throughputOut: 2100,
+                storageSize: 5880120
+              },
+              schema: {
+                type: 'JSON',
+                version: '9',
+                compatibility: 'BACKWARD',
+                present: true
+              },
+              ownerTeam: 'Payments',
+              notes: 'Backlog-heavy topic.',
+              partitionSummaries: [],
+              subscriptions: ['payment-settlement', 'payment-alerts']
+            }),
+            peekMessages: jasmine.createSpy('peekMessages'),
+            resetCursor: jasmine.createSpy('resetCursor'),
+            skipMessages
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicDetailsComponent);
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance;
+    component.openWorkflow('skip');
+    component.skipForm.patchValue({
+      subscriptionName: 'payment-settlement',
+      messageCount: 25,
+      reason: 'Skip poison messages after alert triage'
+    });
+
+    component.submitSkipMessages();
+    fixture.detectChanges();
+
+    expect(skipMessages).toHaveBeenCalledWith('prod', {
+      topicName: 'persistent://acme/orders/payment-events',
+      subscriptionName: 'payment-settlement',
+      messageCount: 25,
+      reason: 'Skip poison messages after alert triage'
+    });
+    expect(fixture.nativeElement.textContent).toContain('Skipped 25 messages');
   });
 });

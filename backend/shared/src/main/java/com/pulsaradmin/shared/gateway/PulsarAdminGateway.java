@@ -6,6 +6,8 @@ import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.SkipMessagesRequest;
+import com.pulsaradmin.shared.model.SkipMessagesResponse;
 
 public interface PulsarAdminGateway {
   EnvironmentConnectionTestResult testConnection(EnvironmentDetails environment);
@@ -15,4 +17,6 @@ public interface PulsarAdminGateway {
   PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit);
 
   ResetCursorResponse resetCursor(EnvironmentDetails environment, ResetCursorRequest request);
+
+  SkipMessagesResponse skipMessages(EnvironmentDetails environment, SkipMessagesRequest request);
 }

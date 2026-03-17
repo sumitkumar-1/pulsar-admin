@@ -12,6 +12,8 @@ import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SchemaSummary;
+import com.pulsaradmin.shared.model.SkipMessagesRequest;
+import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicHealth;
 import com.pulsaradmin.shared.model.TopicPartitionSummary;
@@ -224,6 +226,20 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         request.subscriptionName(),
         normalizedTarget,
         effectiveTimestamp,
+        message);
+  }
+
+  @Override
+  public SkipMessagesResponse skipMessages(EnvironmentDetails environment, SkipMessagesRequest request) {
+    int skippedMessages = request.messageCount();
+    String message = "Skipped " + skippedMessages + " messages for subscription "
+        + request.subscriptionName() + ".";
+
+    return new SkipMessagesResponse(
+        environment.id(),
+        request.topicName(),
+        request.subscriptionName(),
+        skippedMessages,
         message);
   }
 

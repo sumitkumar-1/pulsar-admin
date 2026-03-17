@@ -5,7 +5,14 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { combineLatest, switchMap } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
-import { PeekMessagesResponse, ResetCursorRequest, ResetCursorResponse, TopicDetails } from '../../core/models/api.models';
+import {
+  PeekMessagesResponse,
+  ResetCursorRequest,
+  ResetCursorResponse,
+  SkipMessagesRequest,
+  SkipMessagesResponse,
+  TopicDetails
+} from '../../core/models/api.models';
 
 @Component({
   selector: 'app-topic-details',
@@ -32,11 +39,20 @@ export class TopicDetailsComponent {
   readonly resetSaving = signal(false);
   readonly resetResult = signal<ResetCursorResponse | null>(null);
   readonly resetError = signal<string | null>(null);
+  readonly skipSaving = signal(false);
+  readonly skipResult = signal<SkipMessagesResponse | null>(null);
+  readonly skipError = signal<string | null>(null);
 
   readonly resetForm = this.formBuilder.nonNullable.group({
     subscriptionName: ['', [Validators.required]],
     target: ['LATEST', [Validators.required]],
     timestamp: [''],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly skipForm = this.formBuilder.nonNullable.group({
+    subscriptionName: ['', [Validators.required]],
+    messageCount: [1, [Validators.required, Validators.min(1), Validators.max(5000)]],
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -63,6 +79,11 @@ export class TopicDetailsComponent {
             subscriptionName: firstSubscription,
             target: 'LATEST',
             timestamp: '',
+            reason: ''
+          });
+          this.skipForm.patchValue({
+            subscriptionName: firstSubscription,
+            messageCount: 1,
             reason: ''
           });
           this.loading.set(false);
@@ -120,6 +141,21 @@ export class TopicDetailsComponent {
           target: this.resetForm.controls.target.value || 'LATEST',
           timestamp: this.resetForm.controls.timestamp.value,
           reason: this.resetForm.controls.reason.value
+        });
+      }
+    }
+
+    if (workflow === 'skip') {
+      const topic = this.details();
+      this.skipError.set(null);
+      this.skipResult.set(null);
+
+      if (topic && topic.subscriptions.length > 0) {
+        const currentSubscription = this.skipForm.controls.subscriptionName.value;
+        this.skipForm.patchValue({
+          subscriptionName: currentSubscription || topic.subscriptions[0] || '',
+          messageCount: this.skipForm.controls.messageCount.value || 1,
+          reason: this.skipForm.controls.reason.value
         });
       }
     }
@@ -189,6 +225,56 @@ export class TopicDetailsComponent {
     }
 
     return `This will move subscription ${subscriptionName} on ${topic.topic} to the latest position and clear current backlog processing state.`;
+  }
+
+  submitSkipMessages() {
+    const topic = this.details();
+
+    if (!topic) {
+      this.skipError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.skipForm.invalid) {
+      this.skipForm.markAllAsTouched();
+      return;
+    }
+
+    const formValue = this.skipForm.getRawValue();
+    const request: SkipMessagesRequest = {
+      topicName: topic.fullName,
+      subscriptionName: formValue.subscriptionName,
+      messageCount: Number(formValue.messageCount),
+      reason: formValue.reason
+    };
+
+    this.skipSaving.set(true);
+    this.skipError.set(null);
+    this.skipResult.set(null);
+
+    this.api.skipMessages(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.skipResult.set(response);
+          this.skipSaving.set(false);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.skipError.set(error.error?.message ?? 'Unable to skip messages for this subscription.');
+          this.skipSaving.set(false);
+        }
+      });
+  }
+
+  skipPreview(): string {
+    const topic = this.details();
+    const { subscriptionName, messageCount } = this.skipForm.getRawValue();
+
+    if (!topic || !subscriptionName) {
+      return 'Choose a subscription and message count to preview the skip action.';
+    }
+
+    return `This will advance subscription ${subscriptionName} on ${topic.topic} by ${messageCount} messages. Use this for bounded poison-message cleanup, not broad backlog removal.`;
   }
 
   private toIsoTimestamp(value: string): string {

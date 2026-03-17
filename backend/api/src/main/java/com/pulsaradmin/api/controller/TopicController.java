@@ -5,6 +5,8 @@ import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.SkipMessagesRequest;
+import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import jakarta.validation.Valid;
@@ -56,5 +58,12 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @Valid @RequestBody ResetCursorRequest request) {
     return pulsarCatalogService.resetCursor(envId, request);
+  }
+
+  @PostMapping("/skip-messages")
+  public SkipMessagesResponse skipMessages(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody SkipMessagesRequest request) {
+    return pulsarCatalogService.skipMessages(envId, request);
   }
 }

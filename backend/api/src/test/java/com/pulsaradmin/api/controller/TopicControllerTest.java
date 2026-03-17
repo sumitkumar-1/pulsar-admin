@@ -75,6 +75,25 @@ class TopicControllerTest {
   }
 
   @Test
+  void shouldSkipMessages() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/skip-messages")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": "payment-settlement",
+                  "messageCount": 25,
+                  "reason": "Skip poison messages after alert triage"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.environmentId").value("prod"))
+        .andExpect(jsonPath("$.subscriptionName").value("payment-settlement"))
+        .andExpect(jsonPath("$.skippedMessages").value(25))
+        .andExpect(jsonPath("$.message").exists());
+  }
+
+  @Test
   void shouldRejectInvalidPageSize() throws Exception {
     mockMvc.perform(get("/api/v1/environments/prod/topics").param("pageSize", "7"))
         .andExpect(status().isBadRequest())

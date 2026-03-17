@@ -11,6 +11,8 @@ import {
   PeekMessagesResponse,
   ResetCursorRequest,
   ResetCursorResponse,
+  SkipMessagesRequest,
+  SkipMessagesResponse,
   TopicDetails,
   TopicPage
 } from '../models/api.models';
@@ -115,6 +117,13 @@ export class PulsarApiService {
   resetCursor(environmentId: string, request: ResetCursorRequest): Observable<ResetCursorResponse> {
     return this.http.post<ResetCursorResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/reset-cursor`,
+      request
+    );
+  }
+
+  skipMessages(environmentId: string, request: SkipMessagesRequest): Observable<SkipMessagesResponse> {
+    return this.http.post<SkipMessagesResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/skip-messages`,
       request
     );
   }
