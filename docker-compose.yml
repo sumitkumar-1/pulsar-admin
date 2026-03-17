@@ -1,0 +1,12 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: pulsar-admin-postgres
+    environment:
+      POSTGRES_DB: pulsar_admin
+      POSTGRES_USER: pulsar
+      POSTGRES_PASSWORD: pulsar
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./backend/db/init:/docker-entrypoint-initdb.d
