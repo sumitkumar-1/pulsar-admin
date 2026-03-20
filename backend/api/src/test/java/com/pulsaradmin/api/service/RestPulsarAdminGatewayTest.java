@@ -73,6 +73,10 @@ class RestPulsarAdminGatewayTest {
         .andRespond(withSuccess("""
             ["persistent://acme/orders/payment-events"]
             """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/partitioned"))
+        .andRespond(withSuccess("""
+            ["persistent://acme/orders/payment-events"]
+            """, MediaType.APPLICATION_JSON));
 
     server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitions"))
         .andRespond(withSuccess("""
@@ -188,6 +192,10 @@ class RestPulsarAdminGatewayTest {
               "persistent://acme/orders/payment-events-partition-2"
             ]
             """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/partitioned"))
+        .andRespond(withSuccess("""
+            ["persistent://acme/orders/payment-events"]
+            """, MediaType.APPLICATION_JSON));
 
     server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitions"))
         .andRespond(withSuccess("""
@@ -260,6 +268,69 @@ class RestPulsarAdminGatewayTest {
     assertThat(snapshot.topics().get(0).partitioned()).isTrue();
     assertThat(snapshot.topics().get(0).partitions()).isEqualTo(3);
     assertThat(snapshot.topics().get(0).partitionSummaries()).hasSize(3);
+
+    server.verify();
+  }
+
+  @Test
+  void shouldBackfillMissingPartitionSummariesFromMetadataCount() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    EnvironmentDetails environment = environment();
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/tenants"))
+        .andRespond(withSuccess("""
+            ["acme"]
+            """, MediaType.APPLICATION_JSON));
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/namespaces/acme"))
+        .andRespond(withSuccess("""
+            ["acme/orders"]
+            """, MediaType.APPLICATION_JSON));
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders"))
+        .andRespond(withSuccess("""
+            ["persistent://acme/orders/payment-events"]
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/partitioned"))
+        .andRespond(withSuccess("""
+            ["persistent://acme/orders/payment-events"]
+            """, MediaType.APPLICATION_JSON));
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitions"))
+        .andRespond(withSuccess("""
+            {"partitions": 10}
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitioned-stats?perPartition=true"))
+        .andRespond(withSuccess("""
+            {
+              "msgRateIn": 12.0,
+              "msgRateOut": 10.0,
+              "subscriptions": {},
+              "partitions": {
+                "persistent://acme/orders/payment-events-partition-0": {
+                  "msgRateIn": 12.0,
+                  "msgRateOut": 10.0,
+                  "subscriptions": {}
+                }
+              }
+            }
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
+        .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+    EnvironmentSnapshot snapshot = gateway.syncMetadata(environment);
+
+    assertThat(snapshot.topics()).hasSize(1);
+    assertThat(snapshot.topics().get(0).partitioned()).isTrue();
+    assertThat(snapshot.topics().get(0).partitions()).isEqualTo(10);
+    assertThat(snapshot.topics().get(0).partitionSummaries()).hasSize(10);
+    assertThat(snapshot.topics().get(0).partitionSummaries().get(0).partitionName())
+        .isEqualTo("persistent://acme/orders/payment-events-partition-0");
+    assertThat(snapshot.topics().get(0).partitionSummaries().get(9).partitionName())
+        .isEqualTo("persistent://acme/orders/payment-events-partition-9");
 
     server.verify();
   }

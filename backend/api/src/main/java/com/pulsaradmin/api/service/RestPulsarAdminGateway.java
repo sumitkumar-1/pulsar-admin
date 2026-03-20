@@ -131,7 +131,12 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
           }
 
           JsonNode topicsNode = getJson(environment, "/admin/v2/persistent/" + namespacePath);
-          for (String fullTopicName : canonicalTopicNames(readStringArray(topicsNode))) {
+          JsonNode partitionedTopicsNode = safeGetJson(environment, "/admin/v2/persistent/" + namespacePath + "/partitioned");
+          List<String> namespaceTopics = new ArrayList<>();
+          namespaceTopics.addAll(readStringArray(topicsNode));
+          namespaceTopics.addAll(readStringArray(partitionedTopicsNode));
+
+          for (String fullTopicName : canonicalTopicNames(namespaceTopics)) {
             topics.add(toTopicDetails(environment, fullTopicName, namespaceSegments[0], namespaceSegments[1]));
           }
         }
@@ -601,7 +606,10 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
 
     TopicStatsSummary stats = toTopicStats(statsNode);
     List<String> subscriptions = readSubscriptions(statsNode);
-    List<TopicPartitionSummary> partitionSummaries = readPartitionSummaries(statsNode);
+    List<TopicPartitionSummary> partitionSummaries = completePartitionSummaries(
+        parsed.canonicalFullName(),
+        readPartitionSummaries(statsNode),
+        partitionCount);
     if (!partitioned) {
       partitioned = !partitionSummaries.isEmpty() || parsed.partitionIndex() != null;
     }
@@ -884,11 +892,15 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
 
     List<TopicPartitionSummary> partitionSummaries = new ArrayList<>();
     partitionsNode.fields().forEachRemaining(entry -> {
+      PulsarTopicName partitionName = PulsarTopicName.parse(entry.getKey());
+      if (partitionName.partitionIndex() == null) {
+        return;
+      }
       JsonNode partitionNode = entry.getValue();
       long backlog = sumPartitionBacklog(partitionNode.path("subscriptions"));
       int consumers = sumPartitionConsumers(partitionNode.path("subscriptions"));
       partitionSummaries.add(new TopicPartitionSummary(
-          entry.getKey(),
+          partitionName.fullName(),
           backlog,
           consumers,
           partitionNode.path("msgRateIn").asDouble(0),
@@ -898,6 +910,37 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
 
     partitionSummaries.sort(Comparator.comparing(TopicPartitionSummary::partitionName));
     return partitionSummaries;
+  }
+
+  private List<TopicPartitionSummary> completePartitionSummaries(
+      String canonicalFullTopicName,
+      List<TopicPartitionSummary> existingSummaries,
+      int partitionCount) {
+    if (partitionCount <= 0) {
+      return existingSummaries;
+    }
+
+    Map<String, TopicPartitionSummary> byName = new java.util.LinkedHashMap<>();
+    for (TopicPartitionSummary summary : existingSummaries) {
+      byName.put(summary.partitionName(), summary);
+    }
+
+    for (int index = 0; index < partitionCount; index++) {
+      String partitionName = canonicalFullTopicName + "-partition-" + index;
+      byName.putIfAbsent(
+          partitionName,
+          new TopicPartitionSummary(
+              partitionName,
+              0,
+              0,
+              0,
+              0,
+              TopicHealth.INACTIVE));
+    }
+
+    return byName.values().stream()
+        .sorted(Comparator.comparing(TopicPartitionSummary::partitionName))
+        .toList();
   }
 
   private long sumPartitionBacklog(JsonNode subscriptionsNode) {
