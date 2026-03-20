@@ -124,6 +124,20 @@ class TopicControllerTest {
   }
 
   @Test
+  void shouldRejectTerminateForPartitionedTopic() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/terminate")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/analytics/usage-rollups",
+                  "reason": "Attempting an unsupported operation for regression coverage"
+                }
+                """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("Termination is not supported for partitioned topics. Select a non-partitioned topic instead."));
+  }
+
+  @Test
   void shouldReturnTopicPolicies() throws Exception {
     mockMvc.perform(get("/api/v1/environments/prod/topics/policies")
             .param("topic", "persistent://acme/orders/payment-events"))

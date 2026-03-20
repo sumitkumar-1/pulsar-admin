@@ -221,6 +221,10 @@ export class TopicDetailsComponent {
     return status.toLowerCase();
   }
 
+  canTerminateTopic(): boolean {
+    return !this.details()?.partitioned;
+  }
+
   openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'create-subscription') {
     this.activeWorkflow.set(workflow);
 
@@ -288,6 +292,11 @@ export class TopicDetailsComponent {
     }
 
     if (workflow === 'terminate') {
+      if (!this.canTerminateTopic()) {
+        this.terminateError.set('Partitioned topics cannot be terminated through Pulsar. Use unload, policies, or partition management workflows instead.');
+        this.terminateResult.set(null);
+        return;
+      }
       this.terminateError.set(null);
       this.terminateResult.set(null);
       this.terminateForm.patchValue({ reason: '' });
@@ -876,6 +885,9 @@ export class TopicDetailsComponent {
     const topic = this.details();
     if (!topic) {
       return 'Topic details are still loading.';
+    }
+    if (topic.partitioned) {
+      return `Pulsar does not allow terminating partitioned topics such as ${topic.topic}. Use partition-aware workflows instead.`;
     }
     return `This will terminate ${topic.topic} so producers stop appending after the current retained tail. Use it only when the topic should become append-complete.`;
   }

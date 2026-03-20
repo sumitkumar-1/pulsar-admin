@@ -1,13 +1,13 @@
-<a class="back-link" [routerLink]="['/environments', environmentId(), 'topics']" [queryParams]="modeQueryParams()">← Back to topics</a>
+<a class="back-link" [routerLink]="['/environments', environmentId(), 'topics']" [queryParams]="backQueryParams()">← Back to topics</a>
 
 @if (loading()) {
-  <div class="state-card">Loading tenant YAML sync...</div>
+  <div class="state-card">Loading namespace YAML sync...</div>
 } @else {
   <section class="hero-card">
     <div>
-      <p class="eyebrow">Tenant YAML Sync</p>
-      <h2>{{ tenant() || 'Selected Tenant' }}</h2>
-      <p>Preview tenant-scoped creates, updates, and removals before applying them to the active environment.</p>
+      <p class="eyebrow">Namespace YAML Sync</p>
+      <h2>{{ tenant() || 'Selected Tenant' }}/{{ namespace() || 'Selected Namespace' }}</h2>
+      <p>Preview namespace-scoped creates, updates, and removals before applying them to the active environment.</p>
     </div>
     <div class="mode-pill">{{ modeQueryParams().mode === 'mock' ? 'Mock Mode' : 'Live Mode' }}</div>
   </section>
@@ -18,6 +18,11 @@
         <label>
           <span>Tenant</span>
           <input formControlName="tenant" type="text" />
+        </label>
+
+        <label>
+          <span>Namespace</span>
+          <input formControlName="namespace" type="text" />
         </label>
 
         <label>
@@ -66,6 +71,7 @@
         <div class="state-card success">
           <strong>{{ preview.message }}</strong>
           <p>Preview ID {{ preview.previewId }}</p>
+          <p>Scope: {{ preview.tenant }}/{{ preview.namespace }}</p>
         </div>
 
         <div class="diff-list">
@@ -86,7 +92,7 @@
       @if (applyState(); as apply) {
         <div class="state-card success">
           <strong>{{ apply.message }}</strong>
-          <p>{{ apply.appliedChanges.length }} changes applied across tenant {{ apply.tenant }}.</p>
+          <p>{{ apply.appliedChanges.length }} changes applied across namespace {{ apply.tenant }}/{{ apply.namespace }}.</p>
         </div>
       }
     </article>

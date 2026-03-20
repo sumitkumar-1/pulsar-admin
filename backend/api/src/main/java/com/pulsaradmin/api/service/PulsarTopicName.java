@@ -1,6 +1,8 @@
 package com.pulsaradmin.api.service;
 
 record PulsarTopicName(String domain, String tenant, String namespace, String topic) {
+  private static final String PARTITION_SUFFIX = "-partition-";
+
   static PulsarTopicName parse(String fullName) {
     if (fullName == null || fullName.isBlank()) {
       throw new IllegalArgumentException("Topic name is required.");
@@ -29,5 +31,37 @@ record PulsarTopicName(String domain, String tenant, String namespace, String to
 
   String fullName() {
     return domain + "://" + tenant + "/" + namespace + "/" + topic;
+  }
+
+  String canonicalTopic() {
+    int partitionSuffix = topic.lastIndexOf(PARTITION_SUFFIX);
+    if (partitionSuffix < 0) {
+      return topic;
+    }
+
+    String suffixValue = topic.substring(partitionSuffix + PARTITION_SUFFIX.length());
+    if (suffixValue.chars().allMatch(Character::isDigit)) {
+      return topic.substring(0, partitionSuffix);
+    }
+
+    return topic;
+  }
+
+  String canonicalFullName() {
+    return domain + "://" + tenant + "/" + namespace + "/" + canonicalTopic();
+  }
+
+  Integer partitionIndex() {
+    int partitionSuffix = topic.lastIndexOf(PARTITION_SUFFIX);
+    if (partitionSuffix < 0) {
+      return null;
+    }
+
+    String suffixValue = topic.substring(partitionSuffix + PARTITION_SUFFIX.length());
+    if (!suffixValue.chars().allMatch(Character::isDigit)) {
+      return null;
+    }
+
+    return Integer.parseInt(suffixValue);
   }
 }

@@ -128,25 +128,73 @@
 .namespace-header,
 .tenant-header,
 .topic-topline,
-.tenant-actions {
+.tenant-actions,
+.namespace-workspace-topline,
+.namespace-summary-row {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: center;
 }
 
-.tenant-block + .tenant-block {
-  margin-top: 1.8rem;
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 1.25rem;
 }
 
+.namespace-selector-card,
+.namespace-detail-card,
+.namespace-workspace-card {
+  border-radius: 1.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.namespace-selector-card,
+.namespace-detail-card {
+  padding: 1.3rem;
+}
+
+.selector-header,
 .tenant-header {
   margin-bottom: 1rem;
-  padding-bottom: 0.9rem;
+  padding-bottom: 1rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.16);
 }
 
-.tenant-header span {
+.tenant-header span,
+.namespace-summary-row,
+.namespace-workspace-card p,
+.namespace-workspace-topline span:last-child {
   color: #64748b;
+}
+
+.namespace-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.namespace-workspace-card {
+  padding: 1rem 1.05rem;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.namespace-workspace-card:hover,
+.namespace-workspace-card.selected {
+  border-color: rgba(29, 78, 216, 0.35);
+  box-shadow: 0 14px 30px rgba(29, 78, 216, 0.12);
+  transform: translateY(-1px);
+}
+
+.namespace-workspace-card.selected {
+  background: linear-gradient(180deg, rgba(219, 234, 254, 0.7), rgba(255, 255, 255, 0.95));
+}
+
+.namespace-workspace-card p {
+  margin: 0.55rem 0 0;
 }
 
 .tenant-actions .ghost,
@@ -163,14 +211,33 @@
 .namespace-link {
   border-radius: 0.85rem;
   font-weight: 700;
+  display: inline-flex;
+  align-items: center;
 }
 
-.namespace-block + .namespace-block {
-  margin-top: 1.5rem;
+.namespace-summary-row {
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
 }
 
 .namespace-header {
   margin-bottom: 0.9rem;
+}
+
+.empty-workspace h4 {
+  margin: 0 0 0.6rem;
+}
+
+.empty-workspace p {
+  margin: 0;
+}
+
+.empty-actions {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
 }
 
 .topic-grid {
@@ -259,9 +326,15 @@
   .panel-header,
   .namespace-header,
   .tenant-header,
-  .tenant-actions {
+  .tenant-actions,
+  .namespace-summary-row,
+  .namespace-workspace-topline {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .workspace-grid {
+    grid-template-columns: 1fr;
   }
 
   .toolbar-stack {

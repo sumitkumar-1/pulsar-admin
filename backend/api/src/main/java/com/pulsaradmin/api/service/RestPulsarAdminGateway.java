@@ -42,6 +42,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -130,7 +131,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
           }
 
           JsonNode topicsNode = getJson(environment, "/admin/v2/persistent/" + namespacePath);
-          for (String fullTopicName : readStringArray(topicsNode)) {
+          for (String fullTopicName : canonicalTopicNames(readStringArray(topicsNode))) {
             topics.add(toTopicDetails(environment, fullTopicName, namespaceSegments[0], namespaceSegments[1]));
           }
         }
@@ -593,24 +594,28 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
       String tenant,
       String namespace) {
     PulsarTopicName parsed = PulsarTopicName.parse(fullTopicName);
-    JsonNode statsNode = safeGetJson(environment, statsPath(parsed));
+    int partitionCount = readPartitionCount(safeGetJson(environment, partitionedMetadataPath(parsed)));
+    boolean partitioned = partitionCount > 0;
+    JsonNode statsNode = safeGetJson(environment, partitioned ? partitionedStatsPath(parsed) : statsPath(parsed));
     JsonNode schemaNode = safeGetJson(environment, schemaPath(parsed));
 
     TopicStatsSummary stats = toTopicStats(statsNode);
     List<String> subscriptions = readSubscriptions(statsNode);
     List<TopicPartitionSummary> partitionSummaries = readPartitionSummaries(statsNode);
-    boolean partitioned = !partitionSummaries.isEmpty() || parsed.topic().contains("-partition-");
+    if (!partitioned) {
+      partitioned = !partitionSummaries.isEmpty() || parsed.partitionIndex() != null;
+    }
     SchemaSummary schema = toSchemaSummary(schemaNode);
     TopicHealth health = deriveTopicHealth(stats, subscriptions);
     String notes = buildTopicNotes(schema, statsNode, subscriptions);
 
     return new TopicDetails(
-        parsed.fullName(),
+        parsed.canonicalFullName(),
         tenant,
         namespace,
-        parsed.topic(),
+        parsed.canonicalTopic(),
         partitioned,
-        partitioned ? Math.max(1, partitionSummaries.size()) : 0,
+        partitioned ? Math.max(Math.max(1, partitionCount), partitionSummaries.size()) : 0,
         health,
         stats,
         schema,
@@ -730,6 +735,14 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return values;
   }
 
+  private List<String> canonicalTopicNames(List<String> fullTopicNames) {
+    LinkedHashSet<String> canonicalNames = new LinkedHashSet<>();
+    for (String fullTopicName : fullTopicNames) {
+      canonicalNames.add(PulsarTopicName.parse(fullTopicName).canonicalFullName());
+    }
+    return new ArrayList<>(canonicalNames);
+  }
+
   private String normalizeAdminUrl(String adminUrl) {
     return adminUrl != null && adminUrl.endsWith("/")
         ? adminUrl.substring(0, adminUrl.length() - 1)
@@ -742,6 +755,22 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         + "/" + topicName.namespace()
         + "/" + topicName.topic()
         + "/stats";
+  }
+
+  private String partitionedStatsPath(PulsarTopicName topicName) {
+    return "/admin/v2/" + topicName.domain()
+        + "/" + topicName.tenant()
+        + "/" + topicName.namespace()
+        + "/" + topicName.canonicalTopic()
+        + "/partitioned-stats?perPartition=true";
+  }
+
+  private String partitionedMetadataPath(PulsarTopicName topicName) {
+    return "/admin/v2/" + topicName.domain()
+        + "/" + topicName.tenant()
+        + "/" + topicName.namespace()
+        + "/" + topicName.canonicalTopic()
+        + "/partitions";
   }
 
   private String schemaPath(PulsarTopicName topicName) {
@@ -770,6 +799,18 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         dispatchRate.path("dispatchThrottlingRateInByte").asLong(0),
         publishRate.path("publishThrottlingRateInMsg").asInt(0),
         publishRate.path("publishThrottlingRateInByte").asLong(0));
+  }
+
+  private int readPartitionCount(JsonNode metadataNode) {
+    if (metadataNode == null || metadataNode.isMissingNode()) {
+      return 0;
+    }
+
+    if (metadataNode.isNumber()) {
+      return metadataNode.asInt(0);
+    }
+
+    return metadataNode.path("partitions").asInt(0);
   }
 
   private int readRetentionMinutes(JsonNode retention) {

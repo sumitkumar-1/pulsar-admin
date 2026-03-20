@@ -24,6 +24,7 @@ export class TenantYamlSyncComponent {
 
   readonly environmentId = signal('');
   readonly tenant = signal('');
+  readonly namespace = signal('');
   readonly loading = signal(true);
   readonly validationState = signal<TenantYamlPreviewResponse | null>(null);
   readonly previewState = signal<TenantYamlPreviewResponse | null>(null);
@@ -35,6 +36,7 @@ export class TenantYamlSyncComponent {
 
   readonly yamlForm = this.formBuilder.nonNullable.group({
     tenant: ['', [Validators.required]],
+    namespace: ['', [Validators.required]],
     yaml: ['', [Validators.required, Validators.minLength(20)]],
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
@@ -45,11 +47,14 @@ export class TenantYamlSyncComponent {
       .subscribe(([params, queryParams]) => {
         const envId = params.get('envId') ?? '';
         const tenant = queryParams.get('tenant') ?? '';
+        const namespace = queryParams.get('namespace') ?? '';
         this.environmentId.set(envId);
         this.tenant.set(tenant);
+        this.namespace.set(namespace);
         this.yamlForm.patchValue({
           tenant,
-          yaml: this.sampleYaml(tenant),
+          namespace,
+          yaml: this.sampleYaml(tenant, namespace),
           reason: ''
         });
         this.loading.set(false);
@@ -69,6 +74,7 @@ export class TenantYamlSyncComponent {
 
     this.api.validateTenantYaml(this.environmentId(), {
       tenant: form.tenant,
+      namespace: form.namespace,
       yaml: form.yaml
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (response) => {
@@ -96,6 +102,7 @@ export class TenantYamlSyncComponent {
 
     this.api.previewTenantYaml(this.environmentId(), {
       tenant: form.tenant,
+      namespace: form.namespace,
       yaml: form.yaml
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (response) => {
@@ -140,28 +147,34 @@ export class TenantYamlSyncComponent {
     return this.demoMode.queryParams({});
   }
 
-  private sampleYaml(tenant: string): string {
+  backQueryParams() {
+    return this.demoMode.queryParams({
+      tenant: this.tenant(),
+      namespace: this.namespace()
+    });
+  }
+
+  private sampleYaml(tenant: string, namespace: string): string {
     return `tenant: ${tenant || 'acme'}
-namespaces:
-  - name: orders
+namespace: ${namespace || 'orders'}
+policies:
+  retentionTimeInMinutes: 10080
+  retentionSizeInMb: 4096
+  messageTtlInSeconds: 86400
+  deduplicationEnabled: true
+topics:
+  - name: order-events
+    domain: persistent
+    partitions: 0
+    notes: Order lifecycle event stream
     policies:
       retentionTimeInMinutes: 10080
-      retentionSizeInMb: 4096
-      messageTtlInSeconds: 86400
-      deduplicationEnabled: true
-    topics:
-      - name: order-events
-        domain: persistent
-        partitions: 0
-        notes: Order lifecycle event stream
-        policies:
-          retentionTimeInMinutes: 10080
-          retentionSizeInMb: 2048
-          ttlInSeconds: 86400
-          compactionThresholdInBytes: 104857600
-          maxProducers: 16
-          maxConsumers: 48
-          maxSubscriptions: 24
+      retentionSizeInMb: 2048
+      ttlInSeconds: 86400
+      compactionThresholdInBytes: 104857600
+      maxProducers: 16
+      maxConsumers: 48
+      maxSubscriptions: 24
 `;
   }
 }

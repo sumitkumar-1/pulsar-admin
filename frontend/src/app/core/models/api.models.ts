@@ -421,6 +421,7 @@ export interface ReplayCopyJobStatusResponse {
 
 export interface TenantYamlPreviewRequest {
   tenant: string;
+  namespace: string;
   yaml: string;
 }
 
@@ -440,6 +441,7 @@ export interface TenantYamlPreviewResponse {
   previewId: string | null;
   environmentId: string;
   tenant: string;
+  namespace: string;
   valid: boolean;
   message: string;
   errors: string[];
@@ -450,6 +452,7 @@ export interface TenantYamlApplyResponse {
   previewId: string;
   environmentId: string;
   tenant: string;
+  namespace: string;
   message: string;
   appliedChanges: TenantYamlDiffEntry[];
   catalogSummary: CatalogSummary;

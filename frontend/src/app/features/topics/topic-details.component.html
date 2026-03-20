@@ -26,7 +26,7 @@
         <button type="button" (click)="openWorkflow('policies')">Topic Policies</button>
         <button type="button" (click)="openWorkflow('test-messages')">Test Messages</button>
         <button type="button" (click)="openWorkflow('unload')">Unload Topic</button>
-        <button type="button" (click)="openWorkflow('terminate')">Terminate Topic</button>
+        <button type="button" (click)="openWorkflow('terminate')" [disabled]="!canTerminateTopic()">Terminate Topic</button>
         <button type="button" (click)="openWorkflow('replay')">Replay / Copy</button>
       </div>
     </section>
@@ -431,6 +431,12 @@
                 </div>
               }
 
+              @if (!canTerminateTopic()) {
+                <div class="placeholder-panel">
+                  <p>Partitioned topics cannot be terminated in Pulsar. Use partition-aware lifecycle workflows instead.</p>
+                </div>
+              }
+
               @if (terminateResult(); as result) {
                 <div class="placeholder-panel success">
                   <p>{{ result.message }}</p>
@@ -439,7 +445,7 @@
               }
 
               <div class="form-button-row">
-                <button type="submit" class="danger-button" [disabled]="terminateSaving()">
+                <button type="submit" class="danger-button" [disabled]="terminateSaving() || !canTerminateTopic()">
                   {{ terminateSaving() ? 'Terminating...' : 'Terminate Topic' }}
                 </button>
               </div>

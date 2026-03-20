@@ -6,6 +6,7 @@ public record TenantYamlApplyResponse(
     String previewId,
     String environmentId,
     String tenant,
+    String namespace,
     String message,
     List<TenantYamlDiffEntry> appliedChanges,
     CatalogSummary catalogSummary) {

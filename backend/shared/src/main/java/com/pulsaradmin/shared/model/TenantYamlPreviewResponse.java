@@ -6,6 +6,7 @@ public record TenantYamlPreviewResponse(
     String previewId,
     String environmentId,
     String tenant,
+    String namespace,
     boolean valid,
     String message,
     List<String> errors,

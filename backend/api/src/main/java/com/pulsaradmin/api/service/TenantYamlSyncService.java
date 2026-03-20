@@ -38,7 +38,7 @@ public class TenantYamlSyncService {
     EnvironmentRecord environment = environmentCatalogService.getEnvironmentRecord(environmentId);
     EnvironmentSnapshotRecord snapshot = environmentCatalogService.refreshEnvironment(environment);
 
-    DesiredTenantState desiredState;
+    DesiredNamespaceState desiredState;
     try {
       desiredState = parseDesiredState(request);
     } catch (IllegalArgumentException exception) {
@@ -46,6 +46,7 @@ public class TenantYamlSyncService {
           null,
           environmentId,
           request.tenant(),
+          request.namespace(),
           false,
           "YAML validation failed.",
           List.of(exception.getMessage()),
@@ -55,17 +56,18 @@ public class TenantYamlSyncService {
     List<TenantYamlDiffEntry> changes = diff(snapshot, desiredState);
     String previewId = storePreview ? UUID.randomUUID().toString() : null;
     if (storePreview) {
-      previews.put(previewId, new StoredPreview(environmentId, desiredState.tenant(), desiredState, changes));
+      previews.put(previewId, new StoredPreview(environmentId, desiredState.tenant(), desiredState.namespace(), desiredState, changes));
     }
 
     return new TenantYamlPreviewResponse(
         previewId,
         environmentId,
         desiredState.tenant(),
+        desiredState.namespace(),
         true,
         changes.isEmpty()
-            ? "No changes detected for tenant " + desiredState.tenant() + "."
-            : "Preview generated for tenant " + desiredState.tenant() + ".",
+            ? "No changes detected for namespace " + desiredState.tenant() + "/" + desiredState.namespace() + "."
+            : "Preview generated for namespace " + desiredState.tenant() + "/" + desiredState.namespace() + ".",
         List.of(),
         changes);
   }
@@ -79,10 +81,6 @@ public class TenantYamlSyncService {
     EnvironmentRecord environment = environmentCatalogService.getEnvironmentRecord(environmentId);
     EnvironmentSnapshotRecord snapshot = environmentCatalogService.refreshEnvironment(environment);
 
-    if (snapshot.tenants().stream().noneMatch(item -> item.equals(preview.tenant()))) {
-      throw new BadRequestException("The selected tenant is not present in the current environment snapshot.");
-    }
-
     applyDesiredState(environment, snapshot, preview.desiredState());
     environmentCatalogService.refreshEnvironment(environment);
     CatalogSummary catalogSummary = environmentCatalogService.getCatalogSummary(environmentId);
@@ -92,7 +90,8 @@ public class TenantYamlSyncService {
         request.previewId(),
         environmentId,
         preview.tenant(),
-        "Applied the previewed YAML changes for tenant " + preview.tenant() + ".",
+        preview.namespace(),
+        "Applied the previewed YAML changes for namespace " + preview.tenant() + "/" + preview.namespace() + ".",
         preview.changes(),
         catalogSummary);
   }
@@ -100,157 +99,121 @@ public class TenantYamlSyncService {
   private void applyDesiredState(
       EnvironmentRecord environment,
       EnvironmentSnapshotRecord snapshot,
-      DesiredTenantState desiredState) {
-    for (DesiredNamespaceState namespace : desiredState.namespaces().values()) {
-      String fullNamespace = desiredState.tenant() + "/" + namespace.name();
-      boolean namespaceExists = snapshot.namespaces().stream().anyMatch(item -> item.equals(fullNamespace));
-      if (!namespaceExists) {
-        environmentCatalogService.createNamespace(environment.id(), new CreateNamespaceRequest(desiredState.tenant(), namespace.name()));
-      }
-
-      environmentCatalogService.updateNamespacePolicies(
-          environment.id(),
-          new NamespacePoliciesUpdateRequest(desiredState.tenant(), namespace.name(), namespace.policies(), "Apply tenant YAML sync"));
-
-      for (DesiredTopicState topic : namespace.topics().values()) {
-        String fullTopicName = topic.fullTopicName(desiredState.tenant(), namespace.name());
-        boolean topicExists = snapshot.topics().stream().anyMatch(item -> item.fullName().equals(fullTopicName));
-        if (!topicExists) {
-          environmentCatalogService.createTopic(environment.id(), new CreateTopicRequest(
-              topic.domain(),
-              desiredState.tenant(),
-              namespace.name(),
-              topic.name(),
-              topic.partitions(),
-              topic.notes()));
-        }
-
-        environmentCatalogService.updateTopicPolicies(
-            environment.id(),
-            new TopicPoliciesUpdateRequest(fullTopicName, topic.policies(), "Apply tenant YAML sync"));
-      }
+      DesiredNamespaceState desiredState) {
+    String fullNamespace = desiredState.tenant() + "/" + desiredState.namespace();
+    boolean namespaceExists = snapshot.namespaces().stream().anyMatch(item -> item.equals(fullNamespace));
+    if (!namespaceExists) {
+      environmentCatalogService.createNamespace(environment.id(), new CreateNamespaceRequest(desiredState.tenant(), desiredState.namespace()));
     }
 
-    List<TopicDetails> tenantTopics = snapshot.topics().stream()
+    environmentCatalogService.updateNamespacePolicies(
+        environment.id(),
+        new NamespacePoliciesUpdateRequest(
+            desiredState.tenant(),
+            desiredState.namespace(),
+            desiredState.policies(),
+            "Apply namespace YAML sync"));
+
+    for (DesiredTopicState topic : desiredState.topics().values()) {
+      String fullTopicName = topic.fullTopicName(desiredState.tenant(), desiredState.namespace());
+      boolean topicExists = snapshot.topics().stream().anyMatch(item -> item.fullName().equals(fullTopicName));
+      if (!topicExists) {
+        environmentCatalogService.createTopic(environment.id(), new CreateTopicRequest(
+            topic.domain(),
+            desiredState.tenant(),
+            desiredState.namespace(),
+            topic.name(),
+            topic.partitions(),
+            topic.notes()));
+      }
+
+      environmentCatalogService.updateTopicPolicies(
+          environment.id(),
+          new TopicPoliciesUpdateRequest(fullTopicName, topic.policies(), "Apply namespace YAML sync"));
+    }
+
+    List<TopicDetails> namespaceTopics = snapshot.topics().stream()
         .filter(topic -> topic.tenant().equals(desiredState.tenant()))
+        .filter(topic -> topic.namespace().equals(desiredState.namespace()))
         .toList();
 
-    for (TopicDetails existingTopic : tenantTopics) {
-      DesiredNamespaceState namespace = desiredState.namespaces().get(existingTopic.namespace());
-      boolean shouldExist = namespace != null && namespace.topics().containsKey(existingTopic.topic());
+    for (TopicDetails existingTopic : namespaceTopics) {
+      boolean shouldExist = desiredState.topics().containsKey(existingTopic.topic());
       if (!shouldExist) {
         environmentCatalogService.deleteTopicForSync(environment, existingTopic.fullName());
       }
     }
-
-    for (String existingNamespace : snapshot.namespaces()) {
-      if (!existingNamespace.startsWith(desiredState.tenant() + "/")) {
-        continue;
-      }
-      String namespaceName = existingNamespace.substring(existingNamespace.indexOf('/') + 1);
-      if (!desiredState.namespaces().containsKey(namespaceName)) {
-        environmentCatalogService.deleteNamespaceForSync(environment, desiredState.tenant(), namespaceName);
-      }
-    }
   }
 
-  private List<TenantYamlDiffEntry> diff(EnvironmentSnapshotRecord snapshot, DesiredTenantState desiredState) {
+  private List<TenantYamlDiffEntry> diff(EnvironmentSnapshotRecord snapshot, DesiredNamespaceState desiredState) {
     List<TenantYamlDiffEntry> changes = new ArrayList<>();
-    changes.add(new TenantYamlDiffEntry("KEEP", "TENANT", desiredState.tenant(), "Tenant scope selected for preview/apply."));
+    String fullNamespace = desiredState.tenant() + "/" + desiredState.namespace();
+    boolean namespaceExists = snapshot.namespaces().stream().anyMatch(item -> item.equals(fullNamespace));
+    changes.add(new TenantYamlDiffEntry(
+        namespaceExists ? "UPDATE" : "CREATE",
+        "NAMESPACE",
+        fullNamespace,
+        namespaceExists ? "Namespace exists and its policies will be aligned." : "Namespace will be created."));
 
-    for (DesiredNamespaceState namespace : desiredState.namespaces().values()) {
-      String fullNamespace = desiredState.tenant() + "/" + namespace.name();
-      boolean namespaceExists = snapshot.namespaces().stream().anyMatch(item -> item.equals(fullNamespace));
+    for (DesiredTopicState topic : desiredState.topics().values()) {
+      String fullTopicName = topic.fullTopicName(desiredState.tenant(), desiredState.namespace());
+      boolean topicExists = snapshot.topics().stream().anyMatch(item -> item.fullName().equals(fullTopicName));
       changes.add(new TenantYamlDiffEntry(
-          namespaceExists ? "UPDATE" : "CREATE",
-          "NAMESPACE",
-          fullNamespace,
-          namespaceExists ? "Namespace exists and its policies will be aligned." : "Namespace will be created."));
-
-      for (DesiredTopicState topic : namespace.topics().values()) {
-        String fullTopicName = topic.fullTopicName(desiredState.tenant(), namespace.name());
-        boolean topicExists = snapshot.topics().stream().anyMatch(item -> item.fullName().equals(fullTopicName));
-        changes.add(new TenantYamlDiffEntry(
-            topicExists ? "UPDATE" : "CREATE",
-            "TOPIC",
-            fullTopicName,
-            topicExists ? "Topic exists and its policies will be aligned." : "Topic will be created."));
-      }
+          topicExists ? "UPDATE" : "CREATE",
+          "TOPIC",
+          fullTopicName,
+          topicExists ? "Topic exists and its policies will be aligned." : "Topic will be created."));
     }
 
     snapshot.topics().stream()
         .filter(topic -> topic.tenant().equals(desiredState.tenant()))
-        .filter(topic -> {
-          DesiredNamespaceState namespace = desiredState.namespaces().get(topic.namespace());
-          return namespace == null || !namespace.topics().containsKey(topic.topic());
-        })
+        .filter(topic -> topic.namespace().equals(desiredState.namespace()))
+        .filter(topic -> !desiredState.topics().containsKey(topic.topic()))
         .sorted((left, right) -> left.fullName().compareTo(right.fullName()))
         .forEach(topic -> changes.add(new TenantYamlDiffEntry(
             "REMOVE",
             "TOPIC",
             topic.fullName(),
-            "Topic is present in the environment but absent from the desired YAML state.")));
-
-    snapshot.namespaces().stream()
-        .filter(namespace -> namespace.startsWith(desiredState.tenant() + "/"))
-        .filter(namespace -> {
-          String namespaceName = namespace.substring(namespace.indexOf('/') + 1);
-          return !desiredState.namespaces().containsKey(namespaceName);
-        })
-        .sorted()
-        .forEach(namespace -> changes.add(new TenantYamlDiffEntry(
-            "REMOVE",
-            "NAMESPACE",
-            namespace,
-            "Namespace is present in the environment but absent from the desired YAML state.")));
+            "Topic is present in the selected namespace but absent from the desired YAML state.")));
 
     return changes;
   }
 
   @SuppressWarnings("unchecked")
-  private DesiredTenantState parseDesiredState(TenantYamlPreviewRequest request) {
+  private DesiredNamespaceState parseDesiredState(TenantYamlPreviewRequest request) {
     Object parsed = yaml.load(request.yaml());
     if (!(parsed instanceof Map<?, ?> root)) {
       throw new IllegalArgumentException("The YAML root must be an object.");
     }
 
     String tenant = stringValue(root.get("tenant"));
+    String namespace = stringValue(root.get("namespace"));
     if (!request.tenant().equals(tenant)) {
       throw new IllegalArgumentException("The YAML tenant must match the selected tenant.");
     }
+    if (!request.namespace().equals(namespace)) {
+      throw new IllegalArgumentException("The YAML namespace must match the selected namespace.");
+    }
 
-    Map<String, DesiredNamespaceState> namespaces = new LinkedHashMap<>();
-    Object namespaceValue = root.get("namespaces");
-    if (namespaceValue instanceof List<?> namespaceList) {
-      for (Object item : namespaceList) {
-        if (!(item instanceof Map<?, ?> namespaceMap)) {
-          throw new IllegalArgumentException("Each namespace entry must be an object.");
+    NamespacePolicies namespacePolicies = parseNamespacePolicies((Map<String, Object>) root.get("policies"));
+    Map<String, DesiredTopicState> topics = new LinkedHashMap<>();
+    Object topicValue = root.get("topics");
+    if (topicValue instanceof List<?> topicList) {
+      for (Object topicItem : topicList) {
+        if (!(topicItem instanceof Map<?, ?> topicMap)) {
+          throw new IllegalArgumentException("Each topic entry must be an object.");
         }
-        String namespaceName = stringValue(namespaceMap.get("name"));
-        NamespacePolicies namespacePolicies = parseNamespacePolicies((Map<String, Object>) namespaceMap.get("policies"));
-
-        Map<String, DesiredTopicState> topics = new LinkedHashMap<>();
-        Object topicValue = namespaceMap.get("topics");
-        if (topicValue instanceof List<?> topicList) {
-          for (Object topicItem : topicList) {
-            if (!(topicItem instanceof Map<?, ?> topicMap)) {
-              throw new IllegalArgumentException("Each topic entry must be an object.");
-            }
-            String topicName = stringValue(topicMap.get("name"));
-            topics.put(topicName, new DesiredTopicState(
-                stringValueOrDefault(topicMap.get("domain"), "persistent"),
-                topicName,
-                intValue(topicMap.get("partitions"), 0),
-                nullableString(topicMap.get("notes")),
-                parseTopicPolicies((Map<String, Object>) topicMap.get("policies"))));
-          }
-        }
-
-        namespaces.put(namespaceName, new DesiredNamespaceState(namespaceName, namespacePolicies, topics));
+        String topicName = stringValue(topicMap.get("name"));
+        topics.put(topicName, new DesiredTopicState(
+            stringValueOrDefault(topicMap.get("domain"), "persistent"),
+            topicName,
+            intValue(topicMap.get("partitions"), 0),
+            nullableString(topicMap.get("notes")),
+            parseTopicPolicies((Map<String, Object>) topicMap.get("policies"))));
       }
     }
 
-    return new DesiredTenantState(tenant, namespaces);
+    return new DesiredNamespaceState(tenant, namespace, namespacePolicies, topics);
   }
 
   private NamespacePolicies parseNamespacePolicies(Map<String, Object> map) {
@@ -328,11 +291,9 @@ public class TenantYamlSyncService {
     return Boolean.parseBoolean(String.valueOf(value));
   }
 
-  private record DesiredTenantState(String tenant, Map<String, DesiredNamespaceState> namespaces) {
-  }
-
   private record DesiredNamespaceState(
-      String name,
+      String tenant,
+      String namespace,
       NamespacePolicies policies,
       Map<String, DesiredTopicState> topics) {
   }
@@ -351,7 +312,8 @@ public class TenantYamlSyncService {
   private record StoredPreview(
       String environmentId,
       String tenant,
-      DesiredTenantState desiredState,
+      String namespace,
+      DesiredNamespaceState desiredState,
       List<TenantYamlDiffEntry> changes) {
   }
 }

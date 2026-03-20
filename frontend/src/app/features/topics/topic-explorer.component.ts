@@ -1,5 +1,5 @@
 import { DecimalPipe, NgClass, UpperCasePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
@@ -20,18 +20,12 @@ import { CreateNamespaceDialogComponent } from './create-namespace-dialog.compon
 import { CreateTenantDialogComponent } from './create-tenant-dialog.component';
 import { CreateTopicDialogComponent } from './create-topic-dialog.component';
 
-interface NamespaceTopicGroup {
+interface NamespaceWorkspaceItem {
   key: string;
   tenant: string;
   namespace: string;
-  items: TopicListItem[];
-}
-
-interface TenantTopicGroup {
-  tenant: string;
-  namespaceCount: number;
   topicCount: number;
-  namespaces: NamespaceTopicGroup[];
+  matchingTopicCount: number;
 }
 
 @Component({
@@ -80,6 +74,8 @@ export class TopicExplorerComponent {
   readonly environmentHealth = signal<EnvironmentHealth | null>(null);
   readonly catalogSummary = signal<CatalogSummary | null>(null);
   readonly topicPage = signal<TopicPage | null>(null);
+  readonly selectedTenant = signal('');
+  readonly selectedNamespace = signal('');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
   readonly tenantDialogOpen = signal(false);
@@ -90,58 +86,71 @@ export class TopicExplorerComponent {
   readonly savingTopic = signal(false);
   readonly actionFeedback = signal<{ kind: 'success' | 'error'; message: string } | null>(null);
 
-  readonly topicGroups = computed<TenantTopicGroup[]>(() => {
-    const page = this.topicPage();
+  readonly namespaceItems = computed<NamespaceWorkspaceItem[]>(() => {
     const catalog = this.catalogSummary();
-    const hasSearch = !!this.searchControl.value.trim();
+    const page = this.topicPage();
+    const search = this.searchControl.value.trim().toLowerCase();
+    const hasSearch = search.length > 0;
 
-    if (!page || !catalog) {
+    if (!catalog) {
       return [];
     }
 
-    const topicMap = new Map<string, TopicListItem[]>();
+    const matchingTopicCounts = new Map<string, number>();
 
-    for (const item of page.items) {
+    for (const item of page?.items ?? []) {
       const key = `${item.tenant}/${item.namespace}`;
-      topicMap.set(key, [...(topicMap.get(key) ?? []), item]);
+      matchingTopicCounts.set(key, (matchingTopicCounts.get(key) ?? 0) + 1);
     }
 
-    const namespaceSource: NamespaceSummary[] = hasSearch
-      ? [...topicMap.keys()].map((key) => {
-          const [tenant, namespace] = key.split('/');
-          return { tenant, namespace, topicCount: topicMap.get(key)?.length ?? 0 };
-        })
-      : catalog.namespaces;
-
-    const tenantSource = hasSearch
-      ? Array.from(new Set(namespaceSource.map((namespace) => namespace.tenant)))
-      : catalog.tenants.map((tenant) => tenant.name);
-
-    return tenantSource
-      .map((tenant) => {
-        const namespaces = namespaceSource
-          .filter((namespace) => namespace.tenant === tenant)
-          .map((namespace) => ({
-            key: `${tenant}/${namespace.namespace}`,
-            tenant,
-            namespace: namespace.namespace,
-            items: [...(topicMap.get(`${tenant}/${namespace.namespace}`) ?? [])].sort((left, right) =>
-              left.topic.localeCompare(right.topic))
-          }))
-          .filter((namespace) => !hasSearch || namespace.items.length > 0)
-          .sort((left, right) => left.namespace.localeCompare(right.namespace));
-
-        const topicCount = namespaces.reduce((sum, namespace) => sum + namespace.items.length, 0);
-
+    return catalog.namespaces
+      .map((namespace) => {
+        const key = `${namespace.tenant}/${namespace.namespace}`;
+        const matchingTopicCount = matchingTopicCounts.get(key) ?? 0;
         return {
-          tenant,
-          namespaceCount: namespaces.length,
-          topicCount,
-          namespaces
+          key,
+          tenant: namespace.tenant,
+          namespace: namespace.namespace,
+          topicCount: namespace.topicCount,
+          matchingTopicCount
         };
       })
-      .filter((tenant) => tenant.namespaces.length > 0 || !hasSearch)
-      .sort((left, right) => left.tenant.localeCompare(right.tenant));
+      .filter((namespace) => {
+        if (!hasSearch) {
+          return true;
+        }
+
+        const haystack = `${namespace.tenant}/${namespace.namespace}`.toLowerCase();
+        return haystack.includes(search) || namespace.matchingTopicCount > 0;
+      })
+      .sort((left, right) => left.key.localeCompare(right.key));
+  });
+
+  readonly selectedNamespaceSummary = computed<NamespaceSummary | null>(() => {
+    const catalog = this.catalogSummary();
+    const tenant = this.selectedTenant();
+    const namespace = this.selectedNamespace();
+
+    if (!catalog || !tenant || !namespace) {
+      return null;
+    }
+
+    return catalog.namespaces.find((item) => item.tenant === tenant && item.namespace === namespace) ?? null;
+  });
+
+  readonly selectedTopics = computed(() =>
+    [...(this.topicPage()?.items ?? [])].sort((left, right) => left.topic.localeCompare(right.topic))
+  );
+
+  readonly totalTopicCount = computed(() =>
+    this.catalogSummary()?.namespaces.reduce((sum, namespace) => sum + namespace.topicCount, 0) ?? 0
+  );
+
+  readonly hasNamespaces = computed(() => (this.catalogSummary()?.namespaces.length ?? 0) > 0);
+  readonly selectedNamespaceLabel = computed(() => {
+    const tenant = this.selectedTenant();
+    const namespace = this.selectedNamespace();
+    return tenant && namespace ? `${tenant}/${namespace}` : 'No namespace selected';
   });
 
   readonly namespaceOptions = computed(() => {
@@ -180,6 +189,19 @@ export class TopicExplorerComponent {
           this.loading.set(false);
         }
       });
+
+    effect(() => {
+      const namespaces = this.namespaceItems();
+      const tenant = this.selectedTenant();
+      const namespace = this.selectedNamespace();
+
+      if (!namespaces.length || (tenant && namespace)) {
+        return;
+      }
+
+      const firstNamespace = namespaces[0];
+      void this.selectNamespace(firstNamespace.tenant, firstNamespace.namespace);
+    });
   }
 
   applySearch() {
@@ -210,9 +232,16 @@ export class TopicExplorerComponent {
     });
   }
 
-  openTenantYaml(tenant: string) {
-    void this.router.navigate(['/environments', this.environmentId(), 'tenant-yaml'], {
-      queryParams: this.demoMode.queryParams({ tenant })
+  openNamespaceYaml() {
+    if (!this.selectedTenant() || !this.selectedNamespace()) {
+      return;
+    }
+
+    void this.router.navigate(['/environments', this.environmentId(), 'namespace-yaml'], {
+      queryParams: this.demoMode.queryParams({
+        tenant: this.selectedTenant(),
+        namespace: this.selectedNamespace()
+      })
     });
   }
 
@@ -223,8 +252,8 @@ export class TopicExplorerComponent {
   openCreateTopicDialog() {
     this.createTopicForm.reset({
       domain: 'persistent',
-      tenant: '',
-      namespace: '',
+      tenant: this.selectedTenant(),
+      namespace: this.selectedNamespace(),
       topic: '',
       partitions: 0,
       notes: ''
@@ -245,7 +274,7 @@ export class TopicExplorerComponent {
 
   openCreateNamespaceDialog() {
     this.createNamespaceForm.reset({
-      tenant: '',
+      tenant: this.selectedTenant(),
       namespace: ''
     });
     this.actionFeedback.set(null);
@@ -342,6 +371,7 @@ export class TopicExplorerComponent {
           this.namespaceDialogOpen.set(false);
           this.savingNamespace.set(false);
           this.actionFeedback.set({ kind: 'success', message: response.message });
+          void this.selectNamespace(request.tenant, request.namespace);
           this.refresh$.next(undefined);
         },
         error: (error: { error?: { message?: string } }) => {
@@ -382,6 +412,7 @@ export class TopicExplorerComponent {
             kind: 'success',
             message: `Created ${topic.fullName} and refreshed the topic inventory.`
           });
+          void this.selectNamespace(topic.tenant, topic.namespace);
           this.refresh$.next(undefined);
         },
         error: (error: { error?: { message?: string } }) => {
@@ -403,6 +434,8 @@ export class TopicExplorerComponent {
     const pageSize = Number(queryParams.get('pageSize') ?? '25');
 
     this.environmentId.set(envId);
+    this.selectedTenant.set(tenant ?? '');
+    this.selectedNamespace.set(namespace ?? '');
     this.searchControl.setValue(search, { emitEvent: false });
     this.loading.set(true);
     this.loadError.set(null);
@@ -412,6 +445,18 @@ export class TopicExplorerComponent {
       this.api.getCatalogSummary(envId),
       this.api.getTopics(envId, { search, tenant, namespace, page, pageSize })
     ]);
+  }
+
+  async selectNamespace(tenant: string, namespace: string) {
+    await this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: this.demoMode.queryParams({
+        tenant,
+        namespace,
+        page: '0'
+      }),
+      queryParamsHandling: 'merge'
+    });
   }
 
   private toCsvList(value: string): string[] {

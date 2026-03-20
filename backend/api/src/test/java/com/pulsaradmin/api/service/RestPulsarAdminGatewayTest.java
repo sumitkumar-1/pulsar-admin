@@ -74,7 +74,11 @@ class RestPulsarAdminGatewayTest {
             ["persistent://acme/orders/payment-events"]
             """, MediaType.APPLICATION_JSON));
 
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/stats"))
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitions"))
+        .andRespond(withSuccess("""
+            {"partitions": 2}
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitioned-stats?perPartition=true"))
         .andRespond(withSuccess("""
             {
               "msgRateIn": 82.4,
@@ -125,7 +129,6 @@ class RestPulsarAdminGatewayTest {
               }
             }
             """, MediaType.APPLICATION_JSON));
-
     server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
         .andRespond(withSuccess("""
             {
@@ -155,6 +158,108 @@ class RestPulsarAdminGatewayTest {
     assertThat(topic.schema().present()).isTrue();
     assertThat(topic.schema().type()).isEqualTo("JSON");
     assertThat(topic.notes()).contains("Found 2 subscriptions");
+
+    server.verify();
+  }
+
+  @Test
+  void shouldCollapsePartitionChildrenIntoOneLogicalTopicDuringSync() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    EnvironmentDetails environment = environment();
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/tenants"))
+        .andRespond(withSuccess("""
+            ["acme"]
+            """, MediaType.APPLICATION_JSON));
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/namespaces/acme"))
+        .andRespond(withSuccess("""
+            ["acme/orders"]
+            """, MediaType.APPLICATION_JSON));
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders"))
+        .andRespond(withSuccess("""
+            [
+              "persistent://acme/orders/payment-events-partition-0",
+              "persistent://acme/orders/payment-events-partition-1",
+              "persistent://acme/orders/payment-events-partition-2"
+            ]
+            """, MediaType.APPLICATION_JSON));
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitions"))
+        .andRespond(withSuccess("""
+            {"partitions": 3}
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitioned-stats?perPartition=true"))
+        .andRespond(withSuccess("""
+            {
+              "msgRateIn": 52.0,
+              "msgRateOut": 49.0,
+              "msgThroughputIn": 6400.0,
+              "msgThroughputOut": 6200.0,
+              "storageSize": 512000,
+              "publishers": [{"producerName": "payments-producer-1"}],
+              "subscriptions": {
+                "payment-settlement": {
+                  "msgBacklog": 42,
+                  "consumers": [{"consumerName": "settlement-a"}]
+                }
+              },
+              "partitions": {
+                "persistent://acme/orders/payment-events-partition-0": {
+                  "msgRateIn": 17.0,
+                  "msgRateOut": 16.0,
+                  "subscriptions": {
+                    "payment-settlement": {
+                      "msgBacklog": 11,
+                      "consumers": [{"consumerName": "settlement-a"}]
+                    }
+                  }
+                },
+                "persistent://acme/orders/payment-events-partition-1": {
+                  "msgRateIn": 18.0,
+                  "msgRateOut": 17.0,
+                  "subscriptions": {
+                    "payment-settlement": {
+                      "msgBacklog": 14,
+                      "consumers": [{"consumerName": "settlement-b"}]
+                    }
+                  }
+                },
+                "persistent://acme/orders/payment-events-partition-2": {
+                  "msgRateIn": 17.0,
+                  "msgRateOut": 16.0,
+                  "subscriptions": {
+                    "payment-settlement": {
+                      "msgBacklog": 17,
+                      "consumers": [{"consumerName": "settlement-c"}]
+                    }
+                  }
+                }
+              }
+            }
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
+        .andRespond(withSuccess("""
+            {
+              "version": "4",
+              "type": "JSON",
+              "data": {
+                "type": "JSON"
+              }
+            }
+            """, MediaType.APPLICATION_JSON));
+
+    EnvironmentSnapshot snapshot = gateway.syncMetadata(environment);
+
+    assertThat(snapshot.topics()).hasSize(1);
+    assertThat(snapshot.topics().get(0).fullName()).isEqualTo("persistent://acme/orders/payment-events");
+    assertThat(snapshot.topics().get(0).partitioned()).isTrue();
+    assertThat(snapshot.topics().get(0).partitions()).isEqualTo(3);
+    assertThat(snapshot.topics().get(0).partitionSummaries()).hasSize(3);
 
     server.verify();
   }
@@ -333,6 +438,10 @@ class RestPulsarAdminGatewayTest {
 
     server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/unload"))
         .andRespond(withSuccess());
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitions"))
+        .andRespond(withSuccess("""
+            {"partitions": 0}
+            """, MediaType.APPLICATION_JSON));
     server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/stats"))
         .andRespond(withSuccess("""
             {

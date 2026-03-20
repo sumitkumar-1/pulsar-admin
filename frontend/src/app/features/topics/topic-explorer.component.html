@@ -22,7 +22,7 @@
   <div class="panel-header">
     <div>
       <p class="eyebrow">Explore Catalog</p>
-      <h3>Browse by tenant and namespace first, then drill into the topics that need attention.</h3>
+      <h3>Pick a tenant and namespace first, then work inside that namespace as your active Pulsar workspace.</h3>
     </div>
     <div class="toolbar-stack">
       <div class="action-row">
@@ -31,7 +31,7 @@
         <button class="create-button" type="button" (click)="openCreateTopicDialog()">Add Topic</button>
       </div>
       <form class="toolbar" (ngSubmit)="applySearch()">
-        <input [formControl]="searchControl" type="search" placeholder="Search by tenant, namespace, topic, or full name" />
+        <input [formControl]="searchControl" type="search" placeholder="Filter namespaces, or search topics within the active namespace" />
         <button type="submit">Search</button>
         <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
       </form>
@@ -48,85 +48,138 @@
     <div class="state-card">Loading topic inventory for {{ environmentId() }}...</div>
   } @else if (loadError()) {
     <div class="state-card error">{{ loadError() }}</div>
-  } @else if (topicGroups().length === 0) {
-    <div class="state-card">No topics match the current filters.</div>
+  } @else if (!hasNamespaces()) {
+    <div class="state-card empty-workspace">
+      <h4>No namespaces are configured yet.</h4>
+      <p>Create a tenant and namespace first, then this explorer will turn into a focused namespace workspace.</p>
+      <div class="empty-actions">
+        <button class="create-button" type="button" (click)="openCreateTenantDialog()">Add Tenant</button>
+        <button class="create-button secondary" type="button" (click)="openCreateNamespaceDialog()">Add Namespace</button>
+      </div>
+    </div>
+  } @else if (namespaceItems().length === 0) {
+    <div class="state-card">No tenant and namespace combinations match the current filters.</div>
   } @else {
     <div class="summary-row">
       <span>{{ catalogSummary()?.tenants?.length || 0 }} tenants</span>
       <span>{{ catalogSummary()?.namespaces?.length || 0 }} namespaces</span>
-      <span>{{ topicPage()?.total | number }} topics</span>
+      <span>{{ totalTopicCount() | number }} topics tracked</span>
     </div>
 
-    @for (tenantGroup of topicGroups(); track tenantGroup.tenant) {
-      <section class="tenant-block">
-        <div class="tenant-header">
+    <div class="workspace-grid">
+      <section class="namespace-selector-card">
+        <div class="selector-header">
           <div>
-            <p class="eyebrow">Tenant</p>
-            <h4>{{ tenantGroup.tenant }}</h4>
-          </div>
-          <div class="tenant-actions">
-            <span>{{ tenantGroup.namespaceCount }} namespaces · {{ tenantGroup.topicCount }} topics</span>
-            <button class="ghost" type="button" (click)="openTenantYaml(tenantGroup.tenant)">Tenant YAML</button>
+            <p class="eyebrow">Namespaces</p>
+            <h4>{{ namespaceItems().length }} active workspaces</h4>
           </div>
         </div>
 
-        @for (namespaceGroup of tenantGroup.namespaces; track namespaceGroup.key) {
-          <section class="namespace-block">
-            <div class="namespace-header">
-              <button class="namespace-link" type="button" (click)="openNamespace(tenantGroup.tenant, namespaceGroup.namespace)">
-                {{ tenantGroup.tenant }}/{{ namespaceGroup.namespace }}
-              </button>
-              <span>{{ namespaceGroup.items.length }} topics</span>
-            </div>
-
-            @if (namespaceGroup.items.length === 0) {
-              <div class="state-card">
-                No topics are in this namespace yet. Create one to start publishing or testing workflows here.
+        <div class="namespace-list">
+          @for (namespaceItem of namespaceItems(); track namespaceItem.key) {
+            <button
+              type="button"
+              class="namespace-workspace-card"
+              [class.selected]="namespaceItem.tenant === selectedTenant() && namespaceItem.namespace === selectedNamespace()"
+              (click)="selectNamespace(namespaceItem.tenant, namespaceItem.namespace)">
+              <div class="namespace-workspace-topline">
+                <span class="namespace-link">{{ namespaceItem.tenant }}/{{ namespaceItem.namespace }}</span>
+                <span>{{ namespaceItem.topicCount }} topics</span>
               </div>
-            } @else {
-              <div class="topic-grid">
-                @for (topic of namespaceGroup.items; track topic.fullName) {
-                  <button type="button" class="topic-card" (click)="openTopic(topic)">
-                    <div class="topic-topline">
-                      <span class="health-pill" [ngClass]="healthClass(topic.health)">
-                        {{ topic.health.toLowerCase() }}
-                      </span>
-                      <span>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Non-partitioned' }}</span>
-                    </div>
-
-                    <div>
-                      <h5>{{ topic.topic }}</h5>
-                      <p class="topic-name">{{ topic.fullName }}</p>
-                    </div>
-
-                    <p class="summary">{{ topic.summary }}</p>
-
-                    <div class="metrics">
-                      <div>
-                        <span>Backlog</span>
-                        <strong>{{ topic.stats.backlog | number }}</strong>
-                      </div>
-                      <div>
-                        <span>Consumers</span>
-                        <strong>{{ topic.stats.consumers }}</strong>
-                      </div>
-                      <div>
-                        <span>Publish/s</span>
-                        <strong>{{ topic.stats.publishRateIn }}</strong>
-                      </div>
-                      <div>
-                        <span>Schema</span>
-                        <strong>{{ topic.schemaPresent ? 'Present' : 'None' }}</strong>
-                      </div>
-                    </div>
-                  </button>
+              <p>
+                @if (searchControl.value.trim()) {
+                  {{ namespaceItem.matchingTopicCount }} topics match the current search.
+                } @else {
+                  Use this namespace as the active workspace for topic actions, policies, and YAML sync.
                 }
-              </div>
-            }
-          </section>
+              </p>
+            </button>
           }
+        </div>
       </section>
-    }
+
+      <section class="namespace-detail-card">
+        <div class="tenant-header">
+          <div>
+            <p class="eyebrow">Selected Namespace</p>
+            <h4>{{ selectedNamespaceLabel() }}</h4>
+          </div>
+          <div class="tenant-actions">
+            <button class="ghost" type="button" (click)="openNamespace(selectedTenant(), selectedNamespace())" [disabled]="!selectedTenant() || !selectedNamespace()">
+              Namespace Details
+            </button>
+            <button class="ghost" type="button" (click)="openNamespaceYaml()" [disabled]="!selectedTenant() || !selectedNamespace()">
+              Namespace YAML
+            </button>
+          </div>
+        </div>
+
+        @if (selectedNamespaceSummary(); as namespaceSummary) {
+          <div class="namespace-summary-row">
+            <span>{{ namespaceSummary.tenant }}/{{ namespaceSummary.namespace }}</span>
+            <span>{{ namespaceSummary.topicCount | number }} topics tracked</span>
+            <span>{{ (topicPage()?.total ?? 0) | number }} topics loaded</span>
+          </div>
+
+          <div class="namespace-header">
+            <div>
+              <p class="eyebrow">Topics</p>
+              <h4>Focused topic workspace</h4>
+            </div>
+            <button class="create-button secondary" type="button" (click)="openCreateTopicDialog()">
+              Add Topic In {{ namespaceSummary.namespace }}
+            </button>
+          </div>
+
+          @if (selectedTopics().length === 0) {
+            <div class="state-card">
+              No topics are in this namespace yet. Create one to start publishing or testing workflows here.
+            </div>
+          } @else {
+            <div class="topic-grid">
+              @for (topic of selectedTopics(); track topic.fullName) {
+                <button type="button" class="topic-card" (click)="openTopic(topic)">
+                  <div class="topic-topline">
+                    <span class="health-pill" [ngClass]="healthClass(topic.health)">
+                      {{ topic.health.toLowerCase() }}
+                    </span>
+                    <span>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Non-partitioned' }}</span>
+                  </div>
+
+                  <div>
+                    <h5>{{ topic.topic }}</h5>
+                    <p class="topic-name">{{ topic.fullName }}</p>
+                  </div>
+
+                  <p class="summary">{{ topic.summary }}</p>
+
+                  <div class="metrics">
+                    <div>
+                      <span>Backlog</span>
+                      <strong>{{ topic.stats.backlog | number }}</strong>
+                    </div>
+                    <div>
+                      <span>Consumers</span>
+                      <strong>{{ topic.stats.consumers }}</strong>
+                    </div>
+                    <div>
+                      <span>Publish/s</span>
+                      <strong>{{ topic.stats.publishRateIn }}</strong>
+                    </div>
+                    <div>
+                      <span>Schema</span>
+                      <strong>{{ topic.schemaPresent ? 'Present' : 'None' }}</strong>
+                    </div>
+                  </div>
+                </button>
+              }
+            </div>
+          }
+        } @else {
+          <div class="state-card">Select a namespace to load its topic workspace.</div>
+        }
+      </section>
+    </div>
   }
 </section>
 

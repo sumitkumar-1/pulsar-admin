@@ -92,7 +92,7 @@ public class EnvironmentCatalogService {
 
     EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
-    var filtered = snapshot.topics().stream()
+    var filtered = collapseTopics(snapshot.topics()).stream()
         .filter(topic -> tenant == null || tenant.isBlank() || topic.tenant().equalsIgnoreCase(tenant))
         .filter(topic -> namespace == null || namespace.isBlank() || topic.namespace().equalsIgnoreCase(namespace))
         .filter(topic -> {
@@ -133,10 +133,7 @@ public class EnvironmentCatalogService {
 
     EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
-    return snapshot.topics().stream()
-        .filter(topic -> topic.fullName().equals(topicName))
-        .findFirst()
-        .orElseThrow(() -> new NotFoundException("Unknown topic: " + topicName));
+    return requireTopic(snapshot, topicName);
   }
 
   public TopicDetails createTopic(String environmentId, CreateTopicRequest request) {
@@ -290,6 +287,10 @@ public class EnvironmentCatalogService {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
     TopicDetails existingTopic = requireTopicFromSnapshot(environmentId, request.topicName());
 
+    if (existingTopic.partitioned()) {
+      throw new BadRequestException("Termination is not supported for partitioned topics. Select a non-partitioned topic instead.");
+    }
+
     if (request.reason() == null || request.reason().isBlank()) {
       throw new BadRequestException("A reason is required when terminating a topic.");
     }
@@ -333,10 +334,7 @@ public class EnvironmentCatalogService {
         request.topicName(),
         sanitizeTopicPolicies(request.policies()));
 
-    TopicDetails updatedTopic = refreshSnapshot(environment).topics().stream()
-        .filter(item -> item.fullName().equals(request.topicName()))
-        .findFirst()
-        .orElseThrow(() -> new NotFoundException("Unknown topic: " + request.topicName()));
+    TopicDetails updatedTopic = requireTopic(refreshSnapshot(environment), request.topicName());
 
     return new TopicPoliciesUpdateResponse(
         environmentId,
@@ -353,7 +351,7 @@ public class EnvironmentCatalogService {
     requireNamespace(snapshot, tenant, namespace);
 
     NamespaceDetails gatewayDetails = pulsarAdminGateway.getNamespaceDetails(environment.toDetails(), tenant, namespace);
-    List<TopicListItem> topics = snapshot.topics().stream()
+    List<TopicListItem> topics = collapseTopics(snapshot.topics()).stream()
         .filter(topic -> topic.tenant().equals(tenant) && topic.namespace().equals(namespace))
         .map(topic -> new TopicListItem(
             topic.fullName(),
@@ -686,10 +684,12 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("A topic name is required.");
     }
 
-    return snapshot.topics().stream()
-        .filter(item -> item.fullName().equals(topicName))
+    String canonicalTopicName = PulsarTopicName.parse(topicName).canonicalFullName();
+
+    return collapseTopics(snapshot.topics()).stream()
+        .filter(item -> item.fullName().equals(canonicalTopicName))
         .findFirst()
-        .orElseThrow(() -> new NotFoundException("Unknown topic: " + topicName));
+        .orElseThrow(() -> new NotFoundException("Unknown topic: " + canonicalTopicName));
   }
 
   private TopicDetails requireTopicFromSnapshot(String environmentId, String topicName) {
@@ -715,6 +715,135 @@ public class EnvironmentCatalogService {
     if (!exists) {
       throw new NotFoundException("Unknown namespace: " + fullNamespace);
     }
+  }
+
+  private List<TopicDetails> collapseTopics(List<TopicDetails> topics) {
+    java.util.LinkedHashMap<String, java.util.List<TopicDetails>> groupedTopics = new java.util.LinkedHashMap<>();
+
+    for (TopicDetails topic : topics) {
+      String canonicalFullName = PulsarTopicName.parse(topic.fullName()).canonicalFullName();
+      groupedTopics.computeIfAbsent(canonicalFullName, ignored -> new ArrayList<>()).add(topic);
+    }
+
+    return groupedTopics.entrySet().stream()
+        .map(entry -> mergeTopicGroup(entry.getKey(), entry.getValue()))
+        .sorted(Comparator.comparing(TopicDetails::namespace).thenComparing(TopicDetails::topic))
+        .toList();
+  }
+
+  private TopicDetails mergeTopicGroup(String canonicalFullName, List<TopicDetails> topicGroup) {
+    if (topicGroup.size() == 1 && topicGroup.get(0).fullName().equals(canonicalFullName)) {
+      return topicGroup.get(0);
+    }
+
+    TopicDetails preferredTopic = topicGroup.stream()
+        .filter(topic -> topic.fullName().equals(canonicalFullName))
+        .findFirst()
+        .orElse(topicGroup.get(0));
+
+    PulsarTopicName canonicalName = PulsarTopicName.parse(canonicalFullName);
+    int derivedPartitionCount = topicGroup.stream()
+        .map(topic -> PulsarTopicName.parse(topic.fullName()).partitionIndex())
+        .filter(java.util.Objects::nonNull)
+        .mapToInt(index -> index + 1)
+        .max()
+        .orElse(0);
+    int partitionCount = Math.max(
+        preferredTopic.partitioned() ? Math.max(1, preferredTopic.partitions()) : 0,
+        derivedPartitionCount);
+
+    long backlog = 0;
+    int producers = 0;
+    int subscriptions = 0;
+    int consumers = 0;
+    double publishRateIn = 0;
+    double dispatchRateOut = 0;
+    double throughputIn = 0;
+    double throughputOut = 0;
+    long storageSize = 0;
+    java.util.LinkedHashSet<String> subscriptionsSet = new java.util.LinkedHashSet<>();
+    java.util.LinkedHashMap<String, com.pulsaradmin.shared.model.TopicPartitionSummary> partitionSummaries = new java.util.LinkedHashMap<>();
+    boolean schemaPresent = false;
+    TopicHealth health = preferredTopic.health();
+
+    for (TopicDetails topic : topicGroup) {
+      backlog += topic.stats().backlog();
+      producers = Math.max(producers, topic.stats().producers());
+      subscriptions = Math.max(subscriptions, topic.stats().subscriptions());
+      consumers += topic.stats().consumers();
+      publishRateIn += topic.stats().publishRateIn();
+      dispatchRateOut += topic.stats().dispatchRateOut();
+      throughputIn += topic.stats().throughputIn();
+      throughputOut += topic.stats().throughputOut();
+      storageSize += topic.stats().storageSize();
+      subscriptionsSet.addAll(topic.subscriptions());
+      schemaPresent = schemaPresent || topic.schema().present();
+      health = moreSevereHealth(health, topic.health());
+
+      for (var partitionSummary : topic.partitionSummaries()) {
+        partitionSummaries.putIfAbsent(partitionSummary.partitionName(), partitionSummary);
+      }
+
+      Integer partitionIndex = PulsarTopicName.parse(topic.fullName()).partitionIndex();
+      if (partitionIndex != null && topic.partitionSummaries().isEmpty()) {
+        partitionSummaries.putIfAbsent(
+            canonicalFullName + "-partition-" + partitionIndex,
+            new com.pulsaradmin.shared.model.TopicPartitionSummary(
+                canonicalFullName + "-partition-" + partitionIndex,
+                topic.stats().backlog(),
+                topic.stats().consumers(),
+                topic.stats().publishRateIn(),
+                topic.stats().dispatchRateOut(),
+                topic.health()));
+      }
+    }
+
+    subscriptionsSet.removeIf(String::isBlank);
+    List<String> sortedSubscriptions = subscriptionsSet.stream().sorted().toList();
+    List<com.pulsaradmin.shared.model.TopicPartitionSummary> sortedPartitionSummaries = partitionSummaries.values().stream()
+        .sorted(Comparator.comparing(com.pulsaradmin.shared.model.TopicPartitionSummary::partitionName))
+        .toList();
+
+    return new TopicDetails(
+        canonicalFullName,
+        canonicalName.tenant(),
+        canonicalName.namespace(),
+        canonicalName.topic(),
+        partitionCount > 0 || !sortedPartitionSummaries.isEmpty(),
+        Math.max(partitionCount, sortedPartitionSummaries.size()),
+        health,
+        new TopicStatsSummary(
+            backlog,
+            producers,
+            Math.max(subscriptions, sortedSubscriptions.size()),
+            consumers,
+            publishRateIn,
+            dispatchRateOut,
+            throughputIn,
+            throughputOut,
+            storageSize),
+        new SchemaSummary(
+            preferredTopic.schema().type(),
+            preferredTopic.schema().version(),
+            preferredTopic.schema().compatibility(),
+            schemaPresent),
+        preferredTopic.ownerTeam(),
+        preferredTopic.notes(),
+        sortedPartitionSummaries,
+        sortedSubscriptions);
+  }
+
+  private TopicHealth moreSevereHealth(TopicHealth left, TopicHealth right) {
+    return healthRank(right) > healthRank(left) ? right : left;
+  }
+
+  private int healthRank(TopicHealth health) {
+    return switch (health) {
+      case CRITICAL -> 4;
+      case ATTENTION -> 3;
+      case HEALTHY -> 2;
+      case INACTIVE -> 1;
+    };
   }
 
   private TopicPolicies sanitizeTopicPolicies(TopicPolicies policies) {

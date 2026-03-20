@@ -324,7 +324,7 @@ export class PulsarApiService {
     request: TenantYamlPreviewRequest
   ): Observable<TenantYamlPreviewResponse> {
     return this.http.post<TenantYamlPreviewResponse>(
-      `${this.baseUrl}/environments/${environmentId}/tenants/yaml/validate`,
+      `${this.baseUrl}/environments/${environmentId}/namespaces/yaml/validate`,
       request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );
@@ -335,7 +335,7 @@ export class PulsarApiService {
     request: TenantYamlPreviewRequest
   ): Observable<TenantYamlPreviewResponse> {
     return this.http.post<TenantYamlPreviewResponse>(
-      `${this.baseUrl}/environments/${environmentId}/tenants/yaml/preview`,
+      `${this.baseUrl}/environments/${environmentId}/namespaces/yaml/preview`,
       request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );
@@ -346,7 +346,7 @@ export class PulsarApiService {
     request: TenantYamlApplyRequest
   ): Observable<TenantYamlApplyResponse> {
     return this.http.post<TenantYamlApplyResponse>(
-      `${this.baseUrl}/environments/${environmentId}/tenants/yaml/apply`,
+      `${this.baseUrl}/environments/${environmentId}/namespaces/yaml/apply`,
       request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );

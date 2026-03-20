@@ -99,17 +99,19 @@ class CatalogControllerTest {
   }
 
   @Test
-  void shouldPreviewTenantYaml() throws Exception {
-    mockMvc.perform(post("/api/v1/environments/prod/tenants/yaml/preview")
+  void shouldPreviewNamespaceYaml() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/namespaces/yaml/preview")
             .contentType("application/json")
             .content("""
                 {
                   "tenant": "acme",
-                  "yaml": "tenant: acme\\nnamespaces:\\n  - name: orders\\n    policies:\\n      retentionTimeInMinutes: 1440\\n    topics:\\n      - name: order-events\\n        domain: persistent\\n        partitions: 0\\n        policies:\\n          maxProducers: 10\\n"
+                  "namespace": "orders",
+                  "yaml": "tenant: acme\\nnamespace: orders\\npolicies:\\n  retentionTimeInMinutes: 1440\\ntopics:\\n  - name: order-events\\n    domain: persistent\\n    partitions: 0\\n    policies:\\n      maxProducers: 10\\n"
                 }
                 """))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.tenant").value("acme"))
+        .andExpect(jsonPath("$.namespace").value("orders"))
         .andExpect(jsonPath("$.previewId").exists())
         .andExpect(jsonPath("$.changes").isArray());
   }

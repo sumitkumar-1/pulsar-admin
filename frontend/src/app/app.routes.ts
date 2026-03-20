@@ -31,7 +31,7 @@ export const routes: Routes = [
             component: NamespaceDetailsComponent
           },
           {
-            path: ':envId/tenant-yaml',
+            path: ':envId/namespace-yaml',
             component: TenantYamlSyncComponent
           }
         ]

@@ -99,13 +99,13 @@ export class NamespaceDetailsComponent {
     });
   }
 
-  openTenantYaml() {
+  openNamespaceYaml() {
     const details = this.namespaceDetails();
     if (!details) {
       return;
     }
-    void this.router.navigate(['/environments', this.environmentId(), 'tenant-yaml'], {
-      queryParams: this.demoMode.queryParams({ tenant: details.tenant })
+    void this.router.navigate(['/environments', this.environmentId(), 'namespace-yaml'], {
+      queryParams: this.demoMode.queryParams({ tenant: details.tenant, namespace: details.namespace })
     });
   }
 

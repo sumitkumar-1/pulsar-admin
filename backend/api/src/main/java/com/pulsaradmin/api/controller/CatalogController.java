@@ -64,21 +64,21 @@ public class CatalogController {
     return pulsarCatalogService.updateNamespacePolicies(envId, request);
   }
 
-  @PostMapping("/tenants/yaml/validate")
+  @PostMapping("/namespaces/yaml/validate")
   public TenantYamlPreviewResponse validateYaml(
       @PathVariable("envId") String envId,
       @Valid @RequestBody TenantYamlPreviewRequest request) {
     return pulsarCatalogService.validateYamlPreview(envId, request);
   }
 
-  @PostMapping("/tenants/yaml/preview")
+  @PostMapping("/namespaces/yaml/preview")
   public TenantYamlPreviewResponse previewYaml(
       @PathVariable("envId") String envId,
       @Valid @RequestBody TenantYamlPreviewRequest request) {
     return pulsarCatalogService.previewYaml(envId, request);
   }
 
-  @PostMapping("/tenants/yaml/apply")
+  @PostMapping("/namespaces/yaml/apply")
   public TenantYamlApplyResponse applyYaml(
       @PathVariable("envId") String envId,
       @Valid @RequestBody TenantYamlApplyRequest request) {
