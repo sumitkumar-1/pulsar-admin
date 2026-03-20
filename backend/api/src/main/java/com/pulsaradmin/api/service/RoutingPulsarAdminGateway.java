@@ -5,14 +5,23 @@ import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
+import com.pulsaradmin.shared.model.NamespaceDetails;
+import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PublishMessageRequest;
+import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.TerminateTopicRequest;
+import com.pulsaradmin.shared.model.TerminateTopicResponse;
+import com.pulsaradmin.shared.model.TopicPolicies;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
 
@@ -68,6 +77,55 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit) {
     return activeGateway().peekMessages(environment, topicName, limit);
+  }
+
+  @Override
+  public TerminateTopicResponse terminateTopic(EnvironmentDetails environment, TerminateTopicRequest request) {
+    return activeGateway().terminateTopic(environment, request);
+  }
+
+  @Override
+  public TopicPolicies getTopicPolicies(EnvironmentDetails environment, String topicName) {
+    return activeGateway().getTopicPolicies(environment, topicName);
+  }
+
+  @Override
+  public TopicPolicies updateTopicPolicies(EnvironmentDetails environment, String topicName, TopicPolicies policies) {
+    return activeGateway().updateTopicPolicies(environment, topicName, policies);
+  }
+
+  @Override
+  public NamespaceDetails getNamespaceDetails(EnvironmentDetails environment, String tenant, String namespace) {
+    return activeGateway().getNamespaceDetails(environment, tenant, namespace);
+  }
+
+  @Override
+  public NamespacePolicies updateNamespacePolicies(
+      EnvironmentDetails environment,
+      String tenant,
+      String namespace,
+      NamespacePolicies policies) {
+    return activeGateway().updateNamespacePolicies(environment, tenant, namespace, policies);
+  }
+
+  @Override
+  public PublishMessageResponse publishMessage(EnvironmentDetails environment, PublishMessageRequest request) {
+    return activeGateway().publishMessage(environment, request);
+  }
+
+  @Override
+  public ConsumeMessagesResponse consumeMessages(EnvironmentDetails environment, ConsumeMessagesRequest request) {
+    return activeGateway().consumeMessages(environment, request);
+  }
+
+  @Override
+  public void deleteTopic(EnvironmentDetails environment, String topicName) {
+    activeGateway().deleteTopic(environment, topicName);
+  }
+
+  @Override
+  public void deleteNamespace(EnvironmentDetails environment, String tenant, String namespace) {
+    activeGateway().deleteNamespace(environment, tenant, namespace);
   }
 
   @Override

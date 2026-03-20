@@ -64,6 +64,11 @@
             }
           </select>
         </label>
+
+        <div class="environment-pill neutral">
+          <span class="pill-label">{{ demoMode.isMockMode() ? 'Mock Mode' : 'Live Mode' }}</span>
+          <span>{{ demoMode.isMockMode() ? 'URL override active' : 'Stored environment routing' }}</span>
+        </div>
       }
     </header>
 

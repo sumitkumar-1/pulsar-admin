@@ -204,6 +204,18 @@ export class TopicExplorerComponent {
     });
   }
 
+  openNamespace(tenant: string, namespace: string) {
+    void this.router.navigate(['/environments', this.environmentId(), 'namespace-details'], {
+      queryParams: this.demoMode.queryParams({ tenant, namespace })
+    });
+  }
+
+  openTenantYaml(tenant: string) {
+    void this.router.navigate(['/environments', this.environmentId(), 'tenant-yaml'], {
+      queryParams: this.demoMode.queryParams({ tenant })
+    });
+  }
+
   healthClass(status: string): string {
     return status.toLowerCase();
   }

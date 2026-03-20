@@ -6,20 +6,31 @@ import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
+import com.pulsaradmin.shared.model.ConsumedMessage;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.EnvironmentStatus;
+import com.pulsaradmin.shared.model.NamespaceDetails;
+import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessage;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PublishMessageRequest;
+import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.TerminateTopicRequest;
+import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicHealth;
+import com.pulsaradmin.shared.model.TopicListItem;
+import com.pulsaradmin.shared.model.TopicPolicies;
 import com.pulsaradmin.shared.model.TopicPartitionSummary;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
@@ -32,6 +43,8 @@ import java.util.List;
 import java.util.Map;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -42,6 +55,14 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
   private final ConcurrentMap<String, List<String>> createdNamespacesByEnvironment = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, ConcurrentMap<String, List<String>>> subscriptionsByEnvironment =
       new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, ConcurrentMap<String, TopicPolicies>> topicPoliciesByEnvironment =
+      new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, ConcurrentMap<String, NamespacePolicies>> namespacePoliciesByEnvironment =
+      new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, ConcurrentMap<String, List<ConsumedMessage>>> publishedMessagesByEnvironment =
+      new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, Set<String>> deletedTopicsByEnvironment = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, Set<String>> deletedNamespacesByEnvironment = new ConcurrentHashMap<>();
 
   @Override
   public EnvironmentConnectionTestResult testConnection(EnvironmentDetails environment) {
@@ -68,6 +89,13 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
     Map<String, List<TopicDetails>> topicsByEnvironment = seedTopics();
     List<TopicDetails> topics = new ArrayList<>(topicsByEnvironment.getOrDefault(environment.id(), List.of()));
     topics.addAll(createdTopicsByEnvironment.getOrDefault(environment.id(), List.of()));
+
+    Set<String> deletedTopics = deletedTopicsByEnvironment.getOrDefault(environment.id(), Set.of());
+    Set<String> deletedNamespaces = deletedNamespacesByEnvironment.getOrDefault(environment.id(), Set.of());
+    topics = topics.stream()
+        .filter(topic -> !deletedTopics.contains(topic.fullName()))
+        .filter(topic -> !deletedNamespaces.contains(topic.tenant() + "/" + topic.namespace()))
+        .toList();
 
     if (topics.isEmpty()) {
       topics = createCustomEnvironmentTopics(environment);
@@ -206,6 +234,25 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
 
   @Override
   public PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit) {
+    List<ConsumedMessage> published = publishedMessagesByEnvironment
+        .getOrDefault(environment.id(), new ConcurrentHashMap<>())
+        .getOrDefault(topicName, List.of());
+    if (!published.isEmpty()) {
+      List<PeekMessage> fromPublished = published.stream()
+          .limit(limit)
+          .map(message -> new PeekMessage(
+              message.messageId(),
+              message.key() == null ? "-" : message.key(),
+              message.publishTime() == null ? Instant.now().toString() : message.publishTime().toString(),
+              message.eventTime() == null ? Instant.now().toString() : message.eventTime().toString(),
+              message.producerName(),
+              summarizePayload(message.payload()),
+              message.payload(),
+              "mock-live"))
+          .toList();
+      return new PeekMessagesResponse(environment.id(), topicName, limit, fromPublished.size(), published.size() > limit, fromPublished);
+    }
+
     List<PeekMessage> seededMessages = switch (topicName) {
       case "persistent://acme/orders/payment-events" -> List.of(
           new PeekMessage(
@@ -364,6 +411,147 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   @Override
+  public TerminateTopicResponse terminateTopic(EnvironmentDetails environment, TerminateTopicRequest request) {
+    TopicDetails topic = findTopic(environment, request.topicName());
+    return new TerminateTopicResponse(
+        environment.id(),
+        request.topicName(),
+        "mock-" + Math.abs(request.topicName().hashCode()),
+        "Terminated topic " + request.topicName()
+            + ". Producers can no longer append after the current retained tail.",
+        topic);
+  }
+
+  @Override
+  public TopicPolicies getTopicPolicies(EnvironmentDetails environment, String topicName) {
+    findTopic(environment, topicName);
+    return topicPoliciesByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .computeIfAbsent(topicName, ignored -> defaultTopicPolicies(topicName));
+  }
+
+  @Override
+  public TopicPolicies updateTopicPolicies(EnvironmentDetails environment, String topicName, TopicPolicies policies) {
+    findTopic(environment, topicName);
+    topicPoliciesByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .put(topicName, policies);
+    return policies;
+  }
+
+  @Override
+  public NamespaceDetails getNamespaceDetails(EnvironmentDetails environment, String tenant, String namespace) {
+    EnvironmentSnapshot snapshot = syncMetadata(environment);
+    String fullNamespace = tenant + "/" + namespace;
+    List<TopicListItem> topics = snapshot.topics().stream()
+        .filter(topic -> topic.tenant().equals(tenant) && topic.namespace().equals(namespace))
+        .map(topic -> new TopicListItem(
+            topic.fullName(),
+            topic.tenant(),
+            topic.namespace(),
+            topic.topic(),
+            topic.partitioned(),
+            topic.partitions(),
+            topic.schema().present(),
+            topic.health(),
+            topic.stats(),
+            topic.notes()))
+        .toList();
+
+    if (snapshot.namespaces().stream().noneMatch(item -> item.equals(fullNamespace))) {
+      throw new BadRequestException("Unknown namespace: " + fullNamespace);
+    }
+
+    return new NamespaceDetails(
+        environment.id(),
+        tenant,
+        namespace,
+        topics.size(),
+        topics,
+        namespacePoliciesByEnvironment
+            .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+            .computeIfAbsent(fullNamespace, ignored -> defaultNamespacePolicies(fullNamespace)),
+        Instant.now(),
+        "Loaded namespace details from the mock catalog.");
+  }
+
+  @Override
+  public NamespacePolicies updateNamespacePolicies(
+      EnvironmentDetails environment,
+      String tenant,
+      String namespace,
+      NamespacePolicies policies) {
+    getNamespaceDetails(environment, tenant, namespace);
+    namespacePoliciesByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .put(tenant + "/" + namespace, policies);
+    return policies;
+  }
+
+  @Override
+  public PublishMessageResponse publishMessage(EnvironmentDetails environment, PublishMessageRequest request) {
+    findTopic(environment, request.topicName());
+    ConsumedMessage message = new ConsumedMessage(
+        "mock:" + Math.abs((request.topicName() + request.payload() + Instant.now()).hashCode()),
+        request.key(),
+        Instant.now(),
+        Instant.now(),
+        request.properties() == null ? Map.of() : request.properties(),
+        "mock-console",
+        request.payload());
+
+    publishedMessagesByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .compute(request.topicName(), (topicName, existing) -> {
+          List<ConsumedMessage> messages = new ArrayList<>(existing == null ? List.of() : existing);
+          messages.add(0, message);
+          return messages.stream().limit(100).toList();
+        });
+
+    return new PublishMessageResponse(
+        environment.id(),
+        request.topicName(),
+        message.messageId(),
+        request.key(),
+        request.properties() == null ? Map.of() : request.properties(),
+        request.schemaMode() == null || request.schemaMode().isBlank() ? "RAW" : request.schemaMode(),
+        Instant.now(),
+        "Published a bounded test message to " + request.topicName() + ".");
+  }
+
+  @Override
+  public ConsumeMessagesResponse consumeMessages(EnvironmentDetails environment, ConsumeMessagesRequest request) {
+    findTopic(environment, request.topicName());
+    List<ConsumedMessage> available = new ArrayList<>(publishedMessagesByEnvironment
+        .getOrDefault(environment.id(), new ConcurrentHashMap<>())
+        .getOrDefault(request.topicName(), List.of()));
+
+    if (available.isEmpty()) {
+      available = seededConsumedMessages(environment, request.topicName());
+    }
+
+    List<ConsumedMessage> messages = available.stream().limit(request.maxMessages()).toList();
+    String subscriptionName = request.ephemeral()
+        ? "ephemeral-preview"
+        : request.subscriptionName();
+
+    return new ConsumeMessagesResponse(
+        environment.id(),
+        request.topicName(),
+        subscriptionName,
+        request.ephemeral(),
+        request.maxMessages(),
+        messages.size(),
+        request.waitTimeSeconds(),
+        true,
+        Instant.now(),
+        messages.isEmpty()
+            ? "No messages were available within the bounded consume window."
+            : "Consumed " + messages.size() + " messages from " + request.topicName() + ".",
+        messages);
+  }
+
+  @Override
   public SkipMessagesResponse skipMessages(EnvironmentDetails environment, SkipMessagesRequest request) {
     int skippedMessages = request.messageCount();
     String message = "Skipped " + skippedMessages + " messages for subscription "
@@ -389,6 +577,23 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         topic);
   }
 
+  @Override
+  public void deleteTopic(EnvironmentDetails environment, String topicName) {
+    findTopic(environment, topicName);
+    deletedTopicsByEnvironment.computeIfAbsent(environment.id(), ignored -> new HashSet<>()).add(topicName);
+  }
+
+  @Override
+  public void deleteNamespace(EnvironmentDetails environment, String tenant, String namespace) {
+    String fullNamespace = tenant + "/" + namespace;
+    EnvironmentSnapshot snapshot = syncMetadata(environment);
+    boolean exists = snapshot.namespaces().stream().anyMatch(item -> item.equals(fullNamespace));
+    if (!exists) {
+      throw new BadRequestException("Unknown namespace: " + fullNamespace);
+    }
+    deletedNamespacesByEnvironment.computeIfAbsent(environment.id(), ignored -> new HashSet<>()).add(fullNamespace);
+  }
+
   private EnvironmentStatus deriveStatus(EnvironmentDetails environment, List<TopicDetails> topics) {
     if (topics.stream().anyMatch(topic -> topic.health() == TopicHealth.CRITICAL)) {
       return EnvironmentStatus.DEGRADED;
@@ -399,6 +604,48 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
     }
 
     return EnvironmentStatus.HEALTHY;
+  }
+
+  private TopicPolicies defaultTopicPolicies(String topicName) {
+    if (topicName.contains("payment")) {
+      return new TopicPolicies(10080, 2048, 86400, 104857600L, 16, 48, 24);
+    }
+    return new TopicPolicies(1440, 1024, 43200, 67108864L, 8, 24, 12);
+  }
+
+  private NamespacePolicies defaultNamespacePolicies(String namespace) {
+    if (namespace.contains("orders")) {
+      return new NamespacePolicies(10080, 4096, 86400, true, 2147483648L, 86400, 5000, 10485760L, 5000, 10485760L);
+    }
+    return new NamespacePolicies(1440, 1024, 43200, false, 536870912L, 3600, 1000, 1048576L, 1000, 1048576L);
+  }
+
+  private List<ConsumedMessage> seededConsumedMessages(EnvironmentDetails environment, String topicName) {
+    return List.of(
+        new ConsumedMessage(
+            "mock-consume-" + Math.abs((environment.id() + topicName + "-1").hashCode()),
+            "sample-1",
+            Instant.now().minusSeconds(90),
+            Instant.now().minusSeconds(90),
+            Map.of("mode", "mock", "source", "seed"),
+            "mock-consumer-seed",
+            "{\"topic\":\"" + topicName + "\",\"environment\":\"" + environment.id() + "\",\"state\":\"seeded-1\"}"),
+        new ConsumedMessage(
+            "mock-consume-" + Math.abs((environment.id() + topicName + "-2").hashCode()),
+            "sample-2",
+            Instant.now().minusSeconds(30),
+            Instant.now().minusSeconds(30),
+            Map.of("mode", "mock", "source", "seed"),
+            "mock-consumer-seed",
+            "{\"topic\":\"" + topicName + "\",\"environment\":\"" + environment.id() + "\",\"state\":\"seeded-2\"}"));
+  }
+
+  private String summarizePayload(String payload) {
+    if (payload == null || payload.isBlank()) {
+      return "No payload preview available.";
+    }
+    String compact = payload.replaceAll("\\s+", " ").trim();
+    return compact.length() <= 120 ? compact : compact.substring(0, 117) + "...";
   }
 
   private Map<String, List<TopicDetails>> seedTopics() {

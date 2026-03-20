@@ -8,19 +8,30 @@ import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
+import com.pulsaradmin.shared.model.ConsumedMessage;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.EnvironmentStatus;
+import com.pulsaradmin.shared.model.NamespaceDetails;
+import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PublishMessageRequest;
+import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.TerminateTopicRequest;
+import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicHealth;
+import com.pulsaradmin.shared.model.TopicListItem;
+import com.pulsaradmin.shared.model.TopicPolicies;
 import com.pulsaradmin.shared.model.TopicPartitionSummary;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
@@ -40,11 +51,15 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.StreamSupport;
+import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.AuthenticationFactory;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Reader;
+import org.apache.pulsar.client.api.SubscriptionInitialPosition;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -259,6 +274,221 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   @Override
+  public TerminateTopicResponse terminateTopic(EnvironmentDetails environment, TerminateTopicRequest request) {
+    PulsarTopicName topicName = PulsarTopicName.parse(request.topicName());
+
+    try {
+      JsonNode resultNode = postForJson(
+          environment,
+          "/admin/v2/" + topicName.domain()
+              + "/" + topicName.tenant()
+              + "/" + topicName.namespace()
+              + "/" + topicName.topic()
+              + "/terminate",
+          null);
+
+      String lastMessageId = resultNode.isTextual() ? resultNode.asText() : resultNode.toString();
+      TopicDetails refreshedTopic = toTopicDetails(environment, topicName.fullName(), topicName.tenant(), topicName.namespace());
+
+      return new TerminateTopicResponse(
+          environment.id(),
+          request.topicName(),
+          lastMessageId,
+          "Terminated topic " + request.topicName() + " via Pulsar admin REST API.",
+          refreshedTopic);
+    } catch (RestClientException | IOException exception) {
+      throw new BadRequestException("Unable to terminate topic via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public TopicPolicies getTopicPolicies(EnvironmentDetails environment, String topicName) {
+    PulsarTopicName parsed = PulsarTopicName.parse(topicName);
+    String base = "/admin/v2/" + parsed.domain()
+        + "/" + parsed.tenant()
+        + "/" + parsed.namespace()
+        + "/" + parsed.topic();
+
+    return new TopicPolicies(
+        readRetentionMinutes(safeGetJson(environment, base + "/retention")),
+        readRetentionSizeMb(safeGetJson(environment, base + "/retention")),
+        safeGetJson(environment, base + "/messageTTL").asInt(0),
+        safeGetJson(environment, base + "/compactionThreshold").asLong(0),
+        safeGetJson(environment, base + "/maxProducers").asInt(0),
+        safeGetJson(environment, base + "/maxConsumers").asInt(0),
+        safeGetJson(environment, base + "/maxSubscriptionsPerTopic").asInt(0));
+  }
+
+  @Override
+  public TopicPolicies updateTopicPolicies(EnvironmentDetails environment, String topicName, TopicPolicies policies) {
+    PulsarTopicName parsed = PulsarTopicName.parse(topicName);
+    String base = "/admin/v2/" + parsed.domain()
+        + "/" + parsed.tenant()
+        + "/" + parsed.namespace()
+        + "/" + parsed.topic();
+    try {
+      putJson(environment, base + "/retention", objectMapper.writeValueAsString(Map.of(
+          "retentionTimeInMinutes", coalesceInt(policies.retentionTimeInMinutes()),
+          "retentionSizeInMB", coalesceInt(policies.retentionSizeInMb()))));
+      postJson(environment, base + "/messageTTL", String.valueOf(coalesceInt(policies.ttlInSeconds())));
+      putJson(environment, base + "/compactionThreshold", String.valueOf(coalesceLong(policies.compactionThresholdInBytes())));
+      postJson(environment, base + "/maxProducers", String.valueOf(coalesceInt(policies.maxProducers())));
+      postJson(environment, base + "/maxConsumers", String.valueOf(coalesceInt(policies.maxConsumers())));
+      postJson(environment, base + "/maxSubscriptionsPerTopic", String.valueOf(coalesceInt(policies.maxSubscriptions())));
+      return getTopicPolicies(environment, topicName);
+    } catch (IOException | RestClientException exception) {
+      throw new BadRequestException("Unable to update topic policies via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public NamespaceDetails getNamespaceDetails(EnvironmentDetails environment, String tenant, String namespace) {
+    EnvironmentSnapshot snapshot = syncMetadata(environment);
+    List<TopicListItem> topics = snapshot.topics().stream()
+        .filter(topic -> topic.tenant().equals(tenant) && topic.namespace().equals(namespace))
+        .map(topic -> new TopicListItem(
+            topic.fullName(),
+            topic.tenant(),
+            topic.namespace(),
+            topic.topic(),
+            topic.partitioned(),
+            topic.partitions(),
+            topic.schema().present(),
+            topic.health(),
+            topic.stats(),
+            topic.notes()))
+        .sorted(Comparator.comparing(TopicListItem::topic))
+        .toList();
+
+    return new NamespaceDetails(
+        environment.id(),
+        tenant,
+        namespace,
+        topics.size(),
+        topics,
+        getNamespacePolicies(environment, tenant, namespace),
+        Instant.now(),
+        "Namespace details loaded from Pulsar admin REST sync.");
+  }
+
+  @Override
+  public NamespacePolicies updateNamespacePolicies(
+      EnvironmentDetails environment,
+      String tenant,
+      String namespace,
+      NamespacePolicies policies) {
+    String base = "/admin/v2/namespaces/" + tenant + "/" + namespace;
+    try {
+      putJson(environment, base + "/retention", objectMapper.writeValueAsString(Map.of(
+          "retentionTimeInMinutes", coalesceInt(policies.retentionTimeInMinutes()),
+          "retentionSizeInMB", coalesceInt(policies.retentionSizeInMb()))));
+      postJson(environment, base + "/messageTTL", String.valueOf(coalesceInt(policies.messageTtlInSeconds())));
+      postJson(environment, base + "/deduplication", String.valueOf(Boolean.TRUE.equals(policies.deduplicationEnabled())));
+      putJson(environment, base + "/backlogQuota", objectMapper.writeValueAsString(Map.of(
+          "limitSize", coalesceLong(policies.backlogQuotaLimitInBytes()),
+          "limitTime", coalesceInt(policies.backlogQuotaLimitTimeInSeconds()),
+          "policy", "producer_request_hold")));
+      putJson(environment, base + "/dispatchRate", objectMapper.writeValueAsString(Map.of(
+          "dispatchThrottlingRateInMsg", coalesceInt(policies.dispatchRatePerTopicInMsg()),
+          "dispatchThrottlingRateInByte", coalesceLong(policies.dispatchRatePerTopicInByte()),
+          "ratePeriodInSecond", 1)));
+      putJson(environment, base + "/publishRate", objectMapper.writeValueAsString(Map.of(
+          "publishThrottlingRateInMsg", coalesceInt(policies.publishRateInMsg()),
+          "publishThrottlingRateInByte", coalesceLong(policies.publishRateInByte()))));
+      return getNamespacePolicies(environment, tenant, namespace);
+    } catch (IOException | RestClientException exception) {
+      throw new BadRequestException("Unable to update namespace policies via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public PublishMessageResponse publishMessage(EnvironmentDetails environment, PublishMessageRequest request) {
+    try {
+      PulsarClient client = getOrCreateClient(environment);
+      try (Producer<byte[]> producer = client.newProducer()
+          .topic(request.topicName())
+          .create()) {
+        var builder = producer.newMessage()
+            .value(request.payload().getBytes(StandardCharsets.UTF_8));
+        if (request.key() != null && !request.key().isBlank()) {
+          builder.key(request.key());
+        }
+        if (request.properties() != null && !request.properties().isEmpty()) {
+          builder.properties(request.properties());
+        }
+        var messageId = builder.sendAsync().get(CLIENT_OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        return new PublishMessageResponse(
+            environment.id(),
+            request.topicName(),
+            String.valueOf(messageId),
+            request.key(),
+            request.properties() == null ? Map.of() : request.properties(),
+            request.schemaMode() == null || request.schemaMode().isBlank() ? "RAW" : request.schemaMode(),
+            Instant.now(),
+            "Published a test message through the Pulsar client.");
+      }
+    } catch (Exception exception) {
+      throw new BadRequestException("Unable to publish a test message through the Pulsar client: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public ConsumeMessagesResponse consumeMessages(EnvironmentDetails environment, ConsumeMessagesRequest request) {
+    try {
+      PulsarClient client = getOrCreateClient(environment);
+      String subscriptionName = request.ephemeral()
+          ? "ui-test-" + Math.abs((request.topicName() + Instant.now()).hashCode())
+          : request.subscriptionName();
+
+      try (Consumer<byte[]> consumer = client.newConsumer()
+          .topic(request.topicName())
+          .subscriptionName(subscriptionName)
+          .subscriptionType(SubscriptionType.Exclusive)
+          .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
+          .subscribe()) {
+        List<ConsumedMessage> messages = new ArrayList<>();
+        long waitMillis = TimeUnit.SECONDS.toMillis(request.waitTimeSeconds());
+        long deadline = System.currentTimeMillis() + waitMillis;
+
+        while (messages.size() < request.maxMessages() && System.currentTimeMillis() < deadline) {
+          long remainingMillis = Math.max(1, deadline - System.currentTimeMillis());
+          int receiveTimeoutMillis = (int) Math.min(500L, remainingMillis);
+          Message<byte[]> message = consumer.receive(receiveTimeoutMillis, TimeUnit.MILLISECONDS);
+          if (message == null) {
+            continue;
+          }
+          messages.add(new ConsumedMessage(
+              String.valueOf(message.getMessageId()),
+              message.hasKey() ? message.getKey() : null,
+              message.getPublishTime() > 0 ? Instant.ofEpochMilli(message.getPublishTime()) : null,
+              message.getEventTime() > 0 ? Instant.ofEpochMilli(message.getEventTime()) : null,
+              message.getProperties(),
+              message.getProducerName(),
+              formatPayload(message.getData())));
+          consumer.acknowledge(message);
+        }
+
+        return new ConsumeMessagesResponse(
+            environment.id(),
+            request.topicName(),
+            subscriptionName,
+            request.ephemeral(),
+            request.maxMessages(),
+            messages.size(),
+            request.waitTimeSeconds(),
+            true,
+            Instant.now(),
+            messages.isEmpty()
+                ? "No messages were available within the bounded consume window."
+                : "Consumed " + messages.size() + " messages through the Pulsar client.",
+            messages);
+      }
+    } catch (Exception exception) {
+      throw new BadRequestException("Unable to consume test messages through the Pulsar client: " + exception.getMessage());
+    }
+  }
+
+  @Override
   public ResetCursorResponse resetCursor(EnvironmentDetails environment, ResetCursorRequest request) {
     PulsarTopicName topicName = PulsarTopicName.parse(request.topicName());
 
@@ -330,6 +560,30 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
           refreshedTopic);
     } catch (RestClientException exception) {
       throw new BadRequestException("Unable to unload topic via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void deleteTopic(EnvironmentDetails environment, String topicName) {
+    PulsarTopicName parsed = PulsarTopicName.parse(topicName);
+    try {
+      deleteWithoutBody(
+          environment,
+          "/admin/v2/" + parsed.domain()
+              + "/" + parsed.tenant()
+              + "/" + parsed.namespace()
+              + "/" + parsed.topic());
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to delete topic via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void deleteNamespace(EnvironmentDetails environment, String tenant, String namespace) {
+    try {
+      deleteWithoutBody(environment, "/admin/v2/namespaces/" + tenant + "/" + namespace);
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to delete namespace via Pulsar admin REST API: " + exception.getMessage());
     }
   }
 
@@ -411,6 +665,30 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     request.retrieve().toBodilessEntity();
   }
 
+  private JsonNode postForJson(EnvironmentDetails environment, String path, String body) throws IOException {
+    var request = restClient.post()
+        .uri(normalizeAdminUrl(environment.adminUrl()) + path)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+    applyAuthHeaders(request, environment);
+
+    String rawBody = (body == null ? request : request.body(body)).retrieve().body(String.class);
+    if (rawBody == null || rawBody.isBlank()) {
+      return objectMapper.nullNode();
+    }
+    return objectMapper.readTree(rawBody);
+  }
+
+  private void postJson(EnvironmentDetails environment, String path, String body) {
+    var request = restClient.post()
+        .uri(normalizeAdminUrl(environment.adminUrl()) + path)
+        .contentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+    applyAuthHeaders(request, environment);
+
+    request.body(body).retrieve().toBodilessEntity();
+  }
+
   private void putWithoutBody(EnvironmentDetails environment, String path) {
     var request = restClient.put()
         .uri(normalizeAdminUrl(environment.adminUrl()) + path);
@@ -472,6 +750,45 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         + "/" + topicName.namespace()
         + "/" + topicName.topic()
         + "/schema";
+  }
+
+  private NamespacePolicies getNamespacePolicies(EnvironmentDetails environment, String tenant, String namespace) {
+    String base = "/admin/v2/namespaces/" + tenant + "/" + namespace;
+    JsonNode retention = safeGetJson(environment, base + "/retention");
+    JsonNode backlogQuota = safeGetJson(environment, base + "/backlogQuota");
+    JsonNode dispatchRate = safeGetJson(environment, base + "/dispatchRate");
+    JsonNode publishRate = safeGetJson(environment, base + "/publishRate");
+
+    return new NamespacePolicies(
+        readRetentionMinutes(retention),
+        readRetentionSizeMb(retention),
+        safeGetJson(environment, base + "/messageTTL").asInt(0),
+        safeGetJson(environment, base + "/deduplication").asBoolean(false),
+        backlogQuota.path("limitSize").asLong(0),
+        backlogQuota.path("limitTime").asInt(0),
+        dispatchRate.path("dispatchThrottlingRateInMsg").asInt(0),
+        dispatchRate.path("dispatchThrottlingRateInByte").asLong(0),
+        publishRate.path("publishThrottlingRateInMsg").asInt(0),
+        publishRate.path("publishThrottlingRateInByte").asLong(0));
+  }
+
+  private int readRetentionMinutes(JsonNode retention) {
+    return retention.path("retentionTimeInMinutes").asInt(
+        retention.isArray() && retention.size() > 0 ? retention.get(0).asInt(0) : 0);
+  }
+
+  private int readRetentionSizeMb(JsonNode retention) {
+    return retention.path("retentionSizeInMB").asInt(
+        retention.path("retentionSizeInMb").asInt(
+            retention.isArray() && retention.size() > 1 ? retention.get(1).asInt(0) : 0));
+  }
+
+  private int coalesceInt(Integer value) {
+    return value == null ? 0 : value;
+  }
+
+  private long coalesceLong(Long value) {
+    return value == null ? 0L : value;
   }
 
   private TopicStatsSummary toTopicStats(JsonNode statsNode) {

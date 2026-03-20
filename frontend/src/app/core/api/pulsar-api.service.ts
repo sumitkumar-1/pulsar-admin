@@ -5,6 +5,8 @@ import { DemoModeService } from '../demo-mode.service';
 import {
   CatalogMutationResponse,
   CatalogSummary,
+  ConsumeMessagesRequest,
+  ConsumeMessagesResponse,
   CreateNamespaceRequest,
   CreateSubscriptionRequest,
   CreateTenantRequest,
@@ -15,7 +17,12 @@ import {
   EnvironmentSyncStatus,
   EnvironmentSummary,
   EnvironmentUpsertRequest,
+  NamespaceDetails,
+  NamespacePoliciesResponse,
+  NamespacePoliciesUpdateRequest,
   PeekMessagesResponse,
+  PublishMessageRequest,
+  PublishMessageResponse,
   ReplayCopyJobRequest,
   ReplayCopyJobStatusResponse,
   ResetCursorRequest,
@@ -23,8 +30,17 @@ import {
   SkipMessagesRequest,
   SkipMessagesResponse,
   SubscriptionMutationResponse,
+  TenantYamlApplyRequest,
+  TenantYamlApplyResponse,
+  TenantYamlPreviewRequest,
+  TenantYamlPreviewResponse,
+  TerminateTopicRequest,
+  TerminateTopicResponse,
   TopicDetails,
   TopicPage,
+  TopicPoliciesResponse,
+  TopicPoliciesUpdateRequest,
+  TopicPoliciesUpdateResponse,
   UnloadTopicRequest,
   UnloadTopicResponse
 } from '../models/api.models';
@@ -154,6 +170,23 @@ export class PulsarApiService {
     });
   }
 
+  getNamespaceDetails(environmentId: string, tenant: string, namespace: string): Observable<NamespaceDetails> {
+    return this.http.get<NamespaceDetails>(`${this.baseUrl}/environments/${environmentId}/namespaces/detail`, {
+      params: this.demoMode.appendHttpParams(new HttpParams().set('tenant', tenant).set('namespace', namespace))
+    });
+  }
+
+  updateNamespacePolicies(
+    environmentId: string,
+    request: NamespacePoliciesUpdateRequest
+  ): Observable<NamespacePoliciesResponse> {
+    return this.http.post<NamespacePoliciesResponse>(
+      `${this.baseUrl}/environments/${environmentId}/namespaces/policies`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
   createTopic(environmentId: string, request: CreateTopicRequest): Observable<TopicDetails> {
     return this.http.post<TopicDetails>(`${this.baseUrl}/environments/${environmentId}/topics`, request, {
       params: this.demoMode.appendHttpParams(new HttpParams())
@@ -199,6 +232,48 @@ export class PulsarApiService {
     );
   }
 
+  terminateTopic(environmentId: string, request: TerminateTopicRequest): Observable<TerminateTopicResponse> {
+    return this.http.post<TerminateTopicResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/terminate`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  getTopicPolicies(environmentId: string, topicName: string): Observable<TopicPoliciesResponse> {
+    return this.http.get<TopicPoliciesResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/policies`,
+      { params: this.demoMode.appendHttpParams(new HttpParams().set('topic', topicName)) }
+    );
+  }
+
+  updateTopicPolicies(
+    environmentId: string,
+    request: TopicPoliciesUpdateRequest
+  ): Observable<TopicPoliciesUpdateResponse> {
+    return this.http.post<TopicPoliciesUpdateResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/policies`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  publishMessage(environmentId: string, request: PublishMessageRequest): Observable<PublishMessageResponse> {
+    return this.http.post<PublishMessageResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/publish`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  consumeMessages(environmentId: string, request: ConsumeMessagesRequest): Observable<ConsumeMessagesResponse> {
+    return this.http.post<ConsumeMessagesResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/consume`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
   resetCursor(environmentId: string, request: ResetCursorRequest): Observable<ResetCursorResponse> {
     return this.http.post<ResetCursorResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/reset-cursor`,
@@ -240,6 +315,39 @@ export class PulsarApiService {
   ): Observable<ReplayCopyJobStatusResponse> {
     return this.http.get<ReplayCopyJobStatusResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/jobs/${jobId}`,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  validateTenantYaml(
+    environmentId: string,
+    request: TenantYamlPreviewRequest
+  ): Observable<TenantYamlPreviewResponse> {
+    return this.http.post<TenantYamlPreviewResponse>(
+      `${this.baseUrl}/environments/${environmentId}/tenants/yaml/validate`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  previewTenantYaml(
+    environmentId: string,
+    request: TenantYamlPreviewRequest
+  ): Observable<TenantYamlPreviewResponse> {
+    return this.http.post<TenantYamlPreviewResponse>(
+      `${this.baseUrl}/environments/${environmentId}/tenants/yaml/preview`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  applyTenantYaml(
+    environmentId: string,
+    request: TenantYamlApplyRequest
+  ): Observable<TenantYamlApplyResponse> {
+    return this.http.post<TenantYamlApplyResponse>(
+      `${this.baseUrl}/environments/${environmentId}/tenants/yaml/apply`,
+      request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );
   }

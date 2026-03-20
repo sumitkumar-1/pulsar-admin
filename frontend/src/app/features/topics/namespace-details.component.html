@@ -1,0 +1,139 @@
+<a class="back-link" [routerLink]="['/environments', environmentId(), 'topics']" [queryParams]="modeQueryParams()">← Back to topics</a>
+
+@if (loading()) {
+  <div class="state-card">Loading namespace details...</div>
+} @else if (loadError()) {
+  <div class="state-card error">{{ loadError() }}</div>
+} @else {
+  @if (namespaceDetails(); as details) {
+    <section class="hero-card">
+      <div>
+        <p class="eyebrow">Namespace Details</p>
+        <h2>{{ details.tenant }}/{{ details.namespace }}</h2>
+        <p>{{ summaryText() }}</p>
+      </div>
+      <div class="hero-actions">
+        <span class="mode-pill">{{ modeQueryParams().mode === 'mock' ? 'Mock Mode' : 'Live Mode' }}</span>
+        <button type="button" class="secondary-action" (click)="openTenantYaml()">Tenant YAML Sync</button>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="stat-card">
+        <span>Topics</span>
+        <strong>{{ details.topicCount | number }}</strong>
+      </article>
+      <article class="stat-card">
+        <span>Last Synced</span>
+        <strong>{{ details.lastSyncedAt ? (details.lastSyncedAt | date: 'short') : 'Never' }}</strong>
+      </article>
+      <article class="stat-card">
+        <span>Mode</span>
+        <strong>{{ modeQueryParams().mode === 'mock' ? 'Mock' : 'Live' }}</strong>
+      </article>
+    </section>
+
+    <section class="detail-grid">
+      <article class="detail-card">
+        <div class="card-header-row">
+          <div>
+            <p class="eyebrow">Namespace Policies</p>
+            <h3>Bounded operational controls</h3>
+          </div>
+        </div>
+
+        <form class="policy-form" [formGroup]="policyForm" (ngSubmit)="submitPolicies()">
+          <label>
+            <span>Retention Minutes</span>
+            <input formControlName="retentionTimeInMinutes" type="number" min="0" />
+          </label>
+          <label>
+            <span>Retention Size MB</span>
+            <input formControlName="retentionSizeInMb" type="number" min="0" />
+          </label>
+          <label>
+            <span>Message TTL Seconds</span>
+            <input formControlName="messageTtlInSeconds" type="number" min="0" />
+          </label>
+          <label class="checkbox-field">
+            <input formControlName="deduplicationEnabled" type="checkbox" />
+            <span>Deduplication Enabled</span>
+          </label>
+          <label>
+            <span>Backlog Quota Bytes</span>
+            <input formControlName="backlogQuotaLimitInBytes" type="number" min="0" />
+          </label>
+          <label>
+            <span>Backlog Quota Seconds</span>
+            <input formControlName="backlogQuotaLimitTimeInSeconds" type="number" min="0" />
+          </label>
+          <label>
+            <span>Dispatch Rate Msg</span>
+            <input formControlName="dispatchRatePerTopicInMsg" type="number" min="0" />
+          </label>
+          <label>
+            <span>Dispatch Rate Bytes</span>
+            <input formControlName="dispatchRatePerTopicInByte" type="number" min="0" />
+          </label>
+          <label>
+            <span>Publish Rate Msg</span>
+            <input formControlName="publishRateInMsg" type="number" min="0" />
+          </label>
+          <label>
+            <span>Publish Rate Bytes</span>
+            <input formControlName="publishRateInByte" type="number" min="0" />
+          </label>
+          <label class="full-width">
+            <span>Reason</span>
+            <textarea formControlName="reason" rows="3" placeholder="Why are we changing namespace policies?"></textarea>
+          </label>
+
+          @if (saveError()) {
+            <div class="state-card error full-width">{{ saveError() }}</div>
+          }
+
+          @if (saveSuccess()) {
+            <div class="state-card success full-width">{{ saveSuccess() }}</div>
+          }
+
+          <div class="preview-panel full-width">
+            <p class="eyebrow">Preview</p>
+            <p>
+              This will update namespace-wide retention, TTL, deduplication, backlog quota, and rate controls for
+              <strong>{{ details.tenant }}/{{ details.namespace }}</strong>.
+            </p>
+          </div>
+
+          <div class="form-button-row full-width">
+            <button type="submit" [disabled]="saving()">{{ saving() ? 'Saving...' : 'Save Namespace Policies' }}</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="detail-card">
+        <div class="card-header-row">
+          <div>
+            <p class="eyebrow">Topics</p>
+            <h3>{{ details.topicCount }} topics in this namespace</h3>
+          </div>
+        </div>
+
+        @if (details.topics.length === 0) {
+          <div class="state-card">This namespace does not have any topics yet.</div>
+        } @else {
+          <div class="topic-list">
+            @for (topic of details.topics; track topic.fullName) {
+              <button type="button" class="topic-row" (click)="openTopic(topic)">
+                <div>
+                  <strong>{{ topic.topic }}</strong>
+                  <p>{{ topic.fullName }}</p>
+                </div>
+                <span>{{ topic.stats.backlog | number }} backlog</span>
+              </button>
+            }
+          </div>
+        }
+      </article>
+    </section>
+  }
+}

@@ -1,0 +1,94 @@
+<a class="back-link" [routerLink]="['/environments', environmentId(), 'topics']" [queryParams]="modeQueryParams()">← Back to topics</a>
+
+@if (loading()) {
+  <div class="state-card">Loading tenant YAML sync...</div>
+} @else {
+  <section class="hero-card">
+    <div>
+      <p class="eyebrow">Tenant YAML Sync</p>
+      <h2>{{ tenant() || 'Selected Tenant' }}</h2>
+      <p>Preview tenant-scoped creates, updates, and removals before applying them to the active environment.</p>
+    </div>
+    <div class="mode-pill">{{ modeQueryParams().mode === 'mock' ? 'Mock Mode' : 'Live Mode' }}</div>
+  </section>
+
+  <section class="sync-grid">
+    <article class="editor-card">
+      <form [formGroup]="yamlForm">
+        <label>
+          <span>Tenant</span>
+          <input formControlName="tenant" type="text" />
+        </label>
+
+        <label>
+          <span>YAML</span>
+          <textarea formControlName="yaml" rows="24"></textarea>
+        </label>
+
+        <label>
+          <span>Apply Reason</span>
+          <textarea formControlName="reason" rows="3" placeholder="Why are we applying these tenant changes?"></textarea>
+        </label>
+
+        <div class="button-row">
+          <button type="button" class="secondary-button" (click)="validateYaml()" [disabled]="validating()">
+            {{ validating() ? 'Validating...' : 'Validate YAML' }}
+          </button>
+          <button type="button" (click)="previewYaml()" [disabled]="previewing()">
+            {{ previewing() ? 'Previewing...' : 'Preview Changes' }}
+          </button>
+          <button type="button" class="danger-button" (click)="applyYaml()" [disabled]="applying() || !previewState()?.previewId">
+            {{ applying() ? 'Applying...' : 'Apply Preview' }}
+          </button>
+        </div>
+      </form>
+    </article>
+
+    <article class="results-card">
+      @if (error()) {
+        <div class="state-card error">{{ error() }}</div>
+      }
+
+      @if (validationState(); as validation) {
+        <div class="state-card" [class.error]="!validation.valid">
+          <strong>{{ validation.message }}</strong>
+          @if (validation.errors.length > 0) {
+            <ul>
+              @for (entry of validation.errors; track entry) {
+                <li>{{ entry }}</li>
+              }
+            </ul>
+          }
+        </div>
+      }
+
+      @if (previewState(); as preview) {
+        <div class="state-card success">
+          <strong>{{ preview.message }}</strong>
+          <p>Preview ID {{ preview.previewId }}</p>
+        </div>
+
+        <div class="diff-list">
+          @for (change of preview.changes; track change.resourceType + change.resourceName + change.action) {
+            <div class="diff-entry" [attr.data-action]="change.action.toLowerCase()">
+              <div>
+                <strong>{{ change.action }}</strong>
+                <p>{{ change.resourceType }} · {{ change.resourceName }}</p>
+              </div>
+              <span>{{ change.summary }}</span>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="state-card">Generate a preview to inspect the exact creates, updates, and removals before apply.</div>
+      }
+
+      @if (applyState(); as apply) {
+        <div class="state-card success">
+          <strong>{{ apply.message }}</strong>
+          <p>{{ apply.appliedChanges.length }} changes applied across tenant {{ apply.tenant }}.</p>
+        </div>
+      }
+    </article>
+  </section>
+}

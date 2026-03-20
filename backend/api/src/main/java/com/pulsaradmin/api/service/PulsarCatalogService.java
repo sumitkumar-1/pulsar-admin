@@ -6,9 +6,16 @@ import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.CatalogMutationResponse;
 import com.pulsaradmin.shared.model.CatalogSummary;
+import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
+import com.pulsaradmin.shared.model.NamespaceDetails;
+import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
+import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PublishMessageRequest;
+import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
 import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
@@ -16,8 +23,17 @@ import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
+import com.pulsaradmin.shared.model.TerminateTopicRequest;
+import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
+import com.pulsaradmin.shared.model.TopicPoliciesResponse;
+import com.pulsaradmin.shared.model.TopicPoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.TopicPoliciesUpdateResponse;
+import com.pulsaradmin.shared.model.TenantYamlApplyRequest;
+import com.pulsaradmin.shared.model.TenantYamlApplyResponse;
+import com.pulsaradmin.shared.model.TenantYamlPreviewRequest;
+import com.pulsaradmin.shared.model.TenantYamlPreviewResponse;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import org.springframework.stereotype.Service;
@@ -27,14 +43,17 @@ public class PulsarCatalogService {
   private final EnvironmentManagementService environmentManagementService;
   private final EnvironmentCatalogService environmentCatalogService;
   private final ReplayCopyJobService replayCopyJobService;
+  private final TenantYamlSyncService tenantYamlSyncService;
 
   public PulsarCatalogService(
       EnvironmentManagementService environmentManagementService,
       EnvironmentCatalogService environmentCatalogService,
-      ReplayCopyJobService replayCopyJobService) {
+      ReplayCopyJobService replayCopyJobService,
+      TenantYamlSyncService tenantYamlSyncService) {
     this.environmentManagementService = environmentManagementService;
     this.environmentCatalogService = environmentCatalogService;
     this.replayCopyJobService = replayCopyJobService;
+    this.tenantYamlSyncService = tenantYamlSyncService;
   }
 
   public EnvironmentHealth getEnvironmentHealth(String environmentId) {
@@ -83,6 +102,34 @@ public class PulsarCatalogService {
     return environmentCatalogService.peekMessages(environmentId, topicName, limit);
   }
 
+  public TerminateTopicResponse terminateTopic(String environmentId, TerminateTopicRequest request) {
+    return environmentCatalogService.terminateTopic(environmentId, request);
+  }
+
+  public TopicPoliciesResponse getTopicPolicies(String environmentId, String topicName) {
+    return environmentCatalogService.getTopicPolicies(environmentId, topicName);
+  }
+
+  public TopicPoliciesUpdateResponse updateTopicPolicies(String environmentId, TopicPoliciesUpdateRequest request) {
+    return environmentCatalogService.updateTopicPolicies(environmentId, request);
+  }
+
+  public NamespaceDetails getNamespaceDetails(String environmentId, String tenant, String namespace) {
+    return environmentCatalogService.getNamespaceDetails(environmentId, tenant, namespace);
+  }
+
+  public NamespacePoliciesResponse updateNamespacePolicies(String environmentId, NamespacePoliciesUpdateRequest request) {
+    return environmentCatalogService.updateNamespacePolicies(environmentId, request);
+  }
+
+  public PublishMessageResponse publishMessage(String environmentId, PublishMessageRequest request) {
+    return environmentCatalogService.publishMessage(environmentId, request);
+  }
+
+  public ConsumeMessagesResponse consumeMessages(String environmentId, ConsumeMessagesRequest request) {
+    return environmentCatalogService.consumeMessages(environmentId, request);
+  }
+
   public ResetCursorResponse resetCursor(String environmentId, ResetCursorRequest request) {
     return environmentCatalogService.resetCursor(environmentId, request);
   }
@@ -101,5 +148,17 @@ public class PulsarCatalogService {
 
   public ReplayCopyJobStatusResponse getReplayCopyJob(String environmentId, String jobId) {
     return replayCopyJobService.getJob(environmentId, jobId);
+  }
+
+  public TenantYamlPreviewResponse validateYamlPreview(String environmentId, TenantYamlPreviewRequest request) {
+    return tenantYamlSyncService.preview(environmentId, request, false);
+  }
+
+  public TenantYamlPreviewResponse previewYaml(String environmentId, TenantYamlPreviewRequest request) {
+    return tenantYamlSyncService.preview(environmentId, request, true);
+  }
+
+  public TenantYamlApplyResponse applyYaml(String environmentId, TenantYamlApplyRequest request) {
+    return tenantYamlSyncService.apply(environmentId, request);
   }
 }

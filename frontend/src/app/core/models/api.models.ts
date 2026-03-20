@@ -94,6 +94,29 @@ export interface CatalogMutationResponse {
   catalogSummary: CatalogSummary;
 }
 
+export interface TopicPolicies {
+  retentionTimeInMinutes: number | null;
+  retentionSizeInMb: number | null;
+  ttlInSeconds: number | null;
+  compactionThresholdInBytes: number | null;
+  maxProducers: number | null;
+  maxConsumers: number | null;
+  maxSubscriptions: number | null;
+}
+
+export interface NamespacePolicies {
+  retentionTimeInMinutes: number | null;
+  retentionSizeInMb: number | null;
+  messageTtlInSeconds: number | null;
+  deduplicationEnabled: boolean | null;
+  backlogQuotaLimitInBytes: number | null;
+  backlogQuotaLimitTimeInSeconds: number | null;
+  dispatchRatePerTopicInMsg: number | null;
+  dispatchRatePerTopicInByte: number | null;
+  publishRateInMsg: number | null;
+  publishRateInByte: number | null;
+}
+
 export interface TopicStatsSummary {
   backlog: number;
   producers: number;
@@ -188,6 +211,55 @@ export interface TopicDetails {
   subscriptions: string[];
 }
 
+export interface TopicPoliciesResponse {
+  environmentId: string;
+  topicName: string;
+  policies: TopicPolicies;
+  editable: boolean;
+  message: string;
+}
+
+export interface TopicPoliciesUpdateRequest {
+  topicName: string;
+  policies: TopicPolicies;
+  reason: string;
+}
+
+export interface TopicPoliciesUpdateResponse {
+  environmentId: string;
+  topicName: string;
+  policies: TopicPolicies;
+  message: string;
+  topicDetails: TopicDetails;
+}
+
+export interface NamespaceDetails {
+  environmentId: string;
+  tenant: string;
+  namespace: string;
+  topicCount: number;
+  topics: TopicListItem[];
+  policies: NamespacePolicies;
+  lastSyncedAt: string | null;
+  syncMessage: string | null;
+}
+
+export interface NamespacePoliciesUpdateRequest {
+  tenant: string;
+  namespace: string;
+  policies: NamespacePolicies;
+  reason: string;
+}
+
+export interface NamespacePoliciesResponse {
+  environmentId: string;
+  tenant: string;
+  namespace: string;
+  policies: NamespacePolicies;
+  message: string;
+  namespaceDetails: NamespaceDetails;
+}
+
 export interface PeekMessage {
   messageId: string;
   key: string;
@@ -206,6 +278,19 @@ export interface PeekMessagesResponse {
   returnedCount: number;
   truncated: boolean;
   messages: PeekMessage[];
+}
+
+export interface TerminateTopicRequest {
+  topicName: string;
+  reason: string;
+}
+
+export interface TerminateTopicResponse {
+  environmentId: string;
+  topicName: string;
+  lastMessageId: string | null;
+  message: string;
+  topicDetails: TopicDetails;
 }
 
 export interface ResetCursorRequest {
@@ -252,6 +337,59 @@ export interface UnloadTopicResponse {
   topicDetails: TopicDetails;
 }
 
+export interface PublishMessageRequest {
+  topicName: string;
+  key: string | null;
+  properties: Record<string, string>;
+  schemaMode: string | null;
+  payload: string;
+  reason: string;
+}
+
+export interface PublishMessageResponse {
+  environmentId: string;
+  topicName: string;
+  messageId: string;
+  key: string | null;
+  properties: Record<string, string>;
+  schemaMode: string;
+  publishedAt: string;
+  message: string;
+}
+
+export interface ConsumedMessage {
+  messageId: string;
+  key: string | null;
+  publishTime: string | null;
+  eventTime: string | null;
+  properties: Record<string, string>;
+  producerName: string;
+  payload: string;
+}
+
+export interface ConsumeMessagesRequest {
+  topicName: string;
+  subscriptionName: string | null;
+  ephemeral: boolean;
+  maxMessages: number;
+  waitTimeSeconds: number;
+  reason: string;
+}
+
+export interface ConsumeMessagesResponse {
+  environmentId: string;
+  topicName: string;
+  subscriptionName: string;
+  ephemeral: boolean;
+  requestedCount: number;
+  receivedCount: number;
+  waitTimeSeconds: number;
+  completed: boolean;
+  completedAt: string;
+  message: string;
+  messages: ConsumedMessage[];
+}
+
 export interface ReplayCopyJobRequest {
   topicName: string;
   subscriptionName: string;
@@ -279,6 +417,42 @@ export interface ReplayCopyJobStatusResponse {
   statusMessage: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TenantYamlPreviewRequest {
+  tenant: string;
+  yaml: string;
+}
+
+export interface TenantYamlApplyRequest {
+  previewId: string;
+  reason: string;
+}
+
+export interface TenantYamlDiffEntry {
+  action: string;
+  resourceType: string;
+  resourceName: string;
+  summary: string;
+}
+
+export interface TenantYamlPreviewResponse {
+  previewId: string | null;
+  environmentId: string;
+  tenant: string;
+  valid: boolean;
+  message: string;
+  errors: string[];
+  changes: TenantYamlDiffEntry[];
+}
+
+export interface TenantYamlApplyResponse {
+  previewId: string;
+  environmentId: string;
+  tenant: string;
+  message: string;
+  appliedChanges: TenantYamlDiffEntry[];
+  catalogSummary: CatalogSummary;
 }
 
 export interface TopicPage {

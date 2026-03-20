@@ -3,8 +3,12 @@ package com.pulsaradmin.api.controller;
 import com.pulsaradmin.api.service.PulsarCatalogService;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PublishMessageRequest;
+import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
 import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
@@ -12,8 +16,13 @@ import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
+import com.pulsaradmin.shared.model.TerminateTopicRequest;
+import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
+import com.pulsaradmin.shared.model.TopicPoliciesResponse;
+import com.pulsaradmin.shared.model.TopicPoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.TopicPoliciesUpdateResponse;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import jakarta.validation.Valid;
@@ -81,6 +90,41 @@ public class TopicController {
       @RequestParam(name = "limit", defaultValue = "5") int limit,
       @RequestParam("topic") String topicName) {
     return pulsarCatalogService.peekMessages(envId, topicName, limit);
+  }
+
+  @PostMapping("/terminate")
+  public TerminateTopicResponse terminateTopic(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody TerminateTopicRequest request) {
+    return pulsarCatalogService.terminateTopic(envId, request);
+  }
+
+  @GetMapping("/policies")
+  public TopicPoliciesResponse getTopicPolicies(
+      @PathVariable("envId") String envId,
+      @RequestParam("topic") String topicName) {
+    return pulsarCatalogService.getTopicPolicies(envId, topicName);
+  }
+
+  @PostMapping("/policies")
+  public TopicPoliciesUpdateResponse updateTopicPolicies(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody TopicPoliciesUpdateRequest request) {
+    return pulsarCatalogService.updateTopicPolicies(envId, request);
+  }
+
+  @PostMapping("/publish")
+  public PublishMessageResponse publishMessage(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody PublishMessageRequest request) {
+    return pulsarCatalogService.publishMessage(envId, request);
+  }
+
+  @PostMapping("/consume")
+  public ConsumeMessagesResponse consumeMessages(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody ConsumeMessagesRequest request) {
+    return pulsarCatalogService.consumeMessages(envId, request);
   }
 
   @PostMapping("/reset-cursor")

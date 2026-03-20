@@ -9,17 +9,31 @@ import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
+import com.pulsaradmin.shared.model.NamespaceDetails;
+import com.pulsaradmin.shared.model.NamespacePolicies;
+import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
 import com.pulsaradmin.shared.model.NamespaceSummary;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PublishMessageRequest;
+import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.TerminateTopicRequest;
+import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TenantSummary;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
 import com.pulsaradmin.shared.model.TopicHealth;
+import com.pulsaradmin.shared.model.TopicPolicies;
+import com.pulsaradmin.shared.model.TopicPoliciesResponse;
+import com.pulsaradmin.shared.model.TopicPoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.TopicPoliciesUpdateResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
@@ -281,6 +295,172 @@ public class EnvironmentCatalogService {
     return pulsarAdminGateway.peekMessages(environment.toDetails(), topicName, limit);
   }
 
+  public TerminateTopicResponse terminateTopic(String environmentId, TerminateTopicRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    TopicDetails existingTopic = requireTopicFromSnapshot(environmentId, request.topicName());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when terminating a topic.");
+    }
+
+    TerminateTopicResponse gatewayResponse = pulsarAdminGateway.terminateTopic(environment.toDetails(), request);
+    TopicDetails updatedTopic = refreshSnapshot(environment).topics().stream()
+        .filter(item -> item.fullName().equals(request.topicName()))
+        .findFirst()
+        .orElse(existingTopic);
+
+    return new TerminateTopicResponse(
+        environmentId,
+        request.topicName(),
+        gatewayResponse.lastMessageId(),
+        gatewayResponse.message(),
+        updatedTopic);
+  }
+
+  public TopicPoliciesResponse getTopicPolicies(String environmentId, String topicName) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    requireTopicFromSnapshot(environmentId, topicName);
+
+    return new TopicPoliciesResponse(
+        environmentId,
+        topicName,
+        pulsarAdminGateway.getTopicPolicies(environment.toDetails(), topicName),
+        true,
+        "Topic policy view loaded.");
+  }
+
+  public TopicPoliciesUpdateResponse updateTopicPolicies(String environmentId, TopicPoliciesUpdateRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    requireTopicFromSnapshot(environmentId, request.topicName());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when updating topic policies.");
+    }
+
+    TopicPolicies updatedPolicies = pulsarAdminGateway.updateTopicPolicies(
+        environment.toDetails(),
+        request.topicName(),
+        sanitizeTopicPolicies(request.policies()));
+
+    TopicDetails updatedTopic = refreshSnapshot(environment).topics().stream()
+        .filter(item -> item.fullName().equals(request.topicName()))
+        .findFirst()
+        .orElseThrow(() -> new NotFoundException("Unknown topic: " + request.topicName()));
+
+    return new TopicPoliciesUpdateResponse(
+        environmentId,
+        request.topicName(),
+        updatedPolicies,
+        "Updated policies for " + request.topicName() + ".",
+        updatedTopic);
+  }
+
+  public NamespaceDetails getNamespaceDetails(String environmentId, String tenant, String namespace) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    requireNamespace(snapshot, tenant, namespace);
+
+    NamespaceDetails gatewayDetails = pulsarAdminGateway.getNamespaceDetails(environment.toDetails(), tenant, namespace);
+    List<TopicListItem> topics = snapshot.topics().stream()
+        .filter(topic -> topic.tenant().equals(tenant) && topic.namespace().equals(namespace))
+        .map(topic -> new TopicListItem(
+            topic.fullName(),
+            topic.tenant(),
+            topic.namespace(),
+            topic.topic(),
+            topic.partitioned(),
+            topic.partitions(),
+            topic.schema().present(),
+            topic.health(),
+            topic.stats(),
+            topic.notes()))
+        .sorted(Comparator.comparing(TopicListItem::topic))
+        .toList();
+
+    return new NamespaceDetails(
+        environmentId,
+        tenant,
+        namespace,
+        topics.size(),
+        topics,
+        gatewayDetails.policies(),
+        snapshot.updatedAt(),
+        snapshot.healthMessage());
+  }
+
+  public NamespacePoliciesResponse updateNamespacePolicies(String environmentId, NamespacePoliciesUpdateRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    requireNamespace(snapshot, request.tenant(), request.namespace());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when updating namespace policies.");
+    }
+
+    NamespacePolicies updatedPolicies = pulsarAdminGateway.updateNamespacePolicies(
+        environment.toDetails(),
+        request.tenant(),
+        request.namespace(),
+        sanitizeNamespacePolicies(request.policies()));
+
+    EnvironmentSnapshotRecord refreshed = refreshSnapshot(environment);
+    NamespaceDetails details = getNamespaceDetails(environmentId, request.tenant(), request.namespace());
+
+    return new NamespacePoliciesResponse(
+        environmentId,
+        request.tenant(),
+        request.namespace(),
+        updatedPolicies,
+        "Updated policies for namespace " + request.tenant() + "/" + request.namespace() + ".",
+        new NamespaceDetails(
+            details.environmentId(),
+            details.tenant(),
+            details.namespace(),
+            details.topicCount(),
+            details.topics(),
+            updatedPolicies,
+            refreshed.updatedAt(),
+            refreshed.healthMessage()));
+  }
+
+  public PublishMessageResponse publishMessage(String environmentId, PublishMessageRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    requireTopicFromSnapshot(environmentId, request.topicName());
+
+    if (request.payload() == null || request.payload().isBlank()) {
+      throw new BadRequestException("A payload is required.");
+    }
+
+    if (request.payload().length() > 20_000) {
+      throw new BadRequestException("Payloads are limited to 20,000 characters in the test console.");
+    }
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when publishing a test message.");
+    }
+
+    return pulsarAdminGateway.publishMessage(environment.toDetails(), request);
+  }
+
+  public ConsumeMessagesResponse consumeMessages(String environmentId, ConsumeMessagesRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    requireTopicFromSnapshot(environmentId, request.topicName());
+
+    if (!request.ephemeral() && (request.subscriptionName() == null || request.subscriptionName().isBlank())) {
+      throw new BadRequestException("A subscription name is required unless the consume flow is ephemeral.");
+    }
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when consuming test messages.");
+    }
+
+    return pulsarAdminGateway.consumeMessages(environment.toDetails(), request);
+  }
+
   public ResetCursorResponse resetCursor(String environmentId, ResetCursorRequest request) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
 
@@ -380,6 +560,18 @@ public class EnvironmentCatalogService {
     requireEnvironmentRecord(environmentId);
   }
 
+  void deleteTopicForSync(EnvironmentRecord environment, String topicName) {
+    pulsarAdminGateway.deleteTopic(environment.toDetails(), topicName);
+  }
+
+  void deleteNamespaceForSync(EnvironmentRecord environment, String tenant, String namespace) {
+    pulsarAdminGateway.deleteNamespace(environment.toDetails(), tenant, namespace);
+  }
+
+  EnvironmentSnapshotRecord refreshEnvironment(EnvironmentRecord environment) {
+    return refreshSnapshot(environment);
+  }
+
   private void validateCreateTopicRequest(EnvironmentSnapshotRecord snapshot, CreateTopicRequest request) {
     String domain = request.domain() == null ? "" : request.domain().trim().toLowerCase();
     if (!domain.equals("persistent") && !domain.equals("non-persistent")) {
@@ -403,6 +595,10 @@ public class EnvironmentCatalogService {
   private EnvironmentRecord requireEnvironmentRecord(String environmentId) {
     return environmentRepository.findActiveById(environmentId)
         .orElseThrow(() -> new NotFoundException("Unknown environment: " + environmentId));
+  }
+
+  EnvironmentRecord getEnvironmentRecord(String environmentId) {
+    return requireEnvironmentRecord(environmentId);
   }
 
   private void validatePaging(int page, int pageSize) {
@@ -497,6 +693,66 @@ public class EnvironmentCatalogService {
     EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
         .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
     return requireTopic(snapshot, topicName);
+  }
+
+  private void requireNamespace(EnvironmentSnapshotRecord snapshot, String tenant, String namespace) {
+    if (tenant == null || tenant.isBlank()) {
+      throw new BadRequestException("A tenant is required.");
+    }
+
+    if (namespace == null || namespace.isBlank()) {
+      throw new BadRequestException("A namespace is required.");
+    }
+
+    String fullNamespace = tenant + "/" + namespace;
+    boolean exists = snapshot.namespaces().stream().anyMatch(item -> item.equals(fullNamespace));
+    if (!exists) {
+      throw new NotFoundException("Unknown namespace: " + fullNamespace);
+    }
+  }
+
+  private TopicPolicies sanitizeTopicPolicies(TopicPolicies policies) {
+    if (policies == null) {
+      throw new BadRequestException("Topic policies are required.");
+    }
+
+    validateNullableRange("Topic TTL", policies.ttlInSeconds(), 0, 31_536_000);
+    validateNullableRange("Topic max producers", policies.maxProducers(), 0, 10_000);
+    validateNullableRange("Topic max consumers", policies.maxConsumers(), 0, 10_000);
+    validateNullableRange("Topic max subscriptions", policies.maxSubscriptions(), 0, 10_000);
+    validateNullableRange("Topic retention time", policies.retentionTimeInMinutes(), 0, 10_000_000);
+    validateNullableRange("Topic retention size", policies.retentionSizeInMb(), 0, 10_000_000);
+    validateNullableLongRange("Topic compaction threshold", policies.compactionThresholdInBytes(), 0L, Long.MAX_VALUE);
+    return policies;
+  }
+
+  private NamespacePolicies sanitizeNamespacePolicies(NamespacePolicies policies) {
+    if (policies == null) {
+      throw new BadRequestException("Namespace policies are required.");
+    }
+
+    validateNullableRange("Namespace message TTL", policies.messageTtlInSeconds(), 0, 31_536_000);
+    validateNullableRange("Namespace retention time", policies.retentionTimeInMinutes(), 0, 10_000_000);
+    validateNullableRange("Namespace retention size", policies.retentionSizeInMb(), 0, 10_000_000);
+    validateNullableLongRange("Namespace backlog quota", policies.backlogQuotaLimitInBytes(), 0L, Long.MAX_VALUE);
+    validateNullableRange("Namespace backlog quota time", policies.backlogQuotaLimitTimeInSeconds(), 0, 31_536_000);
+    validateNullableRange("Namespace dispatch rate", policies.dispatchRatePerTopicInMsg(), 0, 1_000_000);
+    validateNullableLongRange("Namespace dispatch bytes", policies.dispatchRatePerTopicInByte(), 0L, Long.MAX_VALUE);
+    validateNullableRange("Namespace publish rate", policies.publishRateInMsg(), 0, 1_000_000);
+    validateNullableLongRange("Namespace publish bytes", policies.publishRateInByte(), 0L, Long.MAX_VALUE);
+    return policies;
+  }
+
+  private void validateNullableRange(String fieldName, Integer value, int min, int max) {
+    if (value != null && (value < min || value > max)) {
+      throw new BadRequestException(fieldName + " must be between " + min + " and " + max + ".");
+    }
+  }
+
+  private void validateNullableLongRange(String fieldName, Long value, long min, long max) {
+    if (value != null && (value < min || value > max)) {
+      throw new BadRequestException(fieldName + " must be between " + min + " and " + max + ".");
+    }
   }
 
   private TopicDetails fallbackCreatedTopic(CreateTopicRequest request) {

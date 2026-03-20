@@ -108,6 +108,94 @@ class TopicControllerTest {
   }
 
   @Test
+  void shouldTerminateTopic() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/terminate")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "reason": "Freeze the stream after incident replay closes out"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.environmentId").value("prod"))
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.message").exists());
+  }
+
+  @Test
+  void shouldReturnTopicPolicies() throws Exception {
+    mockMvc.perform(get("/api/v1/environments/prod/topics/policies")
+            .param("topic", "persistent://acme/orders/payment-events"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.policies.maxSubscriptions").exists());
+  }
+
+  @Test
+  void shouldUpdateTopicPolicies() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/policies")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "policies": {
+                    "retentionTimeInMinutes": 2880,
+                    "retentionSizeInMb": 1024,
+                    "ttlInSeconds": 7200,
+                    "compactionThresholdInBytes": 67108864,
+                    "maxProducers": 12,
+                    "maxConsumers": 32,
+                    "maxSubscriptions": 16
+                  },
+                  "reason": "Tighten topic policies for incident testing"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.policies.maxProducers").value(12));
+  }
+
+  @Test
+  void shouldPublishTestMessage() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/publish")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "key": "payment-10412",
+                  "properties": {"origin":"ui-test"},
+                  "schemaMode": "JSON",
+                  "payload": "{\\\"paymentId\\\":\\\"10412\\\",\\\"state\\\":\\\"TEST\\\"}",
+                  "reason": "Publish a bounded smoke-test event"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.messageId").exists());
+  }
+
+  @Test
+  void shouldConsumeTestMessages() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/consume")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": null,
+                  "ephemeral": true,
+                  "maxMessages": 2,
+                  "waitTimeSeconds": 3,
+                  "reason": "Read a bounded preview for verification"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.requestedCount").value(2))
+        .andExpect(jsonPath("$.messages").isArray());
+  }
+
+  @Test
   void shouldResetCursor() throws Exception {
     mockMvc.perform(post("/api/v1/environments/prod/topics/reset-cursor")
             .contentType("application/json")

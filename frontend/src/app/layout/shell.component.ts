@@ -17,7 +17,7 @@ import { EnvironmentSummary } from '../core/models/api.models';
 })
 export class ShellComponent {
   private readonly api = inject(PulsarApiService);
-  private readonly demoMode = inject(DemoModeService);
+  readonly demoMode = inject(DemoModeService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 

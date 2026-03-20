@@ -289,6 +289,10 @@ dd {
   margin-top: 1.25rem;
 }
 
+.test-grid {
+  margin-top: 1rem;
+}
+
 .workflow-card,
 .message-card,
 .placeholder-panel {
@@ -318,6 +322,11 @@ dd {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+
+.checkbox-line {
+  align-items: center;
+  flex-direction: row !important;
 }
 
 .reset-form span {
@@ -462,7 +471,8 @@ dd {
     grid-template-columns: 1fr;
   }
 
-  .reset-form {
+  .reset-form,
+  .test-grid {
     grid-template-columns: 1fr;
   }
 

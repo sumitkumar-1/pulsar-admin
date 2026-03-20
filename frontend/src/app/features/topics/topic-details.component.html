@@ -23,7 +23,10 @@
         <button type="button" (click)="openWorkflow('peek')">Peek Messages</button>
         <button type="button" (click)="openWorkflow('reset')">Reset Cursor</button>
         <button type="button" (click)="openWorkflow('skip')">Skip Messages</button>
+        <button type="button" (click)="openWorkflow('policies')">Topic Policies</button>
+        <button type="button" (click)="openWorkflow('test-messages')">Test Messages</button>
         <button type="button" (click)="openWorkflow('unload')">Unload Topic</button>
+        <button type="button" (click)="openWorkflow('terminate')">Terminate Topic</button>
         <button type="button" (click)="openWorkflow('replay')">Replay / Copy</button>
       </div>
     </section>
@@ -159,6 +162,21 @@
               <p class="workflow-copy">
                 Unload the topic from its current broker owner so Pulsar can rebalance ownership and refresh the live
                 serving path without deleting the topic or changing subscriptions.
+              </p>
+            } @else if (activeWorkflow() === 'terminate') {
+              <h3>Terminate topic</h3>
+              <p class="workflow-copy">
+                Mark the topic as append-complete so producers stop publishing after the current retained tail.
+              </p>
+            } @else if (activeWorkflow() === 'policies') {
+              <h3>Topic policies</h3>
+              <p class="workflow-copy">
+                Review and update the bounded topic policy set with an explicit operator reason and a clear preview.
+              </p>
+            } @else if (activeWorkflow() === 'test-messages') {
+              <h3>Test messages</h3>
+              <p class="workflow-copy">
+                Publish bounded test messages and run a bounded consume/read workflow for debugging without turning the UI into a live terminal.
               </p>
             } @else if (activeWorkflow() === 'create-subscription') {
               <h3>Create subscription</h3>
@@ -390,6 +408,226 @@
                 </button>
               </div>
             </form>
+          } @else if (activeWorkflow() === 'terminate') {
+            <form class="reset-form" [formGroup]="terminateForm" (ngSubmit)="submitTerminateTopic()">
+              <label class="full-width">
+                <span>Topic</span>
+                <input [value]="topic.fullName" type="text" readonly />
+              </label>
+
+              <label class="full-width">
+                <span>Reason</span>
+                <textarea formControlName="reason" rows="3" placeholder="Why are we terminating this topic?"></textarea>
+              </label>
+
+              <div class="preview-panel">
+                <p class="eyebrow">Preview</p>
+                <p>{{ terminatePreview() }}</p>
+              </div>
+
+              @if (terminateError()) {
+                <div class="placeholder-panel error">
+                  <p>{{ terminateError() }}</p>
+                </div>
+              }
+
+              @if (terminateResult(); as result) {
+                <div class="placeholder-panel success">
+                  <p>{{ result.message }}</p>
+                  <p class="result-meta">Last message id {{ result.lastMessageId || 'unavailable' }}</p>
+                </div>
+              }
+
+              <div class="form-button-row">
+                <button type="submit" class="danger-button" [disabled]="terminateSaving()">
+                  {{ terminateSaving() ? 'Terminating...' : 'Terminate Topic' }}
+                </button>
+              </div>
+            </form>
+          } @else if (activeWorkflow() === 'policies') {
+            <form class="reset-form" [formGroup]="topicPoliciesForm" (ngSubmit)="submitTopicPolicies()">
+              @if (topicPoliciesLoading()) {
+                <div class="placeholder-panel">
+                  <p>Loading topic policies...</p>
+                </div>
+              } @else {
+                <label>
+                  <span>Retention Minutes</span>
+                  <input formControlName="retentionTimeInMinutes" type="number" min="0" />
+                </label>
+                <label>
+                  <span>Retention Size MB</span>
+                  <input formControlName="retentionSizeInMb" type="number" min="0" />
+                </label>
+                <label>
+                  <span>TTL Seconds</span>
+                  <input formControlName="ttlInSeconds" type="number" min="0" />
+                </label>
+                <label>
+                  <span>Compaction Threshold</span>
+                  <input formControlName="compactionThresholdInBytes" type="number" min="0" />
+                </label>
+                <label>
+                  <span>Max Producers</span>
+                  <input formControlName="maxProducers" type="number" min="0" />
+                </label>
+                <label>
+                  <span>Max Consumers</span>
+                  <input formControlName="maxConsumers" type="number" min="0" />
+                </label>
+                <label>
+                  <span>Max Subscriptions</span>
+                  <input formControlName="maxSubscriptions" type="number" min="0" />
+                </label>
+                <label class="full-width">
+                  <span>Reason</span>
+                  <textarea formControlName="reason" rows="3" placeholder="Why are we changing topic policies?"></textarea>
+                </label>
+
+                <div class="preview-panel full-width">
+                  <p class="eyebrow">Preview</p>
+                  <p>{{ topicPolicyPreview() }}</p>
+                </div>
+
+                @if (topicPoliciesError()) {
+                  <div class="placeholder-panel error full-width">
+                    <p>{{ topicPoliciesError() }}</p>
+                  </div>
+                }
+
+                @if (topicPoliciesResult(); as result) {
+                  <div class="placeholder-panel success full-width">
+                    <p>{{ result.message }}</p>
+                  </div>
+                }
+
+                <div class="form-button-row full-width">
+                  <button type="submit" [disabled]="topicPoliciesSaving()">
+                    {{ topicPoliciesSaving() ? 'Saving...' : 'Save Topic Policies' }}
+                  </button>
+                </div>
+              }
+            </form>
+          } @else if (activeWorkflow() === 'test-messages') {
+            <div class="workflow-grid">
+              <article class="workflow-card">
+                <p class="eyebrow">Environment</p>
+                <h4>{{ environmentId() | uppercase }}</h4>
+                <p class="workflow-copy">
+                  {{ modeQueryParams().mode === 'mock' ? 'Mock mode is active from the URL.' : 'Live mode is active for this environment.' }}
+                </p>
+              </article>
+              <article class="workflow-card">
+                <p class="eyebrow">Guardrail</p>
+                <h4>Bounded testing only</h4>
+                <p class="workflow-copy">These publish and consume flows are intentionally bounded for operator testing, not sustained traffic generation.</p>
+              </article>
+            </div>
+
+            <div class="detail-grid test-grid">
+              <form class="reset-form detail-card" [formGroup]="publishForm" (ngSubmit)="submitPublishMessage()">
+                <p class="eyebrow">Publish Test Message</p>
+                <label>
+                  <span>Key</span>
+                  <input formControlName="key" type="text" placeholder="Optional message key" />
+                </label>
+                <label>
+                  <span>Schema Mode</span>
+                  <select formControlName="schemaMode">
+                    <option value="RAW">Raw</option>
+                    <option value="JSON">JSON</option>
+                  </select>
+                </label>
+                <label class="full-width">
+                  <span>Properties</span>
+                  <textarea formControlName="properties" rows="3" placeholder="traceId=abc-123&#10;origin=ui-test"></textarea>
+                </label>
+                <label class="full-width">
+                  <span>Payload</span>
+                  <textarea formControlName="payload" rows="8"></textarea>
+                </label>
+                <label class="full-width">
+                  <span>Reason</span>
+                  <textarea formControlName="reason" rows="3" placeholder="Why are we publishing this test message?"></textarea>
+                </label>
+                <div class="preview-panel full-width">
+                  <p class="eyebrow">Preview</p>
+                  <p>{{ publishPreview() }}</p>
+                </div>
+                @if (publishError()) {
+                  <div class="placeholder-panel error full-width"><p>{{ publishError() }}</p></div>
+                }
+                @if (publishResult(); as result) {
+                  <div class="placeholder-panel success full-width">
+                    <p>{{ result.message }}</p>
+                    <p class="result-meta">Message {{ result.messageId }} at {{ result.publishedAt | date: 'medium' }}</p>
+                  </div>
+                }
+                <div class="form-button-row full-width">
+                  <button type="submit" [disabled]="publishSaving()">{{ publishSaving() ? 'Publishing...' : 'Publish Test Message' }}</button>
+                </div>
+              </form>
+
+              <form class="reset-form detail-card" [formGroup]="consumeForm" (ngSubmit)="submitConsumeMessages()">
+                <p class="eyebrow">Consume / Read Test Messages</p>
+                <label class="checkbox-line">
+                  <input formControlName="ephemeral" type="checkbox" />
+                  <span>Use ephemeral preview flow</span>
+                </label>
+                @if (!consumeForm.controls.ephemeral.value) {
+                  <label>
+                    <span>Subscription</span>
+                    <select formControlName="subscriptionName">
+                      @for (subscription of topic.subscriptions; track subscription) {
+                        <option [value]="subscription">{{ subscription }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                <label>
+                  <span>Max Messages</span>
+                  <input formControlName="maxMessages" type="number" min="1" max="50" />
+                </label>
+                <label>
+                  <span>Wait Seconds</span>
+                  <input formControlName="waitTimeSeconds" type="number" min="1" max="30" />
+                </label>
+                <label class="full-width">
+                  <span>Reason</span>
+                  <textarea formControlName="reason" rows="3" placeholder="Why are we consuming test messages?"></textarea>
+                </label>
+                <div class="preview-panel full-width">
+                  <p class="eyebrow">Preview</p>
+                  <p>{{ consumePreview() }}</p>
+                </div>
+                @if (consumeError()) {
+                  <div class="placeholder-panel error full-width"><p>{{ consumeError() }}</p></div>
+                }
+                @if (consumeResult(); as result) {
+                  <div class="placeholder-panel success full-width">
+                    <p>{{ result.message }}</p>
+                    <p class="result-meta">{{ result.receivedCount }} of {{ result.requestedCount }} messages returned.</p>
+                  </div>
+                  @if (result.messages.length > 0) {
+                    <div class="message-list full-width">
+                      @for (message of result.messages; track message.messageId) {
+                        <article class="message-card">
+                          <div class="message-topline">
+                            <strong>{{ message.messageId }}</strong>
+                            <span>{{ message.publishTime | date: 'medium' }}</span>
+                          </div>
+                          <p class="message-key">Key {{ message.key || 'No key' }} · Producer {{ message.producerName }}</p>
+                          <pre>{{ message.payload }}</pre>
+                        </article>
+                      }
+                    </div>
+                  }
+                }
+                <div class="form-button-row full-width">
+                  <button type="submit" [disabled]="consumeSaving()">{{ consumeSaving() ? 'Consuming...' : 'Run Consume Test' }}</button>
+                </div>
+              </form>
+            </div>
           } @else if (activeWorkflow() === 'create-subscription') {
             <form class="reset-form" [formGroup]="createSubscriptionForm" (ngSubmit)="submitCreateSubscription()">
               <label class="full-width">

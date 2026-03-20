@@ -1,0 +1,144 @@
+.hero-card,
+.stats-grid,
+.detail-grid,
+.state-card {
+  margin-bottom: 1.5rem;
+}
+
+.hero-card,
+.detail-card,
+.stat-card,
+.state-card {
+  background: rgba(10, 22, 39, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 1.25rem;
+  color: #e2e8f0;
+  padding: 1.25rem;
+}
+
+.hero-card,
+.card-header-row,
+.hero-actions,
+.form-button-row,
+.topic-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.stats-grid,
+.detail-grid,
+.policy-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.stats-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.detail-grid {
+  grid-template-columns: 1.4fr 1fr;
+}
+
+.policy-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.policy-form label,
+.checkbox-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.checkbox-field {
+  flex-direction: row;
+  align-items: center;
+}
+
+input,
+textarea,
+button {
+  border-radius: 0.85rem;
+}
+
+input,
+textarea {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #f8fafc;
+  padding: 0.8rem 0.95rem;
+}
+
+button {
+  background: linear-gradient(135deg, #22c55e, #0f766e);
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 0.8rem 1rem;
+}
+
+.secondary-action,
+.topic-row {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.eyebrow,
+.topic-row p {
+  color: #94a3b8;
+  margin: 0;
+}
+
+.preview-panel {
+  background: rgba(30, 41, 59, 0.65);
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.topic-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.topic-row {
+  padding: 0.95rem 1rem;
+  text-align: left;
+}
+
+.mode-pill {
+  background: rgba(249, 115, 22, 0.18);
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  border-radius: 999px;
+  color: #fdba74;
+  padding: 0.45rem 0.75rem;
+}
+
+.success {
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.error {
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+@media (max-width: 900px) {
+  .detail-grid,
+  .policy-form {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-card,
+  .card-header-row,
+  .hero-actions,
+  .topic-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

@@ -64,13 +64,18 @@
             <p class="eyebrow">Tenant</p>
             <h4>{{ tenantGroup.tenant }}</h4>
           </div>
-          <span>{{ tenantGroup.namespaceCount }} namespaces · {{ tenantGroup.topicCount }} topics</span>
+          <div class="tenant-actions">
+            <span>{{ tenantGroup.namespaceCount }} namespaces · {{ tenantGroup.topicCount }} topics</span>
+            <button class="ghost" type="button" (click)="openTenantYaml(tenantGroup.tenant)">Tenant YAML</button>
+          </div>
         </div>
 
         @for (namespaceGroup of tenantGroup.namespaces; track namespaceGroup.key) {
           <section class="namespace-block">
             <div class="namespace-header">
-              <h5>{{ tenantGroup.tenant }}/{{ namespaceGroup.namespace }}</h5>
+              <button class="namespace-link" type="button" (click)="openNamespace(tenantGroup.tenant, namespaceGroup.namespace)">
+                {{ tenantGroup.tenant }}/{{ namespaceGroup.namespace }}
+              </button>
               <span>{{ namespaceGroup.items.length }} topics</span>
             </div>
 

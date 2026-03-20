@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe, NgClass } from '@angular/common';
+import { DatePipe, DecimalPipe, NgClass, UpperCasePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -7,7 +7,11 @@ import { combineLatest, Subscription, switchMap, timer } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
 import {
+  ConsumeMessagesRequest,
+  ConsumeMessagesResponse,
   CreateSubscriptionRequest,
+  PublishMessageRequest,
+  PublishMessageResponse,
   PeekMessagesResponse,
   ReplayCopyJobRequest,
   ReplayCopyJobStatusResponse,
@@ -16,7 +20,12 @@ import {
   SkipMessagesRequest,
   SkipMessagesResponse,
   SubscriptionMutationResponse,
+  TerminateTopicRequest,
+  TerminateTopicResponse,
   TopicDetails,
+  TopicPoliciesResponse,
+  TopicPoliciesUpdateRequest,
+  TopicPoliciesUpdateResponse,
   UnloadTopicRequest,
   UnloadTopicResponse
 } from '../../core/models/api.models';
@@ -24,7 +33,7 @@ import {
 @Component({
   selector: 'app-topic-details',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, NgClass, ReactiveFormsModule, RouterLink],
+  imports: [DatePipe, DecimalPipe, NgClass, ReactiveFormsModule, RouterLink, UpperCasePipe],
   templateUrl: './topic-details.component.html',
   styleUrl: './topic-details.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -41,7 +50,7 @@ export class TopicDetailsComponent {
   readonly environmentId = signal('');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
-  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'replay' | 'create-subscription' | 'delete-subscription' | null>(null);
+  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'create-subscription' | 'delete-subscription' | null>(null);
   readonly peekState = signal<PeekMessagesResponse | null>(null);
   readonly peekLoading = signal(false);
   readonly peekError = signal<string | null>(null);
@@ -54,6 +63,20 @@ export class TopicDetailsComponent {
   readonly unloadSaving = signal(false);
   readonly unloadResult = signal<UnloadTopicResponse | null>(null);
   readonly unloadError = signal<string | null>(null);
+  readonly terminateSaving = signal(false);
+  readonly terminateResult = signal<TerminateTopicResponse | null>(null);
+  readonly terminateError = signal<string | null>(null);
+  readonly topicPoliciesLoading = signal(false);
+  readonly topicPoliciesSaving = signal(false);
+  readonly topicPoliciesState = signal<TopicPoliciesResponse | null>(null);
+  readonly topicPoliciesResult = signal<TopicPoliciesUpdateResponse | null>(null);
+  readonly topicPoliciesError = signal<string | null>(null);
+  readonly publishSaving = signal(false);
+  readonly publishResult = signal<PublishMessageResponse | null>(null);
+  readonly publishError = signal<string | null>(null);
+  readonly consumeSaving = signal(false);
+  readonly consumeResult = signal<ConsumeMessagesResponse | null>(null);
+  readonly consumeError = signal<string | null>(null);
   readonly replaySaving = signal(false);
   readonly replayResult = signal<ReplayCopyJobStatusResponse | null>(null);
   readonly replayError = signal<string | null>(null);
@@ -76,6 +99,37 @@ export class TopicDetailsComponent {
   });
 
   readonly unloadForm = this.formBuilder.nonNullable.group({
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly terminateForm = this.formBuilder.nonNullable.group({
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly topicPoliciesForm = this.formBuilder.nonNullable.group({
+    retentionTimeInMinutes: [0, [Validators.min(0)]],
+    retentionSizeInMb: [0, [Validators.min(0)]],
+    ttlInSeconds: [0, [Validators.min(0)]],
+    compactionThresholdInBytes: [0, [Validators.min(0)]],
+    maxProducers: [0, [Validators.min(0)]],
+    maxConsumers: [0, [Validators.min(0)]],
+    maxSubscriptions: [0, [Validators.min(0)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly publishForm = this.formBuilder.nonNullable.group({
+    key: [''],
+    properties: [''],
+    schemaMode: ['RAW'],
+    payload: ['{\n  "event": "test"\n}', [Validators.required, Validators.maxLength(20000)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly consumeForm = this.formBuilder.nonNullable.group({
+    ephemeral: [true],
+    subscriptionName: [''],
+    maxMessages: [5, [Validators.required, Validators.min(1), Validators.max(50)]],
+    waitTimeSeconds: [5, [Validators.required, Validators.min(1), Validators.max(30)]],
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -144,6 +198,16 @@ export class TopicDetailsComponent {
             reason: ''
           });
           this.deleteSubscriptionForm.patchValue({ reason: '' });
+          this.terminateForm.patchValue({ reason: '' });
+          this.topicPoliciesForm.patchValue({ reason: '' });
+          this.publishForm.patchValue({ reason: '' });
+          this.consumeForm.patchValue({
+            ephemeral: true,
+            subscriptionName: firstSubscription,
+            maxMessages: 5,
+            waitTimeSeconds: 5,
+            reason: ''
+          });
           this.loading.set(false);
         },
         error: (error: { error?: { message?: string } }) => {
@@ -157,7 +221,7 @@ export class TopicDetailsComponent {
     return status.toLowerCase();
   }
 
-  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'replay' | 'create-subscription') {
+  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'create-subscription') {
     this.activeWorkflow.set(workflow);
 
     if (workflow === 'peek') {
@@ -221,6 +285,58 @@ export class TopicDetailsComponent {
     if (workflow === 'unload') {
       this.unloadError.set(null);
       this.unloadResult.set(null);
+    }
+
+    if (workflow === 'terminate') {
+      this.terminateError.set(null);
+      this.terminateResult.set(null);
+      this.terminateForm.patchValue({ reason: '' });
+    }
+
+    if (workflow === 'policies') {
+      const topic = this.details();
+      if (topic) {
+        this.topicPoliciesLoading.set(true);
+        this.topicPoliciesError.set(null);
+        this.topicPoliciesResult.set(null);
+        this.api.getTopicPolicies(this.environmentId(), topic.fullName)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (response) => {
+              this.topicPoliciesState.set(response);
+              this.topicPoliciesForm.patchValue({
+                retentionTimeInMinutes: response.policies.retentionTimeInMinutes ?? 0,
+                retentionSizeInMb: response.policies.retentionSizeInMb ?? 0,
+                ttlInSeconds: response.policies.ttlInSeconds ?? 0,
+                compactionThresholdInBytes: response.policies.compactionThresholdInBytes ?? 0,
+                maxProducers: response.policies.maxProducers ?? 0,
+                maxConsumers: response.policies.maxConsumers ?? 0,
+                maxSubscriptions: response.policies.maxSubscriptions ?? 0,
+                reason: ''
+              });
+              this.topicPoliciesLoading.set(false);
+            },
+            error: (error: { error?: { message?: string } }) => {
+              this.topicPoliciesError.set(error.error?.message ?? 'Unable to load topic policies.');
+              this.topicPoliciesLoading.set(false);
+            }
+          });
+      }
+    }
+
+    if (workflow === 'test-messages') {
+      const topic = this.details();
+      this.publishError.set(null);
+      this.publishResult.set(null);
+      this.consumeError.set(null);
+      this.consumeResult.set(null);
+      this.publishForm.patchValue({ reason: '' });
+      if (topic) {
+        this.consumeForm.patchValue({
+          subscriptionName: this.consumeForm.controls.subscriptionName.value || topic.subscriptions[0] || '',
+          reason: ''
+        });
+      }
     }
 
     if (workflow === 'replay') {
@@ -464,6 +580,176 @@ export class TopicDetailsComponent {
       });
   }
 
+  submitTerminateTopic() {
+    const topic = this.details();
+    if (!topic) {
+      this.terminateError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.terminateForm.invalid) {
+      this.terminateForm.markAllAsTouched();
+      return;
+    }
+
+    const request: TerminateTopicRequest = {
+      topicName: topic.fullName,
+      reason: this.terminateForm.controls.reason.value
+    };
+
+    this.terminateSaving.set(true);
+    this.terminateError.set(null);
+    this.terminateResult.set(null);
+
+    this.api.terminateTopic(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.terminateSaving.set(false);
+          this.terminateResult.set(response);
+          this.applyUpdatedTopic(response.topicDetails);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.terminateSaving.set(false);
+          this.terminateError.set(error.error?.message ?? 'Unable to terminate this topic.');
+        }
+      });
+  }
+
+  submitTopicPolicies() {
+    const topic = this.details();
+    if (!topic) {
+      this.topicPoliciesError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.topicPoliciesForm.invalid) {
+      this.topicPoliciesForm.markAllAsTouched();
+      return;
+    }
+
+    const form = this.topicPoliciesForm.getRawValue();
+    const request: TopicPoliciesUpdateRequest = {
+      topicName: topic.fullName,
+      policies: {
+        retentionTimeInMinutes: Number(form.retentionTimeInMinutes),
+        retentionSizeInMb: Number(form.retentionSizeInMb),
+        ttlInSeconds: Number(form.ttlInSeconds),
+        compactionThresholdInBytes: Number(form.compactionThresholdInBytes),
+        maxProducers: Number(form.maxProducers),
+        maxConsumers: Number(form.maxConsumers),
+        maxSubscriptions: Number(form.maxSubscriptions)
+      },
+      reason: form.reason
+    };
+
+    this.topicPoliciesSaving.set(true);
+    this.topicPoliciesError.set(null);
+    this.topicPoliciesResult.set(null);
+
+    this.api.updateTopicPolicies(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.topicPoliciesSaving.set(false);
+          this.topicPoliciesResult.set(response);
+          this.topicPoliciesState.set({
+            environmentId: response.environmentId,
+            topicName: response.topicName,
+            policies: response.policies,
+            editable: true,
+            message: response.message
+          });
+          this.applyUpdatedTopic(response.topicDetails);
+          this.topicPoliciesForm.patchValue({ reason: '' });
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.topicPoliciesSaving.set(false);
+          this.topicPoliciesError.set(error.error?.message ?? 'Unable to update topic policies.');
+        }
+      });
+  }
+
+  submitPublishMessage() {
+    const topic = this.details();
+    if (!topic) {
+      this.publishError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.publishForm.invalid) {
+      this.publishForm.markAllAsTouched();
+      return;
+    }
+
+    const form = this.publishForm.getRawValue();
+    const request: PublishMessageRequest = {
+      topicName: topic.fullName,
+      key: form.key.trim() || null,
+      properties: this.parseProperties(form.properties),
+      schemaMode: form.schemaMode,
+      payload: form.payload,
+      reason: form.reason
+    };
+
+    this.publishSaving.set(true);
+    this.publishError.set(null);
+    this.publishResult.set(null);
+
+    this.api.publishMessage(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.publishSaving.set(false);
+          this.publishResult.set(response);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.publishSaving.set(false);
+          this.publishError.set(error.error?.message ?? 'Unable to publish a test message.');
+        }
+      });
+  }
+
+  submitConsumeMessages() {
+    const topic = this.details();
+    if (!topic) {
+      this.consumeError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.consumeForm.invalid) {
+      this.consumeForm.markAllAsTouched();
+      return;
+    }
+
+    const form = this.consumeForm.getRawValue();
+    const request: ConsumeMessagesRequest = {
+      topicName: topic.fullName,
+      subscriptionName: form.ephemeral ? null : (form.subscriptionName.trim() || null),
+      ephemeral: form.ephemeral,
+      maxMessages: Number(form.maxMessages),
+      waitTimeSeconds: Number(form.waitTimeSeconds),
+      reason: form.reason
+    };
+
+    this.consumeSaving.set(true);
+    this.consumeError.set(null);
+    this.consumeResult.set(null);
+
+    this.api.consumeMessages(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.consumeSaving.set(false);
+          this.consumeResult.set(response);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.consumeSaving.set(false);
+          this.consumeError.set(error.error?.message ?? 'Unable to consume test messages.');
+        }
+      });
+  }
+
   submitCreateSubscription() {
     const topic = this.details();
 
@@ -586,6 +872,43 @@ export class TopicDetailsComponent {
     return `This will unload ${topic.topic} from its current broker owner so Pulsar can rebalance ownership and refresh the serving path. Use this when a topic looks stuck or you need a clean handoff after incident work.`;
   }
 
+  terminatePreview(): string {
+    const topic = this.details();
+    if (!topic) {
+      return 'Topic details are still loading.';
+    }
+    return `This will terminate ${topic.topic} so producers stop appending after the current retained tail. Use it only when the topic should become append-complete.`;
+  }
+
+  topicPolicyPreview(): string {
+    const topic = this.details();
+    const form = this.topicPoliciesForm.getRawValue();
+    if (!topic) {
+      return 'Topic details are still loading.';
+    }
+    return `This will align retention (${form.retentionTimeInMinutes} min / ${form.retentionSizeInMb} MB), TTL (${form.ttlInSeconds}s), compaction (${form.compactionThresholdInBytes} bytes), and producer/consumer/subscription limits for ${topic.topic}.`;
+  }
+
+  publishPreview(): string {
+    const topic = this.details();
+    const form = this.publishForm.getRawValue();
+    if (!topic) {
+      return 'Topic details are still loading.';
+    }
+    return `This will publish a bounded ${form.schemaMode.toLowerCase()} test message to ${topic.topic}${form.key.trim() ? ` with key ${form.key.trim()}` : ''}.`;
+  }
+
+  consumePreview(): string {
+    const topic = this.details();
+    const form = this.consumeForm.getRawValue();
+    if (!topic) {
+      return 'Topic details are still loading.';
+    }
+    return form.ephemeral
+      ? `This will read up to ${form.maxMessages} messages from ${topic.topic} using an ephemeral test flow over ${form.waitTimeSeconds} seconds.`
+      : `This will consume up to ${form.maxMessages} messages from ${topic.topic} using subscription ${form.subscriptionName || 'the selected subscription'} over ${form.waitTimeSeconds} seconds.`;
+  }
+
   replayCanRefresh(): boolean {
     const result = this.replayResult();
     return !!result && (result.status === 'QUEUED' || result.status === 'RUNNING');
@@ -651,6 +974,19 @@ export class TopicDetailsComponent {
 
   modeQueryParams() {
     return this.demoMode.queryParams({});
+  }
+
+  parseProperties(value: string): Record<string, string> {
+    return value.split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .reduce<Record<string, string>>((accumulator, line) => {
+        const [key, ...rest] = line.split('=');
+        if (key?.trim()) {
+          accumulator[key.trim()] = rest.join('=').trim();
+        }
+        return accumulator;
+      }, {});
   }
 
   private applyUpdatedTopic(topic: TopicDetails) {
