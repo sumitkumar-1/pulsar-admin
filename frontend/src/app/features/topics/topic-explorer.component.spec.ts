@@ -16,6 +16,16 @@ describe('TopicExplorerComponent', () => {
         pulsarVersion: '4.0.2',
         message: 'healthy'
       }),
+      getCatalogSummary: () => of({
+        environmentId: 'prod',
+        tenants: [
+          { name: 'acme', namespaceCount: 2, topicCount: 1 }
+        ],
+        namespaces: [
+          { tenant: 'acme', namespace: 'orders', topicCount: 1 },
+          { tenant: 'acme', namespace: 'replay', topicCount: 0 }
+        ]
+      }),
       getTopics: () => of({
         items: [
           {
@@ -45,7 +55,9 @@ describe('TopicExplorerComponent', () => {
         pageSize: 25,
         total: 1
       }),
-      createTopic: jasmine.createSpy('createTopic')
+      createTopic: jasmine.createSpy('createTopic'),
+      createTenant: jasmine.createSpy('createTenant'),
+      createNamespace: jasmine.createSpy('createNamespace')
     };
 
     await TestBed.configureTestingModule({
@@ -70,6 +82,8 @@ describe('TopicExplorerComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('acme');
+    expect(compiled.textContent).toContain('acme/orders');
     expect(compiled.textContent).toContain('payment-events');
     expect(compiled.textContent).toContain('Backlog-heavy topic');
   });
@@ -128,8 +142,15 @@ describe('TopicExplorerComponent', () => {
               pulsarVersion: '4.0.2',
               message: 'healthy'
             }),
+            getCatalogSummary: () => of({
+              environmentId: 'prod',
+              tenants: [{ name: 'acme', namespaceCount: 1, topicCount: 0 }],
+              namespaces: [{ tenant: 'acme', namespace: 'orders', topicCount: 0 }]
+            }),
             getTopics: () => of({ items: [], page: 0, pageSize: 25, total: 0 }),
-            createTopic
+            createTopic,
+            createTenant: jasmine.createSpy('createTenant'),
+            createNamespace: jasmine.createSpy('createNamespace')
           }
         }
       ]
@@ -155,6 +176,74 @@ describe('TopicExplorerComponent', () => {
       topic: 'payment-events-retry'
     }));
     expect(component.dialogOpen()).toBeFalse();
+    expect(component.actionFeedback()?.kind).toBe('success');
+  });
+
+  it('creates a namespace from the dialog and refreshes the catalog', async () => {
+    const createNamespace = jasmine.createSpy('createNamespace').and.returnValue(of({
+      environmentId: 'prod',
+      resourceType: 'NAMESPACE',
+      resourceName: 'acme/orders',
+      message: 'Created namespace acme/orders and refreshed the environment catalog.',
+      catalogSummary: {
+        environmentId: 'prod',
+        tenants: [{ name: 'acme', namespaceCount: 1, topicCount: 0 }],
+        namespaces: [{ tenant: 'acme', namespace: 'orders', topicCount: 0 }]
+      }
+    }));
+
+    await TestBed.configureTestingModule({
+      imports: [TopicExplorerComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ page: '0', pageSize: '25' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironmentHealth: () => of({
+              environmentId: 'prod',
+              status: 'HEALTHY',
+              brokerUrl: 'broker',
+              adminUrl: 'admin',
+              pulsarVersion: '4.0.2',
+              message: 'healthy'
+            }),
+            getCatalogSummary: () => of({
+              environmentId: 'prod',
+              tenants: [{ name: 'acme', namespaceCount: 0, topicCount: 0 }],
+              namespaces: []
+            }),
+            getTopics: () => of({ items: [], page: 0, pageSize: 25, total: 0 }),
+            createTopic: jasmine.createSpy('createTopic'),
+            createTenant: jasmine.createSpy('createTenant'),
+            createNamespace
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicExplorerComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.openCreateNamespaceDialog();
+    component.createNamespaceForm.patchValue({
+      tenant: 'acme',
+      namespace: 'orders'
+    });
+    component.submitCreateNamespace();
+
+    expect(createNamespace).toHaveBeenCalledWith('prod', {
+      tenant: 'acme',
+      namespace: 'orders'
+    });
+    expect(component.namespaceDialogOpen()).toBeFalse();
     expect(component.actionFeedback()?.kind).toBe('success');
   });
 });

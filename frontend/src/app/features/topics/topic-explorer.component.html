@@ -21,13 +21,17 @@
 <section class="panel">
   <div class="panel-header">
     <div>
-      <p class="eyebrow">Explore Topics</p>
-      <h3>Search, scan, and drill into the topics that need attention.</h3>
+      <p class="eyebrow">Explore Catalog</p>
+      <h3>Browse by tenant and namespace first, then drill into the topics that need attention.</h3>
     </div>
     <div class="toolbar-stack">
-      <button class="create-button" type="button" (click)="openCreateTopicDialog()">Add Topic</button>
+      <div class="action-row">
+        <button class="create-button" type="button" (click)="openCreateTenantDialog()">Add Tenant</button>
+        <button class="create-button secondary" type="button" (click)="openCreateNamespaceDialog()">Add Namespace</button>
+        <button class="create-button" type="button" (click)="openCreateTopicDialog()">Add Topic</button>
+      </div>
       <form class="toolbar" (ngSubmit)="applySearch()">
-        <input [formControl]="searchControl" type="search" placeholder="Search by topic, namespace, or full name" />
+        <input [formControl]="searchControl" type="search" placeholder="Search by tenant, namespace, topic, or full name" />
         <button type="submit">Search</button>
         <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
       </form>
@@ -44,63 +48,99 @@
     <div class="state-card">Loading topic inventory for {{ environmentId() }}...</div>
   } @else if (loadError()) {
     <div class="state-card error">{{ loadError() }}</div>
-  } @else if (topicPage()?.items?.length === 0) {
+  } @else if (topicGroups().length === 0) {
     <div class="state-card">No topics match the current filters.</div>
   } @else {
     <div class="summary-row">
+      <span>{{ catalogSummary()?.tenants?.length || 0 }} tenants</span>
+      <span>{{ catalogSummary()?.namespaces?.length || 0 }} namespaces</span>
       <span>{{ topicPage()?.total | number }} topics</span>
-      <span>Page size {{ topicPage()?.pageSize }}</span>
     </div>
 
-    @for (group of topicGroups(); track group.namespace) {
-      <section class="namespace-block">
-        <div class="namespace-header">
-          <h4>{{ group.namespace }}</h4>
-          <span>{{ group.items.length }} topics</span>
+    @for (tenantGroup of topicGroups(); track tenantGroup.tenant) {
+      <section class="tenant-block">
+        <div class="tenant-header">
+          <div>
+            <p class="eyebrow">Tenant</p>
+            <h4>{{ tenantGroup.tenant }}</h4>
+          </div>
+          <span>{{ tenantGroup.namespaceCount }} namespaces · {{ tenantGroup.topicCount }} topics</span>
         </div>
 
-        <div class="topic-grid">
-          @for (topic of group.items; track topic.fullName) {
-            <button type="button" class="topic-card" (click)="openTopic(topic)">
-              <div class="topic-topline">
-                <span class="health-pill" [ngClass]="healthClass(topic.health)">
-                  {{ topic.health.toLowerCase() }}
-                </span>
-                <span>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Non-partitioned' }}</span>
-              </div>
+        @for (namespaceGroup of tenantGroup.namespaces; track namespaceGroup.key) {
+          <section class="namespace-block">
+            <div class="namespace-header">
+              <h5>{{ tenantGroup.tenant }}/{{ namespaceGroup.namespace }}</h5>
+              <span>{{ namespaceGroup.items.length }} topics</span>
+            </div>
 
-              <div>
-                <h5>{{ topic.topic }}</h5>
-                <p class="topic-name">{{ topic.fullName }}</p>
+            @if (namespaceGroup.items.length === 0) {
+              <div class="state-card">
+                No topics are in this namespace yet. Create one to start publishing or testing workflows here.
               </div>
+            } @else {
+              <div class="topic-grid">
+                @for (topic of namespaceGroup.items; track topic.fullName) {
+                  <button type="button" class="topic-card" (click)="openTopic(topic)">
+                    <div class="topic-topline">
+                      <span class="health-pill" [ngClass]="healthClass(topic.health)">
+                        {{ topic.health.toLowerCase() }}
+                      </span>
+                      <span>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Non-partitioned' }}</span>
+                    </div>
 
-              <p class="summary">{{ topic.summary }}</p>
+                    <div>
+                      <h5>{{ topic.topic }}</h5>
+                      <p class="topic-name">{{ topic.fullName }}</p>
+                    </div>
 
-              <div class="metrics">
-                <div>
-                  <span>Backlog</span>
-                  <strong>{{ topic.stats.backlog | number }}</strong>
-                </div>
-                <div>
-                  <span>Consumers</span>
-                  <strong>{{ topic.stats.consumers }}</strong>
-                </div>
-                <div>
-                  <span>Publish/s</span>
-                  <strong>{{ topic.stats.publishRateIn }}</strong>
-                </div>
-                <div>
-                  <span>Schema</span>
-                  <strong>{{ topic.schemaPresent ? 'Present' : 'None' }}</strong>
-                </div>
+                    <p class="summary">{{ topic.summary }}</p>
+
+                    <div class="metrics">
+                      <div>
+                        <span>Backlog</span>
+                        <strong>{{ topic.stats.backlog | number }}</strong>
+                      </div>
+                      <div>
+                        <span>Consumers</span>
+                        <strong>{{ topic.stats.consumers }}</strong>
+                      </div>
+                      <div>
+                        <span>Publish/s</span>
+                        <strong>{{ topic.stats.publishRateIn }}</strong>
+                      </div>
+                      <div>
+                        <span>Schema</span>
+                        <strong>{{ topic.schemaPresent ? 'Present' : 'None' }}</strong>
+                      </div>
+                    </div>
+                  </button>
+                }
               </div>
-            </button>
+            }
+          </section>
           }
-        </div>
       </section>
     }
   }
 </section>
+
+<app-create-tenant-dialog
+  [open]="tenantDialogOpen()"
+  [saving]="savingTenant()"
+  [form]="createTenantForm"
+  [defaultClusterLabel]="''"
+  (cancel)="closeCreateTenantDialog()"
+  (save)="submitCreateTenant()" />
+
+<app-create-namespace-dialog
+  [open]="namespaceDialogOpen()"
+  [saving]="savingNamespace()"
+  [form]="createNamespaceForm"
+  [tenantOptions]="tenantOptions()"
+  (cancel)="closeCreateNamespaceDialog()"
+  (save)="submitCreateNamespace()"
+  (tenantSelected)="applyTenantSelection($event)" />
 
 <app-create-topic-dialog
   [open]="dialogOpen()"

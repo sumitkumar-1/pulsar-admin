@@ -2,7 +2,9 @@ package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
+import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
@@ -24,6 +26,7 @@ import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +38,8 @@ import java.util.stream.Collectors;
 
 public class MockPulsarAdminGateway implements PulsarAdminGateway {
   private final ConcurrentMap<String, List<TopicDetails>> createdTopicsByEnvironment = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, List<String>> createdTenantsByEnvironment = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, List<String>> createdNamespacesByEnvironment = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, ConcurrentMap<String, List<String>>> subscriptionsByEnvironment =
       new ConcurrentHashMap<>();
 
@@ -72,8 +77,13 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         .map(topic -> applySubscriptionOverrides(environment.id(), topic))
         .collect(Collectors.toList());
 
-    List<String> tenants = topics.stream().map(TopicDetails::tenant).distinct().toList();
-    List<String> namespaces = topics.stream().map(topic -> topic.tenant() + "/" + topic.namespace()).distinct().toList();
+    LinkedHashSet<String> tenants = new LinkedHashSet<>(topics.stream().map(TopicDetails::tenant).toList());
+    tenants.addAll(createdTenantsByEnvironment.getOrDefault(environment.id(), List.of()));
+
+    LinkedHashSet<String> namespaces = new LinkedHashSet<>(topics.stream()
+        .map(topic -> topic.tenant() + "/" + topic.namespace())
+        .toList());
+    namespaces.addAll(createdNamespacesByEnvironment.getOrDefault(environment.id(), List.of()));
 
     EnvironmentHealth health = new EnvironmentHealth(
         environment.id(),
@@ -83,7 +93,7 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         environment.kind().equals("prod") ? "4.0.2" : "4.0.1",
         topics.isEmpty() ? "Connected, but no topic metadata is available yet." : "Metadata sync completed successfully.");
 
-    return new EnvironmentSnapshot(health, tenants, namespaces, topics);
+    return new EnvironmentSnapshot(health, new ArrayList<>(tenants), new ArrayList<>(namespaces), topics);
   }
 
   @Override
@@ -121,6 +131,42 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
       }
       topics.add(createdTopic);
       return topics;
+    });
+  }
+
+  @Override
+  public void createTenant(EnvironmentDetails environment, CreateTenantRequest request) {
+    String tenantName = request.tenant().trim();
+    if (syncMetadata(environment).tenants().stream().anyMatch(existing -> existing.equalsIgnoreCase(tenantName))) {
+      throw new BadRequestException("Tenant already exists: " + tenantName);
+    }
+
+    createdTenantsByEnvironment.compute(environment.id(), (key, existing) -> {
+      List<String> tenants = new ArrayList<>(existing == null ? List.of() : existing);
+      tenants.add(tenantName);
+      tenants.sort(String::compareTo);
+      return tenants;
+    });
+  }
+
+  @Override
+  public void createNamespace(EnvironmentDetails environment, CreateNamespaceRequest request) {
+    String fullNamespace = request.tenant().trim() + "/" + request.namespace().trim();
+    EnvironmentSnapshot snapshot = syncMetadata(environment);
+
+    if (snapshot.tenants().stream().noneMatch(existing -> existing.equalsIgnoreCase(request.tenant().trim()))) {
+      throw new BadRequestException("Unknown tenant: " + request.tenant().trim());
+    }
+
+    if (snapshot.namespaces().stream().anyMatch(existing -> existing.equalsIgnoreCase(fullNamespace))) {
+      throw new BadRequestException("Namespace already exists: " + fullNamespace);
+    }
+
+    createdNamespacesByEnvironment.compute(environment.id(), (key, existing) -> {
+      List<String> namespaces = new ArrayList<>(existing == null ? List.of() : existing);
+      namespaces.add(fullNamespace);
+      namespaces.sort(String::compareTo);
+      return namespaces;
     });
   }
 

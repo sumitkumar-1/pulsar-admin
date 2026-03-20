@@ -1,7 +1,11 @@
 package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
+import com.pulsaradmin.shared.model.CreateNamespaceRequest;
+import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.CatalogMutationResponse;
+import com.pulsaradmin.shared.model.CatalogSummary;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
@@ -37,6 +41,10 @@ public class PulsarCatalogService {
     return environmentCatalogService.getEnvironmentHealth(environmentId);
   }
 
+  public CatalogSummary getCatalogSummary(String environmentId) {
+    return environmentCatalogService.getCatalogSummary(environmentId);
+  }
+
   public PagedResult<TopicListItem> getTopics(
       String environmentId,
       String tenant,
@@ -53,6 +61,14 @@ public class PulsarCatalogService {
 
   public TopicDetails createTopic(String environmentId, CreateTopicRequest request) {
     return environmentCatalogService.createTopic(environmentId, request);
+  }
+
+  public CatalogMutationResponse createTenant(String environmentId, CreateTenantRequest request) {
+    return environmentCatalogService.createTenant(environmentId, request);
+  }
+
+  public CatalogMutationResponse createNamespace(String environmentId, CreateNamespaceRequest request) {
+    return environmentCatalogService.createNamespace(environmentId, request);
   }
 
   public SubscriptionMutationResponse createSubscription(String environmentId, CreateSubscriptionRequest request) {

@@ -1,0 +1,63 @@
+@if (open) {
+  <div class="dialog-backdrop" (click)="cancel.emit()"></div>
+  <section class="dialog-shell" role="dialog" aria-modal="true" aria-labelledby="create-namespace-title">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Create Namespace</p>
+          <h3 id="create-namespace-title">Add a namespace to an existing tenant</h3>
+          <p>Namespaces give the explorer a clean place to organize topics and later manage policies in one place.</p>
+        </div>
+        <button type="button" class="ghost-icon" (click)="cancel.emit()" aria-label="Close create namespace dialog">Close</button>
+      </div>
+
+      <form class="dialog-form" [formGroup]="form" (ngSubmit)="save.emit()">
+        @if (tenantOptions.length > 0) {
+          <label>
+            <span>Reuse Existing Tenant</span>
+            <select (change)="tenantSelected.emit($any($event.target).value)">
+              <option value="">Choose an existing tenant</option>
+              @for (tenant of tenantOptions; track tenant) {
+                <option [value]="tenant">{{ tenant }}</option>
+              }
+            </select>
+          </label>
+        }
+
+        <div class="split-fields">
+          <label [ngClass]="{ invalid: isInvalid('tenant') }">
+            <span>Tenant</span>
+            <input formControlName="tenant" type="text" placeholder="acme" />
+            @if (isInvalid('tenant')) {
+              <small>Tenant is required.</small>
+            }
+          </label>
+
+          <label [ngClass]="{ invalid: isInvalid('namespace') }">
+            <span>Namespace</span>
+            <input formControlName="namespace" type="text" placeholder="orders" />
+            @if (isInvalid('namespace')) {
+              <small>Namespace is required.</small>
+            }
+          </label>
+        </div>
+
+        <section class="preview-card">
+          <p class="eyebrow">Preview</p>
+          <p>
+            This will create namespace
+            <strong>{{ form.get('tenant')?.value || 'tenant' }}/{{ form.get('namespace')?.value || 'namespace' }}</strong>
+            and make it available for topic creation and future policy management.
+          </p>
+        </section>
+
+        <div class="dialog-actions">
+          <button class="ghost" type="button" (click)="cancel.emit()">Cancel</button>
+          <button type="submit" [disabled]="saving">
+            {{ saving ? 'Creating...' : 'Create Namespace' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+}

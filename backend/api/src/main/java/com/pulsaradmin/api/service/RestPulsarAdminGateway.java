@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
+import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
@@ -31,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -160,6 +163,37 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
               + "/" + topicName.topic());
     } catch (RestClientException exception) {
       throw new BadRequestException("Unable to create topic via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void createTenant(EnvironmentDetails environment, CreateTenantRequest request) {
+    String tenantName = request.tenant().trim();
+    List<String> adminRoles = sanitizeStringList(request.adminRoles());
+    List<String> allowedClusters = sanitizeStringList(request.allowedClusters()).isEmpty()
+        ? List.of(environment.clusterLabel())
+        : sanitizeStringList(request.allowedClusters());
+
+    try {
+      putJson(
+          environment,
+          "/admin/v2/tenants/" + tenantName,
+          objectMapper.writeValueAsString(Map.of(
+              "adminRoles", adminRoles,
+              "allowedClusters", allowedClusters)));
+    } catch (RestClientException | IOException exception) {
+      throw new BadRequestException("Unable to create tenant via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void createNamespace(EnvironmentDetails environment, CreateNamespaceRequest request) {
+    try {
+      putWithoutBody(
+          environment,
+          "/admin/v2/namespaces/" + request.tenant().trim() + "/" + request.namespace().trim());
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to create namespace via Pulsar admin REST API: " + exception.getMessage());
     }
   }
 
@@ -345,6 +379,19 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     }
 
     return objectMapper.readTree(rawBody);
+  }
+
+  private List<String> sanitizeStringList(List<String> values) {
+    if (values == null) {
+      return List.of();
+    }
+
+    return values.stream()
+        .filter(value -> value != null && !value.isBlank())
+        .map(String::trim)
+        .distinct()
+        .sorted()
+        .toList();
   }
 
   private JsonNode safeGetJson(EnvironmentDetails environment, String path) {

@@ -68,6 +68,32 @@ export interface EnvironmentSyncStatus {
   topicCount: number;
 }
 
+export interface TenantSummary {
+  name: string;
+  namespaceCount: number;
+  topicCount: number;
+}
+
+export interface NamespaceSummary {
+  tenant: string;
+  namespace: string;
+  topicCount: number;
+}
+
+export interface CatalogSummary {
+  environmentId: string;
+  tenants: TenantSummary[];
+  namespaces: NamespaceSummary[];
+}
+
+export interface CatalogMutationResponse {
+  environmentId: string;
+  resourceType: 'TENANT' | 'NAMESPACE';
+  resourceName: string;
+  message: string;
+  catalogSummary: CatalogSummary;
+}
+
 export interface TopicStatsSummary {
   backlog: number;
   producers: number;
@@ -100,6 +126,17 @@ export interface CreateTopicRequest {
   topic: string;
   partitions: number;
   notes: string | null;
+}
+
+export interface CreateTenantRequest {
+  tenant: string;
+  adminRoles: string[];
+  allowedClusters: string[];
+}
+
+export interface CreateNamespaceRequest {
+  tenant: string;
+  namespace: string;
 }
 
 export interface CreateSubscriptionRequest {

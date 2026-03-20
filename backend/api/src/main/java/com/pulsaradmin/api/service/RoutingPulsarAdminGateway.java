@@ -1,7 +1,9 @@
 package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
+import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
@@ -41,6 +43,16 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public void createTopic(EnvironmentDetails environment, CreateTopicRequest request) {
     activeGateway().createTopic(environment, request);
+  }
+
+  @Override
+  public void createTenant(EnvironmentDetails environment, CreateTenantRequest request) {
+    activeGateway().createTenant(environment, request);
+  }
+
+  @Override
+  public void createNamespace(EnvironmentDetails environment, CreateNamespaceRequest request) {
+    activeGateway().createNamespace(environment, request);
   }
 
   @Override

@@ -1,7 +1,9 @@
 package com.pulsaradmin.shared.gateway;
 
-import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
+import com.pulsaradmin.shared.model.CreateTenantRequest;
+import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
@@ -19,6 +21,10 @@ public interface PulsarAdminGateway {
   EnvironmentSnapshot syncMetadata(EnvironmentDetails environment);
 
   void createTopic(EnvironmentDetails environment, CreateTopicRequest request);
+
+  void createTenant(EnvironmentDetails environment, CreateTenantRequest request);
+
+  void createNamespace(EnvironmentDetails environment, CreateNamespaceRequest request);
 
   void createSubscription(EnvironmentDetails environment, CreateSubscriptionRequest request);
 

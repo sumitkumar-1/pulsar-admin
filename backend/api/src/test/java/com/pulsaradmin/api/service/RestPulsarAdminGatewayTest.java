@@ -10,7 +10,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
+import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
@@ -254,6 +256,37 @@ class RestPulsarAdminGatewayTest {
         "payment-events-retry",
         0,
         "Retry topic"));
+
+    server.verify();
+  }
+
+  @Test
+  void shouldCreateTenantViaAdminRest() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/tenants/finance"))
+        .andRespond(withSuccess());
+
+    gateway.createTenant(environment(), new CreateTenantRequest(
+        "finance",
+        java.util.List.of("platform-admin"),
+        java.util.List.of("prod-east")));
+
+    server.verify();
+  }
+
+  @Test
+  void shouldCreateNamespaceViaAdminRest() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/namespaces/acme/sandbox"))
+        .andRespond(withSuccess());
+
+    gateway.createNamespace(environment(), new CreateNamespaceRequest("acme", "sandbox"));
 
     server.verify();
   }

@@ -3,7 +3,11 @@ import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, Observable, switchMap, tap } from 'rxjs';
 import { DemoModeService } from '../demo-mode.service';
 import {
+  CatalogMutationResponse,
+  CatalogSummary,
+  CreateNamespaceRequest,
   CreateSubscriptionRequest,
+  CreateTenantRequest,
   CreateTopicRequest,
   EnvironmentConnectionTestResult,
   EnvironmentDetails,
@@ -104,6 +108,28 @@ export class PulsarApiService {
     return this.http.get<EnvironmentHealth>(`${this.baseUrl}/environments/${environmentId}/health`, {
       params: this.demoMode.appendHttpParams(new HttpParams())
     });
+  }
+
+  getCatalogSummary(environmentId: string): Observable<CatalogSummary> {
+    return this.http.get<CatalogSummary>(`${this.baseUrl}/environments/${environmentId}/catalog`, {
+      params: this.demoMode.appendHttpParams(new HttpParams())
+    });
+  }
+
+  createTenant(environmentId: string, request: CreateTenantRequest): Observable<CatalogMutationResponse> {
+    return this.http.post<CatalogMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/tenants`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  createNamespace(environmentId: string, request: CreateNamespaceRequest): Observable<CatalogMutationResponse> {
+    return this.http.post<CatalogMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/namespaces`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
   }
 
   getTopics(environmentId: string, query: TopicQuery): Observable<TopicPage> {

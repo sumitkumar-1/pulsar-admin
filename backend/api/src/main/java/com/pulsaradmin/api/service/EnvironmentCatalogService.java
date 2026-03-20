@@ -3,13 +3,19 @@ package com.pulsaradmin.api.service;
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.api.support.NotFoundException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
+import com.pulsaradmin.shared.model.CatalogMutationResponse;
+import com.pulsaradmin.shared.model.CatalogSummary;
+import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
+import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
+import com.pulsaradmin.shared.model.NamespaceSummary;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.TenantSummary;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
@@ -21,6 +27,9 @@ import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -47,6 +56,15 @@ public class EnvironmentCatalogService {
     return snapshotRepository.findByEnvironmentId(environmentId)
         .map(EnvironmentSnapshotRecord::toHealth)
         .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+  }
+
+  public CatalogSummary getCatalogSummary(String environmentId) {
+    requireEnvironment(environmentId);
+
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    return toCatalogSummary(snapshot);
   }
 
   public PagedResult<TopicListItem> getTopics(
@@ -124,6 +142,56 @@ public class EnvironmentCatalogService {
         .filter(topic -> topic.fullName().equals(request.fullTopicName()))
         .findFirst()
         .orElseGet(() -> fallbackCreatedTopic(request));
+  }
+
+  public CatalogMutationResponse createTenant(String environmentId, CreateTenantRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    validateTopicSegment("tenant", request.tenant());
+
+    if (snapshot.tenants().stream().anyMatch(existing -> existing.equalsIgnoreCase(request.tenant()))) {
+      throw new BadRequestException("Tenant already exists: " + request.tenant());
+    }
+
+    pulsarAdminGateway.createTenant(environment.toDetails(), request);
+    CatalogSummary catalogSummary = toCatalogSummary(refreshSnapshot(environment));
+
+    return new CatalogMutationResponse(
+        environmentId,
+        "TENANT",
+        request.tenant(),
+        "Created tenant " + request.tenant() + " and refreshed the environment catalog.",
+        catalogSummary);
+  }
+
+  public CatalogMutationResponse createNamespace(String environmentId, CreateNamespaceRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    validateTopicSegment("tenant", request.tenant());
+    validateTopicSegment("namespace", request.namespace());
+
+    if (snapshot.tenants().stream().noneMatch(existing -> existing.equalsIgnoreCase(request.tenant()))) {
+      throw new NotFoundException("Unknown tenant: " + request.tenant());
+    }
+
+    String fullNamespace = request.tenant() + "/" + request.namespace();
+    if (snapshot.namespaces().stream().anyMatch(existing -> existing.equalsIgnoreCase(fullNamespace))) {
+      throw new BadRequestException("Namespace already exists: " + fullNamespace);
+    }
+
+    pulsarAdminGateway.createNamespace(environment.toDetails(), request);
+    CatalogSummary catalogSummary = toCatalogSummary(refreshSnapshot(environment));
+
+    return new CatalogMutationResponse(
+        environmentId,
+        "NAMESPACE",
+        fullNamespace,
+        "Created namespace " + fullNamespace + " and refreshed the environment catalog.",
+        catalogSummary);
   }
 
   public SubscriptionMutationResponse createSubscription(String environmentId, CreateSubscriptionRequest request) {
@@ -382,6 +450,36 @@ public class EnvironmentCatalogService {
     snapshotRepository.upsert(environment.id(), snapshot);
     return snapshotRepository.findByEnvironmentId(environment.id())
         .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environment.id()));
+  }
+
+  private CatalogSummary toCatalogSummary(EnvironmentSnapshotRecord snapshot) {
+    List<NamespaceSummary> namespaceSummaries = snapshot.namespaces().stream()
+        .map(namespacePath -> {
+          String[] segments = namespacePath.split("/", 2);
+          if (segments.length != 2) {
+            return null;
+          }
+          long topicCount = snapshot.topics().stream()
+              .filter(topic -> topic.tenant().equals(segments[0]) && topic.namespace().equals(segments[1]))
+              .count();
+          return new NamespaceSummary(segments[0], segments[1], (int) topicCount);
+        })
+        .filter(java.util.Objects::nonNull)
+        .sorted(Comparator.comparing(NamespaceSummary::tenant).thenComparing(NamespaceSummary::namespace))
+        .toList();
+
+    LinkedHashSet<String> allTenants = new LinkedHashSet<>(snapshot.tenants());
+    snapshot.topics().forEach(topic -> allTenants.add(topic.tenant()));
+
+    List<TenantSummary> tenantSummaries = allTenants.stream()
+        .sorted()
+        .map(tenant -> new TenantSummary(
+            tenant,
+            (int) namespaceSummaries.stream().filter(namespace -> namespace.tenant().equals(tenant)).count(),
+            (int) snapshot.topics().stream().filter(topic -> topic.tenant().equals(tenant)).count()))
+        .toList();
+
+    return new CatalogSummary(snapshot.environmentId(), tenantSummaries, namespaceSummaries);
   }
 
   private TopicDetails requireTopic(EnvironmentSnapshotRecord snapshot, String topicName) {

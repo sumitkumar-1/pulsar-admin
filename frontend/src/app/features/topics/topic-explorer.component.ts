@@ -7,22 +7,45 @@ import { BehaviorSubject, combineLatest, switchMap } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
 import {
+  CatalogSummary,
+  CreateNamespaceRequest,
+  CreateTenantRequest,
   CreateTopicRequest,
   EnvironmentHealth,
+  NamespaceSummary,
   TopicListItem,
   TopicPage
 } from '../../core/models/api.models';
+import { CreateNamespaceDialogComponent } from './create-namespace-dialog.component';
+import { CreateTenantDialogComponent } from './create-tenant-dialog.component';
 import { CreateTopicDialogComponent } from './create-topic-dialog.component';
 
-interface TopicGroup {
+interface NamespaceTopicGroup {
+  key: string;
+  tenant: string;
   namespace: string;
   items: TopicListItem[];
+}
+
+interface TenantTopicGroup {
+  tenant: string;
+  namespaceCount: number;
+  topicCount: number;
+  namespaces: NamespaceTopicGroup[];
 }
 
 @Component({
   selector: 'app-topic-explorer',
   standalone: true,
-  imports: [CreateTopicDialogComponent, DecimalPipe, NgClass, ReactiveFormsModule, UpperCasePipe],
+  imports: [
+    CreateNamespaceDialogComponent,
+    CreateTenantDialogComponent,
+    CreateTopicDialogComponent,
+    DecimalPipe,
+    NgClass,
+    ReactiveFormsModule,
+    UpperCasePipe
+  ],
   templateUrl: './topic-explorer.component.html',
   styleUrl: './topic-explorer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -44,48 +67,99 @@ export class TopicExplorerComponent {
     partitions: new FormControl(0, { nonNullable: true, validators: [Validators.min(0), Validators.max(128)] }),
     notes: new FormControl('', { nonNullable: true })
   });
+  readonly createTenantForm = new FormGroup({
+    tenant: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] }),
+    adminRoles: new FormControl('', { nonNullable: true }),
+    allowedClusters: new FormControl('', { nonNullable: true })
+  });
+  readonly createNamespaceForm = new FormGroup({
+    tenant: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] }),
+    namespace: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] })
+  });
   readonly environmentId = signal('');
   readonly environmentHealth = signal<EnvironmentHealth | null>(null);
+  readonly catalogSummary = signal<CatalogSummary | null>(null);
   readonly topicPage = signal<TopicPage | null>(null);
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
+  readonly tenantDialogOpen = signal(false);
+  readonly namespaceDialogOpen = signal(false);
   readonly dialogOpen = signal(false);
+  readonly savingTenant = signal(false);
+  readonly savingNamespace = signal(false);
   readonly savingTopic = signal(false);
   readonly actionFeedback = signal<{ kind: 'success' | 'error'; message: string } | null>(null);
 
-  readonly topicGroups = computed<TopicGroup[]>(() => {
+  readonly topicGroups = computed<TenantTopicGroup[]>(() => {
     const page = this.topicPage();
+    const catalog = this.catalogSummary();
+    const hasSearch = !!this.searchControl.value.trim();
 
-    if (!page) {
+    if (!page || !catalog) {
       return [];
     }
 
-    const grouped = new Map<string, TopicListItem[]>();
+    const topicMap = new Map<string, TopicListItem[]>();
 
     for (const item of page.items) {
       const key = `${item.tenant}/${item.namespace}`;
-      grouped.set(key, [...(grouped.get(key) ?? []), item]);
+      topicMap.set(key, [...(topicMap.get(key) ?? []), item]);
     }
 
-      return [...grouped.entries()].map(([namespace, items]) => ({ namespace, items }));
+    const namespaceSource: NamespaceSummary[] = hasSearch
+      ? [...topicMap.keys()].map((key) => {
+          const [tenant, namespace] = key.split('/');
+          return { tenant, namespace, topicCount: topicMap.get(key)?.length ?? 0 };
+        })
+      : catalog.namespaces;
+
+    const tenantSource = hasSearch
+      ? Array.from(new Set(namespaceSource.map((namespace) => namespace.tenant)))
+      : catalog.tenants.map((tenant) => tenant.name);
+
+    return tenantSource
+      .map((tenant) => {
+        const namespaces = namespaceSource
+          .filter((namespace) => namespace.tenant === tenant)
+          .map((namespace) => ({
+            key: `${tenant}/${namespace.namespace}`,
+            tenant,
+            namespace: namespace.namespace,
+            items: [...(topicMap.get(`${tenant}/${namespace.namespace}`) ?? [])].sort((left, right) =>
+              left.topic.localeCompare(right.topic))
+          }))
+          .filter((namespace) => !hasSearch || namespace.items.length > 0)
+          .sort((left, right) => left.namespace.localeCompare(right.namespace));
+
+        const topicCount = namespaces.reduce((sum, namespace) => sum + namespace.items.length, 0);
+
+        return {
+          tenant,
+          namespaceCount: namespaces.length,
+          topicCount,
+          namespaces
+        };
+      })
+      .filter((tenant) => tenant.namespaces.length > 0 || !hasSearch)
+      .sort((left, right) => left.tenant.localeCompare(right.tenant));
   });
 
   readonly namespaceOptions = computed(() => {
-    const seen = new Set<string>();
-    const options: Array<{ tenant: string; namespace: string }> = [];
+    const catalog = this.catalogSummary();
 
-    for (const group of this.topicGroups()) {
-      const [tenant, namespace] = group.namespace.split('/');
-      const key = `${tenant}/${namespace}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        options.push({ tenant, namespace });
-      }
+    if (!catalog) {
+      return [];
     }
 
-    return options.sort((left, right) =>
+    return catalog.namespaces.map((namespace) => ({ tenant: namespace.tenant, namespace: namespace.namespace }))
+      .sort((left, right) =>
       `${left.tenant}/${left.namespace}`.localeCompare(`${right.tenant}/${right.namespace}`)
     );
+  });
+
+  readonly tenantOptions = computed(() => {
+    const catalog = this.catalogSummary();
+    return catalog ? catalog.tenants.map((tenant) => tenant.name).sort((left, right) => left.localeCompare(right)) : [];
   });
 
   constructor() {
@@ -95,8 +169,9 @@ export class TopicExplorerComponent {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe({
-        next: ([health, pageResult]) => {
+        next: ([health, catalog, pageResult]) => {
           this.environmentHealth.set(health);
+          this.catalogSummary.set(catalog);
           this.topicPage.set(pageResult);
           this.loading.set(false);
         },
@@ -146,9 +221,40 @@ export class TopicExplorerComponent {
     this.dialogOpen.set(true);
   }
 
+  openCreateTenantDialog() {
+    this.createTenantForm.reset({
+      tenant: '',
+      adminRoles: '',
+      allowedClusters: ''
+    });
+    this.actionFeedback.set(null);
+    this.tenantDialogOpen.set(true);
+  }
+
+  openCreateNamespaceDialog() {
+    this.createNamespaceForm.reset({
+      tenant: '',
+      namespace: ''
+    });
+    this.actionFeedback.set(null);
+    this.namespaceDialogOpen.set(true);
+  }
+
   closeCreateTopicDialog() {
     if (!this.savingTopic()) {
       this.dialogOpen.set(false);
+    }
+  }
+
+  closeCreateTenantDialog() {
+    if (!this.savingTenant()) {
+      this.tenantDialogOpen.set(false);
+    }
+  }
+
+  closeCreateNamespaceDialog() {
+    if (!this.savingNamespace()) {
+      this.namespaceDialogOpen.set(false);
     }
   }
 
@@ -159,6 +265,81 @@ export class TopicExplorerComponent {
 
     const [tenant, namespace] = value.split('/');
     this.createTopicForm.patchValue({ tenant, namespace });
+  }
+
+  applyTenantSelection(value: string) {
+    if (!value) {
+      return;
+    }
+
+    this.createNamespaceForm.patchValue({ tenant: value });
+  }
+
+  submitCreateTenant() {
+    if (this.createTenantForm.invalid) {
+      this.createTenantForm.markAllAsTouched();
+      return;
+    }
+
+    this.savingTenant.set(true);
+    this.actionFeedback.set(null);
+
+    const request: CreateTenantRequest = {
+      tenant: this.createTenantForm.controls.tenant.value.trim(),
+      adminRoles: this.toCsvList(this.createTenantForm.controls.adminRoles.value),
+      allowedClusters: this.toCsvList(this.createTenantForm.controls.allowedClusters.value)
+    };
+
+    this.api.createTenant(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.tenantDialogOpen.set(false);
+          this.savingTenant.set(false);
+          this.actionFeedback.set({ kind: 'success', message: response.message });
+          this.refresh$.next(undefined);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.savingTenant.set(false);
+          this.actionFeedback.set({
+            kind: 'error',
+            message: error.error?.message ?? 'Unable to create the tenant right now.'
+          });
+        }
+      });
+  }
+
+  submitCreateNamespace() {
+    if (this.createNamespaceForm.invalid) {
+      this.createNamespaceForm.markAllAsTouched();
+      return;
+    }
+
+    this.savingNamespace.set(true);
+    this.actionFeedback.set(null);
+
+    const request: CreateNamespaceRequest = {
+      tenant: this.createNamespaceForm.controls.tenant.value.trim(),
+      namespace: this.createNamespaceForm.controls.namespace.value.trim()
+    };
+
+    this.api.createNamespace(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.namespaceDialogOpen.set(false);
+          this.savingNamespace.set(false);
+          this.actionFeedback.set({ kind: 'success', message: response.message });
+          this.refresh$.next(undefined);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.savingNamespace.set(false);
+          this.actionFeedback.set({
+            kind: 'error',
+            message: error.error?.message ?? 'Unable to create the namespace right now.'
+          });
+        }
+      });
   }
 
   submitCreateTopic() {
@@ -216,7 +397,14 @@ export class TopicExplorerComponent {
 
     return combineLatest([
       this.api.getEnvironmentHealth(envId),
+      this.api.getCatalogSummary(envId),
       this.api.getTopics(envId, { search, tenant, namespace, page, pageSize })
     ]);
+  }
+
+  private toCsvList(value: string): string[] {
+    return value.split(',')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
   }
 }
