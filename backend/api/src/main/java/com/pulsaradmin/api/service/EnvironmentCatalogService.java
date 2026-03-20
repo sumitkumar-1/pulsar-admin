@@ -18,6 +18,8 @@ import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
 import com.pulsaradmin.shared.model.SchemaSummary;
+import com.pulsaradmin.shared.model.UnloadTopicRequest;
+import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import java.util.ArrayList;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -285,6 +287,27 @@ public class EnvironmentCatalogService {
     return pulsarAdminGateway.skipMessages(environment.toDetails(), request);
   }
 
+  public UnloadTopicResponse unloadTopic(String environmentId, UnloadTopicRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    TopicDetails topic = requireTopicFromSnapshot(environmentId, request.topicName());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when unloading a topic.");
+    }
+
+    UnloadTopicResponse gatewayResponse = pulsarAdminGateway.unloadTopic(environment.toDetails(), request);
+    TopicDetails updatedTopic = refreshSnapshot(environment).topics().stream()
+        .filter(item -> item.fullName().equals(request.topicName()))
+        .findFirst()
+        .orElse(topic);
+
+    return new UnloadTopicResponse(
+        environmentId,
+        request.topicName(),
+        gatewayResponse.message(),
+        updatedTopic);
+  }
+
   private void requireEnvironment(String environmentId) {
     requireEnvironmentRecord(environmentId);
   }
@@ -370,6 +393,12 @@ public class EnvironmentCatalogService {
         .filter(item -> item.fullName().equals(topicName))
         .findFirst()
         .orElseThrow(() -> new NotFoundException("Unknown topic: " + topicName));
+  }
+
+  private TopicDetails requireTopicFromSnapshot(String environmentId, String topicName) {
+    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    return requireTopic(snapshot, topicName);
   }
 
   private TopicDetails fallbackCreatedTopic(CreateTopicRequest request) {

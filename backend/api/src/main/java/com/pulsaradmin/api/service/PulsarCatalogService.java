@@ -14,6 +14,8 @@ import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
+import com.pulsaradmin.shared.model.UnloadTopicRequest;
+import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -71,6 +73,10 @@ public class PulsarCatalogService {
 
   public SkipMessagesResponse skipMessages(String environmentId, SkipMessagesRequest request) {
     return environmentCatalogService.skipMessages(environmentId, request);
+  }
+
+  public UnloadTopicResponse unloadTopic(String environmentId, UnloadTopicRequest request) {
+    return environmentCatalogService.unloadTopic(environmentId, request);
   }
 
   public ReplayCopyJobStatusResponse createReplayCopyJob(String environmentId, ReplayCopyJobRequest request) {

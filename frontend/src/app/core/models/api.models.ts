@@ -203,6 +203,18 @@ export interface SkipMessagesResponse {
   message: string;
 }
 
+export interface UnloadTopicRequest {
+  topicName: string;
+  reason: string;
+}
+
+export interface UnloadTopicResponse {
+  environmentId: string;
+  topicName: string;
+  message: string;
+  topicDetails: TopicDetails;
+}
+
 export interface ReplayCopyJobRequest {
   topicName: string;
   subscriptionName: string;

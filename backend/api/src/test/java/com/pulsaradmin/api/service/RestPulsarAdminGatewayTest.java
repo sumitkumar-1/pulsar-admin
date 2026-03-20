@@ -16,6 +16,7 @@ import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.EnvironmentStatus;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import org.apache.pulsar.client.api.AuthenticationFactory;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
@@ -288,6 +289,48 @@ class RestPulsarAdminGatewayTest {
 
     gateway.deleteSubscription(environment(), "persistent://acme/orders/payment-events", "payment-review");
 
+    server.verify();
+  }
+
+  @Test
+  void shouldUnloadTopicViaAdminRest() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/unload"))
+        .andRespond(withSuccess());
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/stats"))
+        .andRespond(withSuccess("""
+            {
+              "msgBacklog": 18720,
+              "publishRateIn": 190.5,
+              "msgRateOut": 48.3,
+              "storageSize": 5880120,
+              "publishers": [
+                {"producerName": "payments-producer-1"}
+              ],
+              "subscriptions": {
+                "payment-settlement": {},
+                "payment-alerts": {}
+              }
+            }
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
+        .andRespond(withSuccess("""
+            {
+              "type": "JSON",
+              "version": "9",
+              "data": {}
+            }
+            """, MediaType.APPLICATION_JSON));
+
+    var response = gateway.unloadTopic(environment(), new UnloadTopicRequest(
+        "persistent://acme/orders/payment-events",
+        "Refresh broker ownership"));
+
+    assertThat(response.topicName()).isEqualTo("persistent://acme/orders/payment-events");
+    assertThat(response.message()).contains("Unloaded topic");
     server.verify();
   }
 

@@ -147,6 +147,23 @@ class TopicControllerTest {
   }
 
   @Test
+  void shouldUnloadTopic() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/unload")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "reason": "Force broker ownership refresh after incident cleanup"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.environmentId").value("prod"))
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.message").exists())
+        .andExpect(jsonPath("$.topicDetails.fullName").value("persistent://acme/orders/payment-events"));
+  }
+
+  @Test
   void shouldCreateReplayCopyJob() throws Exception {
     mockMvc.perform(post("/api/v1/environments/prod/topics/replay-copy")
             .contentType("application/json")

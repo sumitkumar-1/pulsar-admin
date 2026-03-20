@@ -21,6 +21,8 @@ import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicHealth;
 import com.pulsaradmin.shared.model.TopicPartitionSummary;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
+import com.pulsaradmin.shared.model.UnloadTopicRequest;
+import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -264,6 +266,36 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
               + request.subscriptionName() + ".");
     } catch (RestClientException exception) {
       throw new BadRequestException("Unable to skip messages via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public UnloadTopicResponse unloadTopic(EnvironmentDetails environment, UnloadTopicRequest request) {
+    PulsarTopicName topicName = PulsarTopicName.parse(request.topicName());
+
+    try {
+      putWithoutBody(
+          environment,
+          "/admin/v2/" + topicName.domain()
+              + "/" + topicName.tenant()
+              + "/" + topicName.namespace()
+              + "/" + topicName.topic()
+              + "/unload");
+
+      TopicDetails refreshedTopic = toTopicDetails(
+          environment,
+          topicName.fullName(),
+          topicName.tenant(),
+          topicName.namespace());
+
+      return new UnloadTopicResponse(
+          environment.id(),
+          request.topicName(),
+          "Unloaded topic " + request.topicName()
+              + " via Pulsar admin REST API. Broker ownership can now rebalance cleanly.",
+          refreshedTopic);
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to unload topic via Pulsar admin REST API: " + exception.getMessage());
     }
   }
 

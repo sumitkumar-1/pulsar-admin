@@ -20,6 +20,8 @@ import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicHealth;
 import com.pulsaradmin.shared.model.TopicPartitionSummary;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
+import com.pulsaradmin.shared.model.UnloadTopicRequest;
+import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -327,6 +329,18 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         request.subscriptionName(),
         skippedMessages,
         message);
+  }
+
+  @Override
+  public UnloadTopicResponse unloadTopic(EnvironmentDetails environment, UnloadTopicRequest request) {
+    TopicDetails topic = findTopic(environment, request.topicName());
+
+    return new UnloadTopicResponse(
+        environment.id(),
+        request.topicName(),
+        "Unloaded topic " + request.topicName()
+            + ". Brokers can now rebalance ownership and refresh the live serving path.",
+        topic);
   }
 
   private EnvironmentStatus deriveStatus(EnvironmentDetails environment, List<TopicDetails> topics) {

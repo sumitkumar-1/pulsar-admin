@@ -11,6 +11,8 @@ import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.UnloadTopicRequest;
+import com.pulsaradmin.shared.model.UnloadTopicResponse;
 
 public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   private final PulsarAdminGateway mockGateway;
@@ -64,6 +66,11 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public SkipMessagesResponse skipMessages(EnvironmentDetails environment, SkipMessagesRequest request) {
     return activeGateway().skipMessages(environment, request);
+  }
+
+  @Override
+  public UnloadTopicResponse unloadTopic(EnvironmentDetails environment, UnloadTopicRequest request) {
+    return activeGateway().unloadTopic(environment, request);
   }
 
   private PulsarAdminGateway activeGateway() {

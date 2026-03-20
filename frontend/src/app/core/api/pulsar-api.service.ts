@@ -20,7 +20,9 @@ import {
   SkipMessagesResponse,
   SubscriptionMutationResponse,
   TopicDetails,
-  TopicPage
+  TopicPage,
+  UnloadTopicRequest,
+  UnloadTopicResponse
 } from '../models/api.models';
 
 export interface TopicQuery {
@@ -182,6 +184,14 @@ export class PulsarApiService {
   skipMessages(environmentId: string, request: SkipMessagesRequest): Observable<SkipMessagesResponse> {
     return this.http.post<SkipMessagesResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/skip-messages`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  unloadTopic(environmentId: string, request: UnloadTopicRequest): Observable<UnloadTopicResponse> {
+    return this.http.post<UnloadTopicResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/unload`,
       request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );

@@ -16,7 +16,9 @@ import {
   SkipMessagesRequest,
   SkipMessagesResponse,
   SubscriptionMutationResponse,
-  TopicDetails
+  TopicDetails,
+  UnloadTopicRequest,
+  UnloadTopicResponse
 } from '../../core/models/api.models';
 
 @Component({
@@ -39,7 +41,7 @@ export class TopicDetailsComponent {
   readonly environmentId = signal('');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
-  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'replay' | 'create-subscription' | 'delete-subscription' | null>(null);
+  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'replay' | 'create-subscription' | 'delete-subscription' | null>(null);
   readonly peekState = signal<PeekMessagesResponse | null>(null);
   readonly peekLoading = signal(false);
   readonly peekError = signal<string | null>(null);
@@ -49,6 +51,9 @@ export class TopicDetailsComponent {
   readonly skipSaving = signal(false);
   readonly skipResult = signal<SkipMessagesResponse | null>(null);
   readonly skipError = signal<string | null>(null);
+  readonly unloadSaving = signal(false);
+  readonly unloadResult = signal<UnloadTopicResponse | null>(null);
+  readonly unloadError = signal<string | null>(null);
   readonly replaySaving = signal(false);
   readonly replayResult = signal<ReplayCopyJobStatusResponse | null>(null);
   readonly replayError = signal<string | null>(null);
@@ -67,6 +72,10 @@ export class TopicDetailsComponent {
   readonly skipForm = this.formBuilder.nonNullable.group({
     subscriptionName: ['', [Validators.required]],
     messageCount: [1, [Validators.required, Validators.min(1), Validators.max(5000)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly unloadForm = this.formBuilder.nonNullable.group({
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -148,7 +157,7 @@ export class TopicDetailsComponent {
     return status.toLowerCase();
   }
 
-  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'replay' | 'create-subscription') {
+  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'replay' | 'create-subscription') {
     this.activeWorkflow.set(workflow);
 
     if (workflow === 'peek') {
@@ -207,6 +216,11 @@ export class TopicDetailsComponent {
           reason: this.skipForm.controls.reason.value
         });
       }
+    }
+
+    if (workflow === 'unload') {
+      this.unloadError.set(null);
+      this.unloadResult.set(null);
     }
 
     if (workflow === 'replay') {
@@ -412,6 +426,44 @@ export class TopicDetailsComponent {
       });
   }
 
+  submitUnloadTopic() {
+    const topic = this.details();
+
+    if (!topic) {
+      this.unloadError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.unloadForm.invalid) {
+      this.unloadForm.markAllAsTouched();
+      return;
+    }
+
+    const formValue = this.unloadForm.getRawValue();
+    const request: UnloadTopicRequest = {
+      topicName: topic.fullName,
+      reason: formValue.reason
+    };
+
+    this.unloadSaving.set(true);
+    this.unloadError.set(null);
+    this.unloadResult.set(null);
+
+    this.api.unloadTopic(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.unloadSaving.set(false);
+          this.unloadResult.set(response);
+          this.applyUpdatedTopic(response.topicDetails);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.unloadSaving.set(false);
+          this.unloadError.set(error.error?.message ?? 'Unable to unload the topic right now.');
+        }
+      });
+  }
+
   submitCreateSubscription() {
     const topic = this.details();
 
@@ -522,6 +574,16 @@ export class TopicDetailsComponent {
       : ' without additional filtering';
 
     return `${operation === 'COPY' ? 'Copy' : 'Replay'} up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterSegment} into ${destinationTopicName} at up to ${messagesPerSecond} msg/s.`;
+  }
+
+  unloadPreview(): string {
+    const topic = this.details();
+
+    if (!topic) {
+      return 'Topic details are still loading.';
+    }
+
+    return `This will unload ${topic.topic} from its current broker owner so Pulsar can rebalance ownership and refresh the serving path. Use this when a topic looks stuck or you need a clean handoff after incident work.`;
   }
 
   replayCanRefresh(): boolean {

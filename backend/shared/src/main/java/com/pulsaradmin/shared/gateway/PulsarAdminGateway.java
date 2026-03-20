@@ -10,6 +10,8 @@ import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.UnloadTopicRequest;
+import com.pulsaradmin.shared.model.UnloadTopicResponse;
 
 public interface PulsarAdminGateway {
   EnvironmentConnectionTestResult testConnection(EnvironmentDetails environment);
@@ -27,4 +29,6 @@ public interface PulsarAdminGateway {
   ResetCursorResponse resetCursor(EnvironmentDetails environment, ResetCursorRequest request);
 
   SkipMessagesResponse skipMessages(EnvironmentDetails environment, SkipMessagesRequest request);
+
+  UnloadTopicResponse unloadTopic(EnvironmentDetails environment, UnloadTopicRequest request);
 }

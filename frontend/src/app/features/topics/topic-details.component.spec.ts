@@ -74,6 +74,7 @@ describe('TopicDetailsComponent', () => {
             peekMessages,
             resetCursor: jasmine.createSpy('resetCursor'),
             skipMessages: jasmine.createSpy('skipMessages'),
+            unloadTopic: jasmine.createSpy('unloadTopic'),
             createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
             getReplayCopyJob: jasmine.createSpy('getReplayCopyJob')
           }
@@ -148,6 +149,7 @@ describe('TopicDetailsComponent', () => {
             peekMessages: jasmine.createSpy('peekMessages'),
             resetCursor,
             skipMessages: jasmine.createSpy('skipMessages'),
+            unloadTopic: jasmine.createSpy('unloadTopic'),
             createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
             getReplayCopyJob: jasmine.createSpy('getReplayCopyJob')
           }
@@ -236,6 +238,7 @@ describe('TopicDetailsComponent', () => {
             peekMessages: jasmine.createSpy('peekMessages'),
             resetCursor: jasmine.createSpy('resetCursor'),
             skipMessages,
+            unloadTopic: jasmine.createSpy('unloadTopic'),
             createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
             getReplayCopyJob: jasmine.createSpy('getReplayCopyJob')
           }
@@ -264,6 +267,117 @@ describe('TopicDetailsComponent', () => {
       reason: 'Skip poison messages after alert triage'
     });
     expect(fixture.nativeElement.textContent).toContain('Skipped 25 messages');
+  });
+
+  it('submits an unload topic request and shows the result message', async () => {
+    const unloadTopic = jasmine.createSpy('unloadTopic').and.returnValue(of({
+      environmentId: 'prod',
+      topicName: 'persistent://acme/orders/payment-events',
+      message: 'Unloaded topic persistent://acme/orders/payment-events. Brokers can now rebalance ownership and refresh the live serving path.',
+      topicDetails: {
+        fullName: 'persistent://acme/orders/payment-events',
+        tenant: 'acme',
+        namespace: 'orders',
+        topic: 'payment-events',
+        partitioned: false,
+        partitions: 0,
+        health: 'CRITICAL',
+        stats: {
+          backlog: 18720,
+          producers: 5,
+          subscriptions: 2,
+          consumers: 3,
+          publishRateIn: 190.5,
+          dispatchRateOut: 48.3,
+          throughputIn: 6200,
+          throughputOut: 2100,
+          storageSize: 5880120
+        },
+        schema: {
+          type: 'JSON',
+          version: '9',
+          compatibility: 'BACKWARD',
+          present: true
+        },
+        ownerTeam: 'Payments',
+        notes: 'Backlog-heavy topic.',
+        partitionSummaries: [],
+        subscriptions: ['payment-settlement', 'payment-alerts']
+      }
+    }));
+
+    await TestBed.configureTestingModule({
+      imports: [TopicDetailsComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ topic: 'persistent://acme/orders/payment-events' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getTopicDetails: () => of({
+              fullName: 'persistent://acme/orders/payment-events',
+              tenant: 'acme',
+              namespace: 'orders',
+              topic: 'payment-events',
+              partitioned: false,
+              partitions: 0,
+              health: 'CRITICAL',
+              stats: {
+                backlog: 18720,
+                producers: 5,
+                subscriptions: 2,
+                consumers: 3,
+                publishRateIn: 190.5,
+                dispatchRateOut: 48.3,
+                throughputIn: 6200,
+                throughputOut: 2100,
+                storageSize: 5880120
+              },
+              schema: {
+                type: 'JSON',
+                version: '9',
+                compatibility: 'BACKWARD',
+                present: true
+              },
+              ownerTeam: 'Payments',
+              notes: 'Backlog-heavy topic.',
+              partitionSummaries: [],
+              subscriptions: ['payment-settlement', 'payment-alerts']
+            }),
+            peekMessages: jasmine.createSpy('peekMessages'),
+            resetCursor: jasmine.createSpy('resetCursor'),
+            skipMessages: jasmine.createSpy('skipMessages'),
+            unloadTopic,
+            createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
+            getReplayCopyJob: jasmine.createSpy('getReplayCopyJob')
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicDetailsComponent);
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance;
+    component.openWorkflow('unload');
+    component.unloadForm.patchValue({
+      reason: 'Refresh broker ownership after incident cleanup'
+    });
+
+    component.submitUnloadTopic();
+    fixture.detectChanges();
+
+    expect(unloadTopic).toHaveBeenCalledWith('prod', {
+      topicName: 'persistent://acme/orders/payment-events',
+      reason: 'Refresh broker ownership after incident cleanup'
+    });
+    expect(fixture.nativeElement.textContent).toContain('Unloaded topic persistent://acme/orders/payment-events');
   });
 
   it('creates a subscription and updates the topic details', async () => {
@@ -353,6 +467,7 @@ describe('TopicDetailsComponent', () => {
             peekMessages: jasmine.createSpy('peekMessages'),
             resetCursor: jasmine.createSpy('resetCursor'),
             skipMessages: jasmine.createSpy('skipMessages'),
+            unloadTopic: jasmine.createSpy('unloadTopic'),
             createSubscription,
             deleteSubscription: jasmine.createSpy('deleteSubscription'),
             createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
@@ -472,6 +587,7 @@ describe('TopicDetailsComponent', () => {
             peekMessages: jasmine.createSpy('peekMessages'),
             resetCursor: jasmine.createSpy('resetCursor'),
             skipMessages: jasmine.createSpy('skipMessages'),
+            unloadTopic: jasmine.createSpy('unloadTopic'),
             createSubscription: jasmine.createSpy('createSubscription'),
             deleteSubscription,
             createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
@@ -584,6 +700,7 @@ describe('TopicDetailsComponent', () => {
             peekMessages: jasmine.createSpy('peekMessages'),
             resetCursor: jasmine.createSpy('resetCursor'),
             skipMessages: jasmine.createSpy('skipMessages'),
+            unloadTopic: jasmine.createSpy('unloadTopic'),
             createReplayCopyJob,
             getReplayCopyJob
           }

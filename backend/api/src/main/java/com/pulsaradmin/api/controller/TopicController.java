@@ -14,6 +14,8 @@ import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
+import com.pulsaradmin.shared.model.UnloadTopicRequest;
+import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -93,6 +95,13 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @Valid @RequestBody SkipMessagesRequest request) {
     return pulsarCatalogService.skipMessages(envId, request);
+  }
+
+  @PostMapping("/unload")
+  public UnloadTopicResponse unloadTopic(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody UnloadTopicRequest request) {
+    return pulsarCatalogService.unloadTopic(envId, request);
   }
 
   @PostMapping("/replay-copy")

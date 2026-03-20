@@ -23,6 +23,7 @@
         <button type="button" (click)="openWorkflow('peek')">Peek Messages</button>
         <button type="button" (click)="openWorkflow('reset')">Reset Cursor</button>
         <button type="button" (click)="openWorkflow('skip')">Skip Messages</button>
+        <button type="button" (click)="openWorkflow('unload')">Unload Topic</button>
         <button type="button" (click)="openWorkflow('replay')">Replay / Copy</button>
       </div>
     </section>
@@ -152,6 +153,12 @@
               <p class="workflow-copy">
                 Choose a subscription, set a bounded message count, preview the effect, and then execute the skip
                 immediately through the backend action.
+              </p>
+            } @else if (activeWorkflow() === 'unload') {
+              <h3>Unload topic</h3>
+              <p class="workflow-copy">
+                Unload the topic from its current broker owner so Pulsar can rebalance ownership and refresh the live
+                serving path without deleting the topic or changing subscriptions.
               </p>
             } @else if (activeWorkflow() === 'create-subscription') {
               <h3>Create subscription</h3>
@@ -340,6 +347,46 @@
               <div class="form-button-row">
                 <button type="submit" [disabled]="skipSaving()">
                   {{ skipSaving() ? 'Skipping...' : 'Skip Messages' }}
+                </button>
+              </div>
+            </form>
+          } @else if (activeWorkflow() === 'unload') {
+            <form class="reset-form" [formGroup]="unloadForm" (ngSubmit)="submitUnloadTopic()">
+              <label class="full-width">
+                <span>Topic</span>
+                <input [value]="topic.fullName" type="text" readonly />
+              </label>
+
+              <label class="full-width">
+                <span>Reason</span>
+                <textarea
+                  formControlName="reason"
+                  rows="3"
+                  placeholder="Why are we unloading this topic?"
+                ></textarea>
+              </label>
+
+              <div class="preview-panel">
+                <p class="eyebrow">Preview</p>
+                <p>{{ unloadPreview() }}</p>
+              </div>
+
+              @if (unloadError()) {
+                <div class="placeholder-panel error">
+                  <p>{{ unloadError() }}</p>
+                </div>
+              }
+
+              @if (unloadResult(); as result) {
+                <div class="placeholder-panel success">
+                  <p>{{ result.message }}</p>
+                  <p class="result-meta">{{ result.topicDetails.topic }} remains available and can be re-owned by another broker.</p>
+                </div>
+              }
+
+              <div class="form-button-row">
+                <button type="submit" [disabled]="unloadSaving()">
+                  {{ unloadSaving() ? 'Unloading...' : 'Unload Topic' }}
                 </button>
               </div>
             </form>
