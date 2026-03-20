@@ -79,7 +79,11 @@ public class EnvironmentManagementService {
       mockEnvironmentStore.insert(environment);
       mockEnvironmentStore.clearSnapshot(environment.id());
     } else {
-      environmentRepository.insert(environment);
+      if (environmentRepository.findById(request.id()).isPresent()) {
+        environmentRepository.update(environment);
+      } else {
+        environmentRepository.insert(environment);
+      }
     }
     return environment.toDetails();
   }

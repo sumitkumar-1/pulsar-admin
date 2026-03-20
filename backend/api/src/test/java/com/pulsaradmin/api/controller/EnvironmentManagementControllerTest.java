@@ -2,6 +2,7 @@ package com.pulsaradmin.api.controller;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -134,8 +135,36 @@ class EnvironmentManagementControllerTest {
     mockMvc.perform(delete("/api/v1/environments/qa"))
         .andExpect(status().isNoContent());
 
-    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/environments"))
+    mockMvc.perform(get("/api/v1/environments"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[?(@.id=='qa')]", hasSize(0)));
+  }
+
+  @Test
+  void shouldAllowRecreatingSoftDeletedEnvironmentId() throws Exception {
+    mockMvc.perform(delete("/api/v1/environments/dev"))
+        .andExpect(status().isNoContent());
+
+    mockMvc.perform(post("/api/v1/environments")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "id": "dev",
+                  "name": "Development Recreated",
+                  "kind": "dev",
+                  "region": "local",
+                  "clusterLabel": "cluster-dev",
+                  "summary": "Recreated after cleanup",
+                  "brokerUrl": "pulsar://localhost:6650",
+                  "adminUrl": "http://localhost:8080",
+                  "authMode": "none",
+                  "credentialReference": "",
+                  "tlsEnabled": false
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value("dev"))
+        .andExpect(jsonPath("$.name").value("Development Recreated"))
+        .andExpect(jsonPath("$.deleted").value(false));
   }
 }

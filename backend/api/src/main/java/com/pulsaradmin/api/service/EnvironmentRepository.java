@@ -36,6 +36,14 @@ public class EnvironmentRepository {
     return rows.stream().findFirst();
   }
 
+  public Optional<EnvironmentRecord> findById(String id) {
+    List<EnvironmentRecord> rows = jdbcTemplate.query("""
+        select * from environments
+        where id = ?
+        """, rowMapper, id);
+    return rows.stream().findFirst();
+  }
+
   public boolean existsActiveById(String id) {
     Integer count = jdbcTemplate.queryForObject("""
         select count(*) from environments

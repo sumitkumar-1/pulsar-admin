@@ -122,6 +122,35 @@ describe('EnvironmentOverviewComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Create environment');
   });
 
+  it('shows only one add environment button when the list is empty', async () => {
+    await TestBed.configureTestingModule({
+      imports: [EnvironmentOverviewComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironments: () => of([]),
+            getEnvironment: () => of(),
+            createEnvironment: jasmine.createSpy('createEnvironment'),
+            updateEnvironment: jasmine.createSpy('updateEnvironment'),
+            testEnvironmentConnection: () => of(),
+            syncEnvironment: () => of(),
+            deleteEnvironment: () => of()
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(EnvironmentOverviewComponent);
+    fixture.detectChanges();
+
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'))
+      .filter((element) => element.textContent?.includes('Add Environment'));
+
+    expect(buttons.length).toBe(1);
+  });
+
   it('loads the edit dialog with environment values', async () => {
     await TestBed.configureTestingModule({
       imports: [EnvironmentOverviewComponent],

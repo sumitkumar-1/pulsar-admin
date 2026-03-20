@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { tap } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
 import { EnvironmentDetails, EnvironmentSummary, EnvironmentUpsertRequest } from '../../core/models/api.models';
@@ -22,7 +23,10 @@ export class EnvironmentOverviewComponent {
   private readonly formBuilder = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly environments$ = this.api.getEnvironments();
+  readonly hasEnvironments = signal(false);
+  readonly environments$ = this.api.getEnvironments().pipe(
+    tap((environments) => this.hasEnvironments.set(environments.length > 0))
+  );
   readonly selectedEnvironmentId = signal<string | null>(null);
   readonly saving = signal(false);
   readonly actionState = signal<string | null>(null);
@@ -127,7 +131,7 @@ export class EnvironmentOverviewComponent {
       },
       error: (error: { error?: { message?: string } }) => {
         this.saving.set(false);
-        this.actionError.set(error.error?.message ?? 'Unable to save this environment.');
+        this.actionError.set(error.error?.message ?? (wasEditing ? 'Unable to update this environment.' : 'Unable to create environment.'));
       }
     });
   }

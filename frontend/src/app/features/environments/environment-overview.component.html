@@ -12,7 +12,9 @@
     <p class="eyebrow">Overview</p>
     <h3>Connected environments</h3>
   </div>
-  <button class="primary-button" type="button" (click)="openCreateDialog()">Add Environment</button>
+  @if (hasEnvironments()) {
+    <button class="primary-button" type="button" (click)="openCreateDialog()">Add Environment</button>
+  }
 </section>
 
 @if (actionState()) {
