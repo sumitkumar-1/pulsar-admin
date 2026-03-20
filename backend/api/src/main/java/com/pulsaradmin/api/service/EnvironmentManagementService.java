@@ -21,18 +21,24 @@ public class EnvironmentManagementService {
   private final EnvironmentRepository environmentRepository;
   private final EnvironmentSnapshotRepository snapshotRepository;
   private final PulsarAdminGateway pulsarAdminGateway;
+  private final GatewayModeResolver gatewayModeResolver;
+  private final MockEnvironmentStore mockEnvironmentStore;
 
   public EnvironmentManagementService(
       EnvironmentRepository environmentRepository,
       EnvironmentSnapshotRepository snapshotRepository,
-      PulsarAdminGateway pulsarAdminGateway) {
+      PulsarAdminGateway pulsarAdminGateway,
+      GatewayModeResolver gatewayModeResolver,
+      MockEnvironmentStore mockEnvironmentStore) {
     this.environmentRepository = environmentRepository;
     this.snapshotRepository = snapshotRepository;
     this.pulsarAdminGateway = pulsarAdminGateway;
+    this.gatewayModeResolver = gatewayModeResolver;
+    this.mockEnvironmentStore = mockEnvironmentStore;
   }
 
   public List<EnvironmentSummary> getEnvironments() {
-    return environmentRepository.findAllActive().stream()
+    return activeEnvironmentRecords().stream()
         .map(EnvironmentRecord::toSummary)
         .toList();
   }
@@ -42,7 +48,7 @@ public class EnvironmentManagementService {
   }
 
   public EnvironmentDetails createEnvironment(EnvironmentUpsertRequest request) {
-    if (environmentRepository.existsActiveById(request.id())) {
+    if (activeEnvironmentExists(request.id())) {
       throw new BadRequestException("Environment id already exists: " + request.id());
     }
 
@@ -69,7 +75,12 @@ public class EnvironmentManagementService {
         null,
         null);
 
-    environmentRepository.insert(environment);
+    if (isMockMode()) {
+      mockEnvironmentStore.insert(environment);
+      mockEnvironmentStore.clearSnapshot(environment.id());
+    } else {
+      environmentRepository.insert(environment);
+    }
     return environment.toDetails();
   }
 
@@ -103,7 +114,12 @@ public class EnvironmentManagementService {
         existing.lastTestedAt(),
         existing.deletedAt());
 
-    environmentRepository.update(updated);
+    if (isMockMode()) {
+      mockEnvironmentStore.update(updated);
+      mockEnvironmentStore.clearSnapshot(updated.id());
+    } else {
+      environmentRepository.update(updated);
+    }
     return updated.toDetails();
   }
 
@@ -133,7 +149,7 @@ public class EnvironmentManagementService {
         testedAt,
         environment.deletedAt());
 
-    environmentRepository.update(testedEnvironment);
+    updateEnvironmentRecord(testedEnvironment);
 
     if (result.successful()) {
       syncEnvironment(environmentId);
@@ -151,7 +167,7 @@ public class EnvironmentManagementService {
     }
 
     EnvironmentSnapshot snapshot = pulsarAdminGateway.syncMetadata(environment.toDetails());
-    snapshotRepository.upsert(environmentId, snapshot);
+    EnvironmentSnapshotRecord snapshotRecord = storeSnapshot(environmentId, snapshot);
 
     Instant syncedAt = Instant.now();
     EnvironmentRecord syncedEnvironment = new EnvironmentRecord(
@@ -175,17 +191,16 @@ public class EnvironmentManagementService {
         environment.lastTestedAt(),
         environment.deletedAt());
 
-    environmentRepository.update(syncedEnvironment);
-    EnvironmentSnapshotRecord snapshotRecord = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    updateEnvironmentRecord(syncedEnvironment);
 
     return snapshotRecord.toSyncStatus("SYNCED", "Metadata synced successfully.", syncedAt);
   }
 
   public EnvironmentSyncStatus getSyncStatus(String environmentId) {
     EnvironmentRecord environment = requireEnvironment(environmentId);
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElse(null);
+    EnvironmentSnapshotRecord snapshot = isMockMode()
+        ? mockEnvironmentStore.getSnapshot(environmentId)
+        : snapshotRepository.findByEnvironmentId(environmentId).orElse(null);
 
     if (snapshot == null) {
       return new EnvironmentSyncStatus(environmentId, environment.syncStatus(), environment.syncMessage(), environment.lastSyncedAt(), 0, 0, 0);
@@ -196,7 +211,7 @@ public class EnvironmentManagementService {
 
   public void softDeleteEnvironment(String environmentId) {
     EnvironmentRecord environment = requireEnvironment(environmentId);
-    environmentRepository.update(new EnvironmentRecord(
+    EnvironmentRecord deletedRecord = new EnvironmentRecord(
         environment.id(),
         environment.name(),
         environment.kind(),
@@ -215,12 +230,53 @@ public class EnvironmentManagementService {
         environment.lastTestStatus(),
         environment.lastTestMessage(),
         environment.lastTestedAt(),
-        Instant.now()));
+        Instant.now());
+    if (isMockMode()) {
+      mockEnvironmentStore.softDelete(environmentId);
+    } else {
+      environmentRepository.update(deletedRecord);
+    }
   }
 
   private EnvironmentRecord requireEnvironment(String environmentId) {
+    if (isMockMode()) {
+      return mockEnvironmentStore.findActiveById(environmentId);
+    }
+
     return environmentRepository.findActiveById(environmentId)
         .orElseThrow(() -> new NotFoundException("Unknown environment: " + environmentId));
+  }
+
+  private boolean activeEnvironmentExists(String environmentId) {
+    return isMockMode()
+        ? mockEnvironmentStore.existsActiveById(environmentId)
+        : environmentRepository.existsActiveById(environmentId);
+  }
+
+  private List<EnvironmentRecord> activeEnvironmentRecords() {
+    return isMockMode() ? mockEnvironmentStore.findAllActive() : environmentRepository.findAllActive();
+  }
+
+  private void updateEnvironmentRecord(EnvironmentRecord record) {
+    if (isMockMode()) {
+      mockEnvironmentStore.update(record);
+      return;
+    }
+    environmentRepository.update(record);
+  }
+
+  private EnvironmentSnapshotRecord storeSnapshot(String environmentId, EnvironmentSnapshot snapshot) {
+    if (isMockMode()) {
+      return mockEnvironmentStore.storeSnapshot(environmentId, snapshot);
+    }
+
+    snapshotRepository.upsert(environmentId, snapshot);
+    return snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+  }
+
+  private boolean isMockMode() {
+    return "mock".equals(gatewayModeResolver.resolveMode());
   }
 
   private String blankToNull(String value) {

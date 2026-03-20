@@ -16,7 +16,7 @@ spring:
 
 app:
   pulsar:
-    gateway-mode: ${APP_PULSAR_GATEWAY_MODE:mock}
+    gateway-mode: ${APP_PULSAR_GATEWAY_MODE:rest}
   cors:
     allowed-origins:
       - http://localhost:4200

@@ -54,31 +54,30 @@ public class EnvironmentCatalogService {
   private final EnvironmentRepository environmentRepository;
   private final EnvironmentSnapshotRepository snapshotRepository;
   private final PulsarAdminGateway pulsarAdminGateway;
+  private final GatewayModeResolver gatewayModeResolver;
+  private final MockEnvironmentStore mockEnvironmentStore;
 
   public EnvironmentCatalogService(
       EnvironmentRepository environmentRepository,
       EnvironmentSnapshotRepository snapshotRepository,
-      PulsarAdminGateway pulsarAdminGateway) {
+      PulsarAdminGateway pulsarAdminGateway,
+      GatewayModeResolver gatewayModeResolver,
+      MockEnvironmentStore mockEnvironmentStore) {
     this.environmentRepository = environmentRepository;
     this.snapshotRepository = snapshotRepository;
     this.pulsarAdminGateway = pulsarAdminGateway;
+    this.gatewayModeResolver = gatewayModeResolver;
+    this.mockEnvironmentStore = mockEnvironmentStore;
   }
 
   public EnvironmentHealth getEnvironmentHealth(String environmentId) {
     requireEnvironment(environmentId);
-
-    return snapshotRepository.findByEnvironmentId(environmentId)
-        .map(EnvironmentSnapshotRecord::toHealth)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    return loadSnapshot(environmentId).toHealth();
   }
 
   public CatalogSummary getCatalogSummary(String environmentId) {
     requireEnvironment(environmentId);
-
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
-
-    return toCatalogSummary(snapshot);
+    return toCatalogSummary(loadSnapshot(environmentId));
   }
 
   public PagedResult<TopicListItem> getTopics(
@@ -91,8 +90,7 @@ public class EnvironmentCatalogService {
     requireEnvironment(environmentId);
     validatePaging(page, pageSize);
 
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     var filtered = snapshot.topics().stream()
         .filter(topic -> tenant == null || tenant.isBlank() || topic.tenant().equalsIgnoreCase(tenant))
@@ -133,8 +131,7 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("A topic name is required.");
     }
 
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     return snapshot.topics().stream()
         .filter(topic -> topic.fullName().equals(topicName))
@@ -144,8 +141,7 @@ public class EnvironmentCatalogService {
 
   public TopicDetails createTopic(String environmentId, CreateTopicRequest request) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
     validateCreateTopicRequest(snapshot, request);
 
     pulsarAdminGateway.createTopic(environment.toDetails(), request);
@@ -160,8 +156,7 @@ public class EnvironmentCatalogService {
 
   public CatalogMutationResponse createTenant(String environmentId, CreateTenantRequest request) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     validateTopicSegment("tenant", request.tenant());
 
@@ -182,8 +177,7 @@ public class EnvironmentCatalogService {
 
   public CatalogMutationResponse createNamespace(String environmentId, CreateNamespaceRequest request) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     validateTopicSegment("tenant", request.tenant());
     validateTopicSegment("namespace", request.namespace());
@@ -210,8 +204,7 @@ public class EnvironmentCatalogService {
 
   public SubscriptionMutationResponse createSubscription(String environmentId, CreateSubscriptionRequest request) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     TopicDetails topic = requireTopic(snapshot, request.topicName());
     validateSubscriptionName(request.subscriptionName());
@@ -241,8 +234,7 @@ public class EnvironmentCatalogService {
 
   public SubscriptionMutationResponse deleteSubscription(String environmentId, String topicName, String subscriptionName) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     if (topicName == null || topicName.isBlank()) {
       throw new BadRequestException("A topic name is required.");
@@ -283,8 +275,7 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("Peek limit must be between 1 and 25.");
     }
 
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     boolean exists = snapshot.topics().stream().anyMatch(topic -> topic.fullName().equals(topicName));
 
@@ -357,8 +348,7 @@ public class EnvironmentCatalogService {
 
   public NamespaceDetails getNamespaceDetails(String environmentId, String tenant, String namespace) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     requireNamespace(snapshot, tenant, namespace);
 
@@ -392,8 +382,7 @@ public class EnvironmentCatalogService {
 
   public NamespacePoliciesResponse updateNamespacePolicies(String environmentId, NamespacePoliciesUpdateRequest request) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     requireNamespace(snapshot, request.tenant(), request.namespace());
 
@@ -484,8 +473,7 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("A timestamp is required when reset target is TIMESTAMP.");
     }
 
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     TopicDetails topic = snapshot.topics().stream()
         .filter(item -> item.fullName().equals(request.topicName()))
@@ -517,8 +505,7 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("Message count must be between 1 and 5000.");
     }
 
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
     TopicDetails topic = snapshot.topics().stream()
         .filter(item -> item.fullName().equals(request.topicName()))
@@ -593,6 +580,9 @@ public class EnvironmentCatalogService {
   }
 
   private EnvironmentRecord requireEnvironmentRecord(String environmentId) {
+    if (isMockMode()) {
+      return mockEnvironmentStore.findActiveById(environmentId);
+    }
     return environmentRepository.findActiveById(environmentId)
         .orElseThrow(() -> new NotFoundException("Unknown environment: " + environmentId));
   }
@@ -643,9 +633,22 @@ public class EnvironmentCatalogService {
 
   private EnvironmentSnapshotRecord refreshSnapshot(EnvironmentRecord environment) {
     var snapshot = pulsarAdminGateway.syncMetadata(environment.toDetails());
+    if (isMockMode()) {
+      return mockEnvironmentStore.storeSnapshot(environment.id(), snapshot);
+    }
     snapshotRepository.upsert(environment.id(), snapshot);
     return snapshotRepository.findByEnvironmentId(environment.id())
         .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environment.id()));
+  }
+
+  private EnvironmentSnapshotRecord loadSnapshot(String environmentId) {
+    if (isMockMode()) {
+      EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+      return refreshSnapshot(environment);
+    }
+
+    return snapshotRepository.findByEnvironmentId(environmentId)
+        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
   }
 
   private CatalogSummary toCatalogSummary(EnvironmentSnapshotRecord snapshot) {
@@ -690,9 +693,12 @@ public class EnvironmentCatalogService {
   }
 
   private TopicDetails requireTopicFromSnapshot(String environmentId, String topicName) {
-    EnvironmentSnapshotRecord snapshot = snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
     return requireTopic(snapshot, topicName);
+  }
+
+  private boolean isMockMode() {
+    return "mock".equals(gatewayModeResolver.resolveMode());
   }
 
   private void requireNamespace(EnvironmentSnapshotRecord snapshot, String tenant, String namespace) {

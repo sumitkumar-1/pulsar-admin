@@ -15,7 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.pulsar.gateway-mode=mock")
 @AutoConfigureMockMvc
 class TopicControllerTest {
   @Autowired
@@ -271,7 +271,7 @@ class TopicControllerTest {
         .andExpect(jsonPath("$.jobId").exists())
         .andExpect(jsonPath("$.jobType").value("COPY"))
         .andExpect(jsonPath("$.environmentId").value("prod"))
-        .andExpect(jsonPath("$.status").value("QUEUED"))
+        .andExpect(jsonPath("$.status").value("COMPLETED"))
         .andExpect(jsonPath("$.destinationTopicName").value("persistent://acme/dev/replay-lab"));
   }
 
@@ -301,8 +301,8 @@ class TopicControllerTest {
     mockMvc.perform(get("/api/v1/environments/prod/topics/jobs/{jobId}", jobId))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.jobId").value(jobId))
-        .andExpect(jsonPath("$.status").value("QUEUED"))
-        .andExpect(jsonPath("$.publishedMessages").value(0));
+        .andExpect(jsonPath("$.status").value("COMPLETED"))
+        .andExpect(jsonPath("$.publishedMessages").value(24));
   }
 
   @Test

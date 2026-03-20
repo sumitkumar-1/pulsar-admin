@@ -49,7 +49,7 @@
         } @else {
           <div class="environment-pill neutral">
             <span class="pill-label">All Environments</span>
-            <span>Mock-first discovery slice</span>
+            <span>{{ demoMode.isMockMode() ? 'Demo dataset active' : 'Connect a live Pulsar environment' }}</span>
           </div>
         }
 
@@ -65,9 +65,26 @@
           </select>
         </label>
 
+        <div class="mode-toggle" role="group" aria-label="Data mode">
+          <button
+            type="button"
+            class="mode-toggle-button"
+            [class.active]="!demoMode.isMockMode()"
+            (click)="onModeSelected('live')">
+            Live
+          </button>
+          <button
+            type="button"
+            class="mode-toggle-button"
+            [class.active]="demoMode.isMockMode()"
+            (click)="onModeSelected('mock')">
+            Mock
+          </button>
+        </div>
+
         <div class="environment-pill neutral">
           <span class="pill-label">{{ demoMode.isMockMode() ? 'Mock Mode' : 'Live Mode' }}</span>
-          <span>{{ demoMode.isMockMode() ? 'URL override active' : 'Stored environment routing' }}</span>
+          <span>{{ demoMode.isMockMode() ? 'Demo data only' : 'Real environments only' }}</span>
         </div>
       }
     </header>

@@ -18,7 +18,7 @@ import { EnvironmentSummary } from '../core/models/api.models';
 export class ShellComponent {
   private readonly api = inject(PulsarApiService);
   readonly demoMode = inject(DemoModeService);
-  private readonly router = inject(Router);
+  readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly environments$ = this.api.getEnvironments().pipe(shareReplay(1));
@@ -57,5 +57,10 @@ export class ShellComponent {
 
   modeQueryParams() {
     return this.demoMode.queryParams({});
+  }
+
+  async onModeSelected(mode: 'live' | 'mock') {
+    await this.demoMode.setMode(mode);
+    this.api.refreshEnvironments();
   }
 }

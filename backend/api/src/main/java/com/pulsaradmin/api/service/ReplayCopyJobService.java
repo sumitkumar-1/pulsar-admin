@@ -2,6 +2,7 @@ package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.api.support.NotFoundException;
+import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
 import com.pulsaradmin.shared.job.JobRecord;
 import com.pulsaradmin.shared.job.JobStatus;
 import com.pulsaradmin.shared.job.JobType;
@@ -12,6 +13,8 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -20,29 +23,58 @@ public class ReplayCopyJobService {
   private final EnvironmentSnapshotRepository snapshotRepository;
   private final JobRepository jobRepository;
   private final JobEventRepository jobEventRepository;
+  private final PulsarAdminGateway pulsarAdminGateway;
+  private final GatewayModeResolver gatewayModeResolver;
+  private final MockEnvironmentStore mockEnvironmentStore;
+  private final ConcurrentMap<String, ReplayCopyJobStatusResponse> mockJobs = new ConcurrentHashMap<>();
 
   public ReplayCopyJobService(
       EnvironmentRepository environmentRepository,
       EnvironmentSnapshotRepository snapshotRepository,
       JobRepository jobRepository,
-      JobEventRepository jobEventRepository) {
+      JobEventRepository jobEventRepository,
+      PulsarAdminGateway pulsarAdminGateway,
+      GatewayModeResolver gatewayModeResolver,
+      MockEnvironmentStore mockEnvironmentStore) {
     this.environmentRepository = environmentRepository;
     this.snapshotRepository = snapshotRepository;
     this.jobRepository = jobRepository;
     this.jobEventRepository = jobEventRepository;
+    this.pulsarAdminGateway = pulsarAdminGateway;
+    this.gatewayModeResolver = gatewayModeResolver;
+    this.mockEnvironmentStore = mockEnvironmentStore;
   }
 
   public ReplayCopyJobStatusResponse createJob(String environmentId, ReplayCopyJobRequest request) {
-    EnvironmentRecord environment = environmentRepository.findActiveById(environmentId)
-        .orElseThrow(() -> new NotFoundException("Unknown environment: " + environmentId));
-
     validateRequest(request);
+    EnvironmentRecord environment = requireEnvironment(environmentId);
     TopicDetails sourceTopic = requireTopic(environmentId, request.topicName());
     requireSubscription(sourceTopic, request.subscriptionName());
 
     JobType jobType = normalizeJobType(request.operation());
     Instant now = Instant.now();
     String jobId = "job-" + UUID.randomUUID().toString().substring(0, 8);
+
+    if (isMockMode()) {
+      ReplayCopyJobStatusResponse mockResponse = new ReplayCopyJobStatusResponse(
+          jobId,
+          jobType,
+          environment.id(),
+          JobStatus.COMPLETED,
+          request.topicName(),
+          request.subscriptionName(),
+          request.destinationTopicName(),
+          request.messageLimit(),
+          request.messagesPerSecond(),
+          blankToNull(request.filterText()),
+          Math.min(request.messageLimit(), 24),
+          Math.min(request.messageLimit(), 24),
+          "Mock replay/copy job completed immediately for demo mode.",
+          now,
+          now);
+      mockJobs.put(jobId, mockResponse);
+      return mockResponse;
+    }
 
     Map<String, Object> parameters = new LinkedHashMap<>();
     parameters.put("topicName", request.topicName());
@@ -78,8 +110,15 @@ public class ReplayCopyJobService {
   }
 
   public ReplayCopyJobStatusResponse getJob(String environmentId, String jobId) {
-    environmentRepository.findActiveById(environmentId)
-        .orElseThrow(() -> new NotFoundException("Unknown environment: " + environmentId));
+    requireEnvironment(environmentId);
+
+    if (isMockMode()) {
+      ReplayCopyJobStatusResponse job = mockJobs.get(jobId);
+      if (job == null || !job.environmentId().equals(environmentId)) {
+        throw new NotFoundException("Unknown job: " + jobId);
+      }
+      return job;
+    }
 
     JobRecord job = jobRepository.findById(jobId)
         .orElseThrow(() -> new NotFoundException("Unknown job: " + jobId));
@@ -92,9 +131,14 @@ public class ReplayCopyJobService {
   }
 
   private TopicDetails requireTopic(String environmentId, String topicName) {
-    return snapshotRepository.findByEnvironmentId(environmentId)
-        .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId))
-        .topics()
+    EnvironmentSnapshotRecord snapshot = isMockMode()
+        ? mockEnvironmentStore.storeSnapshot(
+            environmentId,
+            pulsarAdminGateway.syncMetadata(requireEnvironment(environmentId).toDetails()))
+        : snapshotRepository.findByEnvironmentId(environmentId)
+            .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
+
+    return snapshot.topics()
         .stream()
         .filter(topic -> topic.fullName().equals(topicName))
         .findFirst()
@@ -167,5 +211,18 @@ public class ReplayCopyJobService {
 
   private String blankToNull(String value) {
     return value == null || value.isBlank() ? null : value.trim();
+  }
+
+  private EnvironmentRecord requireEnvironment(String environmentId) {
+    if (isMockMode()) {
+      return mockEnvironmentStore.findActiveById(environmentId);
+    }
+
+    return environmentRepository.findActiveById(environmentId)
+        .orElseThrow(() -> new NotFoundException("Unknown environment: " + environmentId));
+  }
+
+  private boolean isMockMode() {
+    return "mock".equals(gatewayModeResolver.resolveMode());
   }
 }
