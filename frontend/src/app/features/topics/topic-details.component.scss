@@ -16,10 +16,14 @@
 }
 
 .hero-card {
-  display: flex;
-  justify-content: space-between;
-  gap: 1.2rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.9fr);
+  gap: 1.4rem;
   padding: 1.6rem;
+}
+
+.hero-copy {
+  min-width: 0;
 }
 
 .hero-topline {
@@ -39,19 +43,84 @@
   color: #64748b;
 }
 
-.action-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+.hero-aside {
+  display: grid;
+  gap: 1rem;
 }
 
-.action-strip button {
-  padding: 0.85rem 1rem;
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.meta-pill,
+.inline-stat-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.meta-pill {
+  padding: 0.5rem 0.85rem;
+  background: rgba(241, 245, 249, 0.92);
+  color: #334155;
+}
+
+.hero-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.hero-meta-grid article {
+  border-radius: 1rem;
+  padding: 0.95rem 1rem;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.92), rgba(236, 253, 245, 0.88));
+  border: 1px solid rgba(14, 116, 144, 0.12);
+}
+
+.hero-meta-grid span {
+  display: block;
+  color: #64748b;
+  font-size: 0.88rem;
+}
+
+.hero-meta-grid strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.2rem;
+}
+
+.action-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.action-group {
+  border-radius: 1.25rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  padding: 1rem;
+}
+
+.action-group-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.action-group-buttons button {
+  padding: 0.8rem 0.95rem;
   border-radius: 1rem;
   border: 1px solid rgba(14, 116, 144, 0.16);
   background: linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(236, 253, 245, 0.92));
   color: #0f172a;
-  text-align: left;
   font: inherit;
   cursor: pointer;
 }
@@ -81,14 +150,23 @@
   font-size: 1.45rem;
 }
 
-.detail-grid {
+.content-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.85fr);
   gap: 1rem;
 }
 
-.partition-card {
-  grid-column: 1 / -1;
+.primary-column,
+.secondary-column {
+  display: grid;
+  gap: 1rem;
+}
+
+.detail-grid,
+.secondary-column dl,
+.primary-column dl {
+  display: grid;
+  gap: 1rem;
 }
 
 .eyebrow {
@@ -106,6 +184,13 @@ dl {
 dd {
   margin: 0.2rem 0 0;
   font-weight: 700;
+}
+
+.inline-stat-pill {
+  padding: 0.45rem 0.8rem;
+  background: rgba(30, 64, 175, 0.08);
+  color: #1d4ed8;
+  white-space: nowrap;
 }
 
 .pill-list {
@@ -458,13 +543,13 @@ dd {
 
 @media (max-width: 900px) {
   .hero-card,
-  .detail-grid {
+  .content-grid,
+  .action-bar {
     grid-template-columns: 1fr;
-    flex-direction: column;
   }
 
-  .action-strip {
-    width: 100%;
+  .hero-meta-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
   .workflow-grid {
@@ -480,5 +565,16 @@ dd {
   .subscription-list li {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-meta-grid,
+  .action-group-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .action-group-buttons {
+    display: grid;
   }
 }
