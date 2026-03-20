@@ -5,6 +5,7 @@ import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angula
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
 import { BehaviorSubject, combineLatest, switchMap } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
+import { DemoModeService } from '../../core/demo-mode.service';
 import {
   CreateTopicRequest,
   EnvironmentHealth,
@@ -28,6 +29,7 @@ interface TopicGroup {
 })
 export class TopicExplorerComponent {
   private readonly api = inject(PulsarApiService);
+  private readonly demoMode = inject(DemoModeService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -123,7 +125,7 @@ export class TopicExplorerComponent {
 
   openTopic(topic: TopicListItem) {
     void this.router.navigate(['/environments', this.environmentId(), 'topic-details'], {
-      queryParams: { topic: topic.fullName }
+      queryParams: this.demoMode.queryParams({ topic: topic.fullName })
     });
   }
 

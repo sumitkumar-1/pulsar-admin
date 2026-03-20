@@ -9,7 +9,11 @@
     </div>
 
     <nav class="nav">
-      <a routerLink="/environments" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+      <a
+        routerLink="/environments"
+        [queryParams]="modeQueryParams()"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }">
         Environment Overview
       </a>
     </nav>

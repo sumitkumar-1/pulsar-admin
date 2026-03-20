@@ -5,6 +5,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { combineLatest, Subscription, switchMap, timer } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
+import { DemoModeService } from '../../core/demo-mode.service';
 import {
   CreateSubscriptionRequest,
   PeekMessagesResponse,
@@ -28,6 +29,7 @@ import {
 })
 export class TopicDetailsComponent {
   private readonly api = inject(PulsarApiService);
+  private readonly demoMode = inject(DemoModeService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly formBuilder = inject(FormBuilder);
@@ -583,6 +585,10 @@ export class TopicDetailsComponent {
     }
 
     return new Date(value).toISOString();
+  }
+
+  modeQueryParams() {
+    return this.demoMode.queryParams({});
   }
 
   private applyUpdatedTopic(topic: TopicDetails) {

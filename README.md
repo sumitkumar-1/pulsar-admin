@@ -13,8 +13,8 @@ Initial implementation of the Pulsar Admin UI kickoff plan.
 - Spring Boot worker that processes queued replay and copy jobs
 - PostgreSQL schema bootstrap for `environments`, `jobs`, and `job_events`
 - Configurable Pulsar gateway mode:
-  - `mock` for local-safe development
   - `rest` for real admin REST connection and metadata sync
+  - `mock` for demos, debugging, and safe local exploration
 
 ## Local development
 
@@ -47,16 +47,24 @@ Replay and copy jobs are now queued by the API and completed by the worker.
 
 ### Gateway mode
 
-By default the API uses the mock gateway:
+By default the API stays in the safe mock-backed mode:
 
 ```bash
 APP_PULSAR_GATEWAY_MODE=mock
 ```
 
-To try real Pulsar admin REST connectivity for environment connection tests and metadata sync:
+To use real Pulsar data by default for normal requests:
 
 ```bash
 APP_PULSAR_GATEWAY_MODE=rest
+```
+
+You can also override the mode per browser session by adding `?mode=mock` to the UI URL. That keeps the app in mock mode while you navigate, which is useful for demos and local debugging without changing server config. Without that flag, requests use the server's configured default mode.
+
+Example:
+
+```text
+http://localhost:4200/environments?mode=mock
 ```
 
 In `rest` mode:
@@ -83,7 +91,10 @@ The Angular dev server proxies `/api/*` to `http://localhost:8080`.
 - `GET /api/v1/environments`
 - `GET /api/v1/environments/{envId}/health`
 - `GET /api/v1/environments/{envId}/topics`
+- `POST /api/v1/environments/{envId}/topics`
 - `GET /api/v1/environments/{envId}/topics/detail?topic=...`
+- `POST /api/v1/environments/{envId}/topics/subscriptions`
+- `DELETE /api/v1/environments/{envId}/topics/subscriptions?topic=...&subscription=...`
 - `GET /api/v1/environments/{envId}/topics/peek?topic=...&limit=...`
 - `POST /api/v1/environments/{envId}/topics/reset-cursor`
 - `POST /api/v1/environments/{envId}/topics/skip-messages`
@@ -108,5 +119,7 @@ The next planned expansion is the admin surface that makes this a fuller one-sto
 - unload and terminate topics
 - topic and namespace policy editing
 - later: namespace and tenant management
+
+Security, RBAC, approvals, and deeper governance are intentionally deferred until the broader admin surface is in place.
 
 See [docs/admin-operations.md](/Users/skumar/experimental/pulsar-admin/docs/admin-operations.md) for the recommended rollout.

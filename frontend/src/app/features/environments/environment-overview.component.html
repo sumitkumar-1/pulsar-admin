@@ -35,7 +35,7 @@
     } @else {
       @for (environment of environments; track environment.id) {
         <article class="environment-card">
-          <a class="card-link" [routerLink]="['/environments', environment.id, 'topics']">
+          <a class="card-link" [routerLink]="['/environments', environment.id, 'topics']" [queryParams]="modeQueryParams()">
             <div class="card-topline">
               <span class="status-badge" [ngClass]="statusClass(environment.status)">
                 {{ environment.status.toLowerCase() }}

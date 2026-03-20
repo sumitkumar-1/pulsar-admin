@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
+import { DemoModeService } from '../../core/demo-mode.service';
 import { EnvironmentDetails, EnvironmentSummary, EnvironmentUpsertRequest } from '../../core/models/api.models';
 import { EnvironmentDialogComponent } from './environment-dialog.component';
 
@@ -17,6 +18,7 @@ import { EnvironmentDialogComponent } from './environment-dialog.component';
 })
 export class EnvironmentOverviewComponent {
   private readonly api = inject(PulsarApiService);
+  private readonly demoMode = inject(DemoModeService);
   private readonly formBuilder = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -194,6 +196,10 @@ export class EnvironmentOverviewComponent {
           this.actionError.set(error.error?.message ?? 'Unable to delete this environment.');
         }
       });
+  }
+
+  modeQueryParams() {
+    return this.demoMode.queryParams({});
   }
 
   private populateForm(environment: EnvironmentDetails) {

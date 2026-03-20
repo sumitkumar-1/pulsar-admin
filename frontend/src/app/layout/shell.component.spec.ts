@@ -40,6 +40,9 @@ describe('ShellComponent', () => {
 
     component.onEnvironmentSelected('prod');
 
-    expect(navigate).toHaveBeenCalledWith(['/environments', 'prod', 'topics']);
+    expect(navigate).toHaveBeenCalledWith(
+      ['/environments', 'prod', 'topics'],
+      { queryParams: {} }
+    );
   });
 });

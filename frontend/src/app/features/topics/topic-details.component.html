@@ -1,4 +1,4 @@
-<a class="back-link" [routerLink]="['/environments', environmentId(), 'topics']">← Back to topics</a>
+<a class="back-link" [routerLink]="['/environments', environmentId(), 'topics']" [queryParams]="modeQueryParams()">← Back to topics</a>
 
 @if (loading()) {
   <div class="state-card">Loading topic details...</div>

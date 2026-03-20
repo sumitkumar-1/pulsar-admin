@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, shareReplay, startWith } from 'rxjs';
 import { PulsarApiService } from '../core/api/pulsar-api.service';
+import { DemoModeService } from '../core/demo-mode.service';
 import { EnvironmentSummary } from '../core/models/api.models';
 
 @Component({
@@ -16,6 +17,7 @@ import { EnvironmentSummary } from '../core/models/api.models';
 })
 export class ShellComponent {
   private readonly api = inject(PulsarApiService);
+  private readonly demoMode = inject(DemoModeService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -40,7 +42,9 @@ export class ShellComponent {
       return;
     }
 
-    void this.router.navigate(['/environments', environmentId, 'topics']);
+    void this.router.navigate(['/environments', environmentId, 'topics'], {
+      queryParams: this.modeQueryParams()
+    });
   }
 
   resolveCurrentEnvironment(environments: EnvironmentSummary[]): EnvironmentSummary | undefined {
@@ -49,5 +53,9 @@ export class ShellComponent {
 
   statusClass(status: string): string {
     return status.toLowerCase();
+  }
+
+  modeQueryParams() {
+    return this.demoMode.queryParams({});
   }
 }
