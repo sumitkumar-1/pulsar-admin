@@ -4,9 +4,9 @@
     <div class="dialog-card">
       <div class="dialog-header">
         <div>
-          <p class="eyebrow">Create Tenant</p>
-          <h3 id="create-tenant-title">Add a tenant to this environment</h3>
-          <p>Start by naming the tenant and optionally listing admin roles. The catalog will refresh as soon as it is created.</p>
+          <p class="eyebrow">{{ eyebrow() }}</p>
+          <h3 id="create-tenant-title">{{ title() }}</h3>
+          <p>Start by naming the tenant and optionally listing admin roles. The catalog will refresh as soon as it is created or updated.</p>
         </div>
         <button type="button" class="ghost-icon" (click)="cancel.emit()" aria-label="Close create tenant dialog">Close</button>
       </div>
@@ -14,7 +14,7 @@
       <form class="dialog-form" [formGroup]="form" (ngSubmit)="save.emit()">
         <label [ngClass]="{ invalid: isInvalid('tenant') }">
           <span>Tenant Name</span>
-          <input formControlName="tenant" type="text" placeholder="acme" />
+          <input formControlName="tenant" type="text" placeholder="acme" [readonly]="tenantLocked" />
           @if (isInvalid('tenant')) {
             <small>Tenant name is required.</small>
           }
@@ -32,10 +32,17 @@
           <small>Optional comma-separated clusters. Leave blank to use {{ defaultClusterLabel || 'the current environment cluster' }}.</small>
         </label>
 
+        @if (mode === 'edit') {
+          <label>
+            <span>Reason</span>
+            <textarea formControlName="reason" rows="3" placeholder="Why are we changing tenant access or clusters?"></textarea>
+          </label>
+        }
+
         <section class="preview-card">
           <p class="eyebrow">Preview</p>
           <p>
-            This will create tenant
+            This will {{ mode === 'create' ? 'create tenant' : 'update tenant' }}
             <strong>{{ form.get('tenant')?.value || 'tenant-name' }}</strong>
             and allow it on
             <strong>{{ form.get('allowedClusters')?.value || defaultClusterLabel || 'the active cluster' }}</strong>.
@@ -44,9 +51,7 @@
 
         <div class="dialog-actions">
           <button class="ghost" type="button" (click)="cancel.emit()">Cancel</button>
-          <button type="submit" [disabled]="saving">
-            {{ saving ? 'Creating...' : 'Create Tenant' }}
-          </button>
+          <button type="submit" [disabled]="saving">{{ submitLabel() }}</button>
         </div>
       </form>
     </div>

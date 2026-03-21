@@ -20,6 +20,8 @@ import {
   SkipMessagesRequest,
   SkipMessagesResponse,
   SubscriptionMutationResponse,
+  TopicDeleteRequest,
+  TopicDeleteResponse,
   TerminateTopicRequest,
   TerminateTopicResponse,
   TopicDetails,
@@ -50,7 +52,7 @@ export class TopicDetailsComponent {
   readonly environmentId = signal('');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
-  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'create-subscription' | 'delete-subscription' | null>(null);
+  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription' | 'delete-subscription' | null>(null);
   readonly peekState = signal<PeekMessagesResponse | null>(null);
   readonly peekLoading = signal(false);
   readonly peekError = signal<string | null>(null);
@@ -66,6 +68,9 @@ export class TopicDetailsComponent {
   readonly terminateSaving = signal(false);
   readonly terminateResult = signal<TerminateTopicResponse | null>(null);
   readonly terminateError = signal<string | null>(null);
+  readonly deleteTopicSaving = signal(false);
+  readonly deleteTopicResult = signal<TopicDeleteResponse | null>(null);
+  readonly deleteTopicError = signal<string | null>(null);
   readonly topicPoliciesLoading = signal(false);
   readonly topicPoliciesSaving = signal(false);
   readonly topicPoliciesState = signal<TopicPoliciesResponse | null>(null);
@@ -138,8 +143,13 @@ export class TopicDetailsComponent {
     operation: ['COPY' as 'COPY' | 'REPLAY', [Validators.required]],
     destinationTopicName: ['', [Validators.required]],
     messageLimit: [100, [Validators.required, Validators.min(1), Validators.max(5000)]],
+    messageKey: [''],
+    propertyFilters: [''],
     filterText: [''],
     messagesPerSecond: [50, [Validators.required, Validators.min(1), Validators.max(1000)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+  readonly deleteTopicForm = this.formBuilder.nonNullable.group({
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -188,6 +198,8 @@ export class TopicDetailsComponent {
             operation: 'COPY',
             destinationTopicName: this.defaultDestinationTopic(details.fullName),
             messageLimit: 100,
+            messageKey: '',
+            propertyFilters: '',
             filterText: '',
             messagesPerSecond: 50,
             reason: ''
@@ -225,7 +237,7 @@ export class TopicDetailsComponent {
     return !this.details()?.partitioned;
   }
 
-  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'create-subscription') {
+  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription') {
     this.activeWorkflow.set(workflow);
 
     if (workflow === 'peek') {
@@ -361,11 +373,41 @@ export class TopicDetailsComponent {
           operation: this.replayForm.controls.operation.value || 'COPY',
           destinationTopicName: this.replayForm.controls.destinationTopicName.value || this.defaultDestinationTopic(topic.fullName),
           messageLimit: this.replayForm.controls.messageLimit.value || 100,
+          messageKey: this.replayForm.controls.messageKey.value,
+          propertyFilters: this.replayForm.controls.propertyFilters.value,
           filterText: this.replayForm.controls.filterText.value,
           messagesPerSecond: this.replayForm.controls.messagesPerSecond.value || 50,
           reason: this.replayForm.controls.reason.value
         });
       }
+    }
+
+    if (workflow === 'dlq') {
+      const topic = this.details();
+      this.replayError.set(null);
+      this.replayResult.set(null);
+      this.stopReplayPolling();
+
+      if (topic && topic.subscriptions.length > 0) {
+        const currentSubscription = this.replayForm.controls.subscriptionName.value;
+        this.replayForm.patchValue({
+          subscriptionName: currentSubscription || topic.subscriptions[0] || '',
+          operation: 'REPLAY',
+          destinationTopicName: this.deriveDlqDestination(topic.fullName),
+          messageLimit: 50,
+          messageKey: '',
+          propertyFilters: 'source=dlq',
+          filterText: 'error',
+          messagesPerSecond: 25,
+          reason: ''
+        });
+      }
+    }
+
+    if (workflow === 'delete-topic') {
+      this.deleteTopicError.set(null);
+      this.deleteTopicResult.set(null);
+      this.deleteTopicForm.patchValue({ reason: '' });
     }
 
     if (workflow === 'create-subscription') {
@@ -395,6 +437,7 @@ export class TopicDetailsComponent {
     this.activeWorkflow.set(null);
     this.stopReplayPolling();
     this.subscriptionPendingDelete.set(null);
+    this.deleteTopicError.set(null);
   }
 
   submitResetCursor() {
@@ -531,6 +574,16 @@ export class TopicDetailsComponent {
       reason: formValue.reason
     };
 
+    const messageKey = formValue.messageKey?.trim();
+    if (messageKey) {
+      request.messageKey = messageKey;
+    }
+
+    const propertyFilters = this.parseFilterProperties(formValue.propertyFilters);
+    if (Object.keys(propertyFilters).length > 0) {
+      request.propertyFilters = propertyFilters;
+    }
+
     this.replaySaving.set(true);
     this.replayError.set(null);
     this.replayResult.set(null);
@@ -547,6 +600,41 @@ export class TopicDetailsComponent {
         error: (error: { error?: { message?: string } }) => {
           this.replayError.set(error.error?.message ?? 'Unable to start the replay or copy job.');
           this.replaySaving.set(false);
+        }
+      });
+  }
+
+  submitDeleteTopic() {
+    const topic = this.details();
+    if (!topic) {
+      this.deleteTopicError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.deleteTopicForm.invalid) {
+      this.deleteTopicForm.markAllAsTouched();
+      return;
+    }
+
+    const request: TopicDeleteRequest = {
+      topicName: topic.fullName,
+      reason: this.deleteTopicForm.controls.reason.value.trim()
+    };
+
+    this.deleteTopicSaving.set(true);
+    this.deleteTopicError.set(null);
+    this.deleteTopicResult.set(null);
+
+    this.api.deleteTopic(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.deleteTopicSaving.set(false);
+          this.deleteTopicResult.set(response);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.deleteTopicSaving.set(false);
+          this.deleteTopicError.set(error.error?.message ?? 'Unable to delete the topic.');
         }
       });
   }
@@ -857,18 +945,20 @@ export class TopicDetailsComponent {
 
   replayPreview(): string {
     const topic = this.details();
-    const { subscriptionName, operation, destinationTopicName, messageLimit, filterText, messagesPerSecond } =
+    const { subscriptionName, operation, destinationTopicName, messageLimit, messageKey, propertyFilters, filterText, messagesPerSecond } =
       this.replayForm.getRawValue();
 
     if (!topic || !subscriptionName || !destinationTopicName) {
       return 'Choose a subscription and destination topic to preview this replay or copy job.';
     }
 
-    const filterSegment = filterText?.trim()
-      ? ` filtered by "${filterText.trim()}"`
-      : ' without additional filtering';
+    const filterBits = [
+      messageKey?.trim() ? `key ${messageKey.trim()}` : null,
+      propertyFilters?.trim() ? `properties ${propertyFilters.trim()}` : null,
+      filterText?.trim() ? `text "${filterText.trim()}"` : null
+    ].filter(Boolean).join(', ');
 
-    return `${operation === 'COPY' ? 'Copy' : 'Replay'} up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterSegment} into ${destinationTopicName} at up to ${messagesPerSecond} msg/s.`;
+    return `${operation === 'COPY' ? 'Copy' : 'Replay'} up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterBits ? ` filtered by ${filterBits}` : ' without additional filtering'} into ${destinationTopicName} at up to ${messagesPerSecond} msg/s.`;
   }
 
   unloadPreview(): string {
@@ -976,6 +1066,13 @@ export class TopicDetailsComponent {
       : sourceTopicName.replace(/\/([^/]+)$/, '/replay-lab');
   }
 
+  private deriveDlqDestination(sourceTopicName: string): string {
+    if (sourceTopicName.toLowerCase().includes('dlq')) {
+      return sourceTopicName.replace(/dlq/ig, 'retry');
+    }
+    return this.defaultDestinationTopic(sourceTopicName);
+  }
+
   private toIsoTimestamp(value: string): string {
     if (!value) {
       return '';
@@ -995,6 +1092,19 @@ export class TopicDetailsComponent {
       .reduce<Record<string, string>>((accumulator, line) => {
         const [key, ...rest] = line.split('=');
         if (key?.trim()) {
+          accumulator[key.trim()] = rest.join('=').trim();
+        }
+        return accumulator;
+      }, {});
+  }
+
+  parseFilterProperties(value: string): Record<string, string> {
+    return value.split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .reduce<Record<string, string>>((accumulator, item) => {
+        const [key, ...rest] = item.split('=');
+        if (key?.trim() && rest.length > 0) {
           accumulator[key.trim()] = rest.join('=').trim();
         }
         return accumulator;

@@ -15,6 +15,7 @@
       <div class="hero-actions">
         <span class="mode-pill">{{ modeQueryParams().mode === 'mock' ? 'Mock Mode' : 'Live Mode' }}</span>
         <button type="button" class="secondary-action" (click)="openNamespaceYaml()">Namespace YAML Sync</button>
+        <button type="button" class="secondary-action danger-text" (click)="openDeleteDialog()">Delete Namespace</button>
       </div>
     </section>
 
@@ -136,4 +137,39 @@
       </article>
     </section>
   }
+}
+
+@if (deleteDialogOpen() && namespaceDetails(); as details) {
+  <div class="dialog-backdrop" (click)="closeDeleteDialog()"></div>
+  <section class="dialog-shell" role="dialog" aria-modal="true" aria-labelledby="delete-namespace-title">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Delete Namespace</p>
+          <h3 id="delete-namespace-title">{{ details.tenant }}/{{ details.namespace }}</h3>
+          <p>This delete is guided and single-resource only. Pulsar will block it if topics still exist inside the namespace.</p>
+        </div>
+        <button type="button" class="ghost-icon" (click)="closeDeleteDialog()">Close</button>
+      </div>
+
+      <form class="dialog-form" [formGroup]="deleteForm" (ngSubmit)="submitDeleteNamespace()">
+        <section class="preview-panel">
+          <p class="eyebrow">Preview</p>
+          <p>This will permanently delete namespace <strong>{{ details.tenant }}/{{ details.namespace }}</strong> after all topics inside it have already been removed.</p>
+        </section>
+
+        <label>
+          <span>Reason</span>
+          <textarea formControlName="reason" rows="3" placeholder="Why are we deleting this namespace?"></textarea>
+        </label>
+
+        <div class="form-button-row">
+          <button type="button" class="ghost" (click)="closeDeleteDialog()">Cancel</button>
+          <button type="submit" class="danger-button" [disabled]="deleteSaving()">
+            {{ deleteSaving() ? 'Deleting...' : 'Delete Namespace' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
 }

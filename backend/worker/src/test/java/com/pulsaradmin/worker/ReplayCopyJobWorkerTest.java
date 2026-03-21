@@ -82,7 +82,7 @@ class ReplayCopyJobWorkerTest {
         "job-test-1");
 
     assertThat(job.status().name()).isEqualTo("COMPLETED");
-    assertThat(job.parameters().get("publishedMessages")).isEqualTo(36);
+    assertThat(job.parameters().get("publishedMessages")).isEqualTo(12);
     assertThat(eventCount).isEqualTo(2);
   }
 

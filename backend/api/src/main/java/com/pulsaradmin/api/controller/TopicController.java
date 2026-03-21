@@ -18,6 +18,8 @@ import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
+import com.pulsaradmin.shared.model.TopicDeleteRequest;
+import com.pulsaradmin.shared.model.TopicDeleteResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import com.pulsaradmin.shared.model.TopicPoliciesResponse;
@@ -67,6 +69,13 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @Valid @RequestBody CreateTopicRequest request) {
     return pulsarCatalogService.createTopic(envId, request);
+  }
+
+  @PostMapping("/delete")
+  public TopicDeleteResponse deleteTopic(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody TopicDeleteRequest request) {
+    return pulsarCatalogService.deleteTopic(envId, request);
   }
 
   @PostMapping("/subscriptions")

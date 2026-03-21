@@ -11,6 +11,7 @@ import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -66,6 +67,8 @@ public class ReplayCopyJobService {
           request.destinationTopicName(),
           request.messageLimit(),
           request.messagesPerSecond(),
+          blankToNull(request.messageKey()),
+          sanitizePropertyFilters(request.propertyFilters()),
           blankToNull(request.filterText()),
           Math.min(request.messageLimit(), 24),
           Math.min(request.messageLimit(), 24),
@@ -82,6 +85,8 @@ public class ReplayCopyJobService {
     parameters.put("destinationTopicName", request.destinationTopicName());
     parameters.put("messageLimit", request.messageLimit());
     parameters.put("messagesPerSecond", request.messagesPerSecond());
+    parameters.put("messageKey", blankToNull(request.messageKey()));
+    parameters.put("propertyFilters", sanitizePropertyFilters(request.propertyFilters()));
     parameters.put("filterText", blankToNull(request.filterText()));
     parameters.put("reason", request.reason());
     parameters.put("statusMessage", "Queued for worker pickup.");
@@ -187,6 +192,8 @@ public class ReplayCopyJobService {
         stringValue(parameters.get("destinationTopicName")),
         intValue(parameters.get("messageLimit")),
         intValue(parameters.get("messagesPerSecond")),
+        stringValue(parameters.get("messageKey")),
+        stringMapValue(parameters.get("propertyFilters")),
         stringValue(parameters.get("filterText")),
         intValue(parameters.get("matchedMessages")),
         intValue(parameters.get("publishedMessages")),
@@ -211,6 +218,36 @@ public class ReplayCopyJobService {
 
   private String blankToNull(String value) {
     return value == null || value.isBlank() ? null : value.trim();
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, String> stringMapValue(Object value) {
+    if (value instanceof Map<?, ?> raw) {
+      Map<String, String> normalized = new LinkedHashMap<>();
+      raw.forEach((key, item) -> {
+        if (key != null && item != null) {
+          normalized.put(key.toString(), item.toString());
+        }
+      });
+      return normalized;
+    }
+    return Map.of();
+  }
+
+  private Map<String, String> sanitizePropertyFilters(Map<String, String> propertyFilters) {
+    if (propertyFilters == null || propertyFilters.isEmpty()) {
+      return Map.of();
+    }
+
+    Map<String, String> normalized = new LinkedHashMap<>();
+    propertyFilters.forEach((key, value) -> {
+      String normalizedKey = blankToNull(key);
+      String normalizedValue = blankToNull(value);
+      if (normalizedKey != null && normalizedValue != null) {
+        normalized.put(normalizedKey, normalizedValue);
+      }
+    });
+    return normalized;
   }
 
   private EnvironmentRecord requireEnvironment(String environmentId) {

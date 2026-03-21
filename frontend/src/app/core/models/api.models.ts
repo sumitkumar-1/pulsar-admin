@@ -94,6 +94,37 @@ export interface CatalogMutationResponse {
   catalogSummary: CatalogSummary;
 }
 
+export interface TenantDetails {
+  environmentId: string;
+  tenant: string;
+  adminRoles: string[];
+  allowedClusters: string[];
+  namespaceCount: number;
+  topicCount: number;
+  lastSyncedAt: string | null;
+}
+
+export interface TenantUpdateRequest {
+  tenant: string;
+  adminRoles: string[];
+  allowedClusters: string[];
+  reason: string;
+}
+
+export interface TenantDeleteRequest {
+  tenant: string;
+  reason: string;
+}
+
+export interface TenantMutationResponse {
+  environmentId: string;
+  tenant: string;
+  action: 'UPDATE' | 'DELETE';
+  message: string;
+  tenantDetails: TenantDetails;
+  catalogSummary: CatalogSummary;
+}
+
 export interface TopicPolicies {
   retentionTimeInMinutes: number | null;
   retentionSizeInMb: number | null;
@@ -260,6 +291,21 @@ export interface NamespacePoliciesResponse {
   namespaceDetails: NamespaceDetails;
 }
 
+export interface NamespaceDeleteRequest {
+  tenant: string;
+  namespace: string;
+  reason: string;
+}
+
+export interface NamespaceMutationResponse {
+  environmentId: string;
+  tenant: string;
+  namespace: string;
+  action: 'DELETE';
+  message: string;
+  catalogSummary: CatalogSummary;
+}
+
 export interface PeekMessage {
   messageId: string;
   key: string;
@@ -337,6 +383,20 @@ export interface UnloadTopicResponse {
   topicDetails: TopicDetails;
 }
 
+export interface TopicDeleteRequest {
+  topicName: string;
+  reason: string;
+}
+
+export interface TopicDeleteResponse {
+  environmentId: string;
+  topicName: string;
+  tenant: string;
+  namespace: string;
+  message: string;
+  catalogSummary: CatalogSummary;
+}
+
 export interface PublishMessageRequest {
   topicName: string;
   key: string | null;
@@ -396,6 +456,8 @@ export interface ReplayCopyJobRequest {
   operation: 'REPLAY' | 'COPY';
   destinationTopicName: string;
   messageLimit: number;
+  messageKey?: string | null;
+  propertyFilters?: Record<string, string>;
   filterText: string | null;
   messagesPerSecond: number;
   reason: string;
@@ -411,6 +473,8 @@ export interface ReplayCopyJobStatusResponse {
   destinationTopicName: string;
   messageLimit: number;
   messagesPerSecond: number;
+  messageKey: string | null;
+  propertyFilters: Record<string, string>;
   filterText: string | null;
   matchedMessages: number;
   publishedMessages: number;
@@ -456,6 +520,22 @@ export interface TenantYamlApplyResponse {
   message: string;
   appliedChanges: TenantYamlDiffEntry[];
   catalogSummary: CatalogSummary;
+}
+
+export interface PlatformArtifactSummary {
+  name: string;
+  tenant: string | null;
+  namespace: string | null;
+  status: string;
+  details: string;
+}
+
+export interface PlatformSummary {
+  environmentId: string;
+  functions: PlatformArtifactSummary[];
+  sources: PlatformArtifactSummary[];
+  sinks: PlatformArtifactSummary[];
+  connectors: PlatformArtifactSummary[];
 }
 
 export interface TopicPage {

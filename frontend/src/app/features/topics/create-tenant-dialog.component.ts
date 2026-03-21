@@ -15,6 +15,8 @@ export class CreateTenantDialogComponent {
   @Input({ required: true }) saving = false;
   @Input({ required: true }) form!: FormGroup;
   @Input() defaultClusterLabel = '';
+  @Input() mode: 'create' | 'edit' = 'create';
+  @Input() tenantLocked = false;
 
   @Output() cancel = new EventEmitter<void>();
   @Output() save = new EventEmitter<void>();
@@ -22,5 +24,20 @@ export class CreateTenantDialogComponent {
   isInvalid(controlName: string): boolean {
     const control = this.form.get(controlName);
     return !!control && control.invalid && (control.dirty || control.touched);
+  }
+
+  title(): string {
+    return this.mode === 'create' ? 'Add a tenant to this environment' : 'Update tenant access and cluster settings';
+  }
+
+  eyebrow(): string {
+    return this.mode === 'create' ? 'Create Tenant' : 'Edit Tenant';
+  }
+
+  submitLabel(): string {
+    if (this.saving) {
+      return this.mode === 'create' ? 'Creating...' : 'Saving...';
+    }
+    return this.mode === 'create' ? 'Create Tenant' : 'Save Tenant';
   }
 }

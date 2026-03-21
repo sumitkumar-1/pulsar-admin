@@ -16,6 +16,8 @@ public record ReplayCopyJobRequest(
     @Min(value = 1, message = "Message limit must be at least 1.")
     @Max(value = 5000, message = "Message limit must be 5000 or less.")
     int messageLimit,
+    String messageKey,
+    java.util.Map<String, String> propertyFilters,
     String filterText,
     @Min(value = 1, message = "Rate limit must be at least 1.")
     @Max(value = 1000, message = "Rate limit must be 1000 or less.")

@@ -12,7 +12,13 @@ import {
   CreateTenantRequest,
   CreateTopicRequest,
   EnvironmentHealth,
+  NamespaceDeleteRequest,
   NamespaceSummary,
+  PlatformSummary,
+  TenantDeleteRequest,
+  TenantDetails,
+  TenantUpdateRequest,
+  TenantSummary,
   TopicListItem,
   TopicPage
 } from '../../core/models/api.models';
@@ -70,9 +76,19 @@ export class TopicExplorerComponent {
     tenant: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] }),
     namespace: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] })
   });
+  readonly editTenantForm = new FormGroup({
+    tenant: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] }),
+    adminRoles: new FormControl('', { nonNullable: true }),
+    allowedClusters: new FormControl('', { nonNullable: true }),
+    reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(240)] })
+  });
+  readonly deleteTenantForm = new FormGroup({
+    reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(240)] })
+  });
   readonly environmentId = signal('');
   readonly environmentHealth = signal<EnvironmentHealth | null>(null);
   readonly catalogSummary = signal<CatalogSummary | null>(null);
+  readonly platformSummary = signal<PlatformSummary | null>(null);
   readonly topicPage = signal<TopicPage | null>(null);
   readonly selectedTenant = signal('');
   readonly selectedNamespace = signal('');
@@ -81,6 +97,8 @@ export class TopicExplorerComponent {
   readonly tenantDialogOpen = signal(false);
   readonly namespaceDialogOpen = signal(false);
   readonly dialogOpen = signal(false);
+  readonly editTenantDialogOpen = signal(false);
+  readonly deleteTenantDialogOpen = signal(false);
   readonly savingTenant = signal(false);
   readonly savingNamespace = signal(false);
   readonly savingTopic = signal(false);
@@ -138,6 +156,15 @@ export class TopicExplorerComponent {
     return catalog.namespaces.find((item) => item.tenant === tenant && item.namespace === namespace) ?? null;
   });
 
+  readonly selectedTenantSummary = computed<TenantSummary | null>(() => {
+    const catalog = this.catalogSummary();
+    const tenant = this.selectedTenant();
+    if (!catalog || !tenant) {
+      return null;
+    }
+    return catalog.tenants.find((item) => item.name === tenant) ?? null;
+  });
+
   readonly selectedTopics = computed(() =>
     [...(this.topicPage()?.items ?? [])].sort((left, right) => left.topic.localeCompare(right.topic))
   );
@@ -183,6 +210,16 @@ export class TopicExplorerComponent {
           this.catalogSummary.set(catalog);
           this.topicPage.set(pageResult);
           this.loading.set(false);
+          if (typeof this.api.getPlatformSummary === 'function') {
+            this.api.getPlatformSummary(this.environmentId())
+              .pipe(takeUntilDestroyed(this.destroyRef))
+              .subscribe({
+                next: (summary) => this.platformSummary.set(summary),
+                error: () => this.platformSummary.set(null)
+              });
+          } else {
+            this.platformSummary.set(null);
+          }
         },
         error: (error: { error?: { message?: string } }) => {
           this.loadError.set(error.error?.message ?? 'Unable to load topics right now.');
@@ -272,6 +309,43 @@ export class TopicExplorerComponent {
     this.tenantDialogOpen.set(true);
   }
 
+  openEditTenantDialog() {
+    const tenant = this.selectedTenant();
+    if (!tenant) {
+      return;
+    }
+
+    this.api.getTenantDetails(this.environmentId(), tenant)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (details: TenantDetails) => {
+          this.editTenantForm.reset({
+            tenant: details.tenant,
+            adminRoles: details.adminRoles.join(','),
+            allowedClusters: details.allowedClusters.join(','),
+            reason: ''
+          });
+          this.actionFeedback.set(null);
+          this.editTenantDialogOpen.set(true);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.actionFeedback.set({
+            kind: 'error',
+            message: error.error?.message ?? 'Unable to load tenant details right now.'
+          });
+        }
+      });
+  }
+
+  openDeleteTenantDialog() {
+    if (!this.selectedTenant()) {
+      return;
+    }
+    this.deleteTenantForm.reset({ reason: '' });
+    this.actionFeedback.set(null);
+    this.deleteTenantDialogOpen.set(true);
+  }
+
   openCreateNamespaceDialog() {
     this.createNamespaceForm.reset({
       tenant: this.selectedTenant(),
@@ -296,6 +370,18 @@ export class TopicExplorerComponent {
   closeCreateNamespaceDialog() {
     if (!this.savingNamespace()) {
       this.namespaceDialogOpen.set(false);
+    }
+  }
+
+  closeEditTenantDialog() {
+    if (!this.savingTenant()) {
+      this.editTenantDialogOpen.set(false);
+    }
+  }
+
+  closeDeleteTenantDialog() {
+    if (!this.savingTenant()) {
+      this.deleteTenantDialogOpen.set(false);
     }
   }
 
@@ -384,6 +470,72 @@ export class TopicExplorerComponent {
       });
   }
 
+  submitUpdateTenant() {
+    if (this.editTenantForm.invalid) {
+      this.editTenantForm.markAllAsTouched();
+      return;
+    }
+
+    this.savingTenant.set(true);
+    const request: TenantUpdateRequest = {
+      tenant: this.editTenantForm.controls.tenant.value.trim(),
+      adminRoles: this.toCsvList(this.editTenantForm.controls.adminRoles.value),
+      allowedClusters: this.toCsvList(this.editTenantForm.controls.allowedClusters.value),
+      reason: this.editTenantForm.controls.reason.value.trim()
+    };
+
+    this.api.updateTenant(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.editTenantDialogOpen.set(false);
+          this.savingTenant.set(false);
+          this.actionFeedback.set({ kind: 'success', message: response.message });
+          this.refresh$.next(undefined);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.savingTenant.set(false);
+          this.actionFeedback.set({
+            kind: 'error',
+            message: error.error?.message ?? 'Unable to update the tenant right now.'
+          });
+        }
+      });
+  }
+
+  submitDeleteTenant() {
+    if (this.deleteTenantForm.invalid || !this.selectedTenant()) {
+      this.deleteTenantForm.markAllAsTouched();
+      return;
+    }
+
+    this.savingTenant.set(true);
+    const request: TenantDeleteRequest = {
+      tenant: this.selectedTenant(),
+      reason: this.deleteTenantForm.controls.reason.value.trim()
+    };
+
+    this.api.deleteTenant(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.deleteTenantDialogOpen.set(false);
+          this.savingTenant.set(false);
+          this.actionFeedback.set({ kind: 'success', message: response.message });
+          this.selectedTenant.set('');
+          this.selectedNamespace.set('');
+          this.refresh$.next(undefined);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.savingTenant.set(false);
+          this.actionFeedback.set({
+            kind: 'error',
+            message: error.error?.message ?? 'Unable to delete the tenant right now.'
+          });
+        }
+      });
+  }
+
   submitCreateTopic() {
     if (this.createTopicForm.invalid) {
       this.createTopicForm.markAllAsTouched();
@@ -463,5 +615,21 @@ export class TopicExplorerComponent {
     return value.split(',')
       .map((item) => item.trim())
       .filter((item) => item.length > 0);
+  }
+
+  functionsCount(): number {
+    return this.platformSummary()?.functions.length ?? 0;
+  }
+
+  sourcesCount(): number {
+    return this.platformSummary()?.sources.length ?? 0;
+  }
+
+  sinksCount(): number {
+    return this.platformSummary()?.sinks.length ?? 0;
+  }
+
+  connectorsCount(): number {
+    return this.platformSummary()?.connectors.length ?? 0;
   }
 }

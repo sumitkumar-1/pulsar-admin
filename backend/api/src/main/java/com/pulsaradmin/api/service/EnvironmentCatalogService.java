@@ -16,16 +16,23 @@ import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
 import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
+import com.pulsaradmin.shared.model.NamespaceDeleteRequest;
+import com.pulsaradmin.shared.model.NamespaceMutationResponse;
 import com.pulsaradmin.shared.model.NamespaceSummary;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
+import com.pulsaradmin.shared.model.TenantDeleteRequest;
+import com.pulsaradmin.shared.model.TenantDetails;
+import com.pulsaradmin.shared.model.TenantMutationResponse;
 import com.pulsaradmin.shared.model.TenantSummary;
+import com.pulsaradmin.shared.model.TenantUpdateRequest;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
@@ -34,6 +41,8 @@ import com.pulsaradmin.shared.model.TopicPolicies;
 import com.pulsaradmin.shared.model.TopicPoliciesResponse;
 import com.pulsaradmin.shared.model.TopicPoliciesUpdateRequest;
 import com.pulsaradmin.shared.model.TopicPoliciesUpdateResponse;
+import com.pulsaradmin.shared.model.TopicDeleteRequest;
+import com.pulsaradmin.shared.model.TopicDeleteResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicListItem;
 import com.pulsaradmin.shared.model.TopicStatsSummary;
@@ -196,6 +205,78 @@ public class EnvironmentCatalogService {
         "NAMESPACE",
         fullNamespace,
         "Created namespace " + fullNamespace + " and refreshed the environment catalog.",
+        catalogSummary);
+  }
+
+  public TenantDetails getTenantDetails(String environmentId, String tenant) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
+    requireTenant(snapshot, tenant);
+    TenantDetails gatewayDetails = pulsarAdminGateway.getTenantDetails(environment.toDetails(), tenant);
+
+    return new TenantDetails(
+        environmentId,
+        tenant,
+        gatewayDetails.adminRoles(),
+        gatewayDetails.allowedClusters(),
+        (int) snapshot.namespaces().stream().filter(namespace -> namespace.startsWith(tenant + "/")).count(),
+        (int) snapshot.topics().stream().filter(topic -> topic.tenant().equals(tenant)).count(),
+        snapshot.updatedAt());
+  }
+
+  public TenantMutationResponse updateTenant(String environmentId, TenantUpdateRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
+    requireTenant(snapshot, request.tenant());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when updating a tenant.");
+    }
+
+    TenantDetails updated = pulsarAdminGateway.updateTenant(environment.toDetails(), request);
+    EnvironmentSnapshotRecord refreshed = refreshSnapshot(environment);
+    CatalogSummary catalogSummary = toCatalogSummary(refreshed);
+
+    return new TenantMutationResponse(
+        environmentId,
+        request.tenant(),
+        "UPDATE",
+        "Updated tenant " + request.tenant() + " and refreshed the environment catalog.",
+        new TenantDetails(
+            environmentId,
+            updated.tenant(),
+            updated.adminRoles(),
+            updated.allowedClusters(),
+            (int) refreshed.namespaces().stream().filter(namespace -> namespace.startsWith(request.tenant() + "/")).count(),
+            (int) refreshed.topics().stream().filter(topic -> topic.tenant().equals(request.tenant())).count(),
+            refreshed.updatedAt()),
+        catalogSummary);
+  }
+
+  public TenantMutationResponse deleteTenant(String environmentId, TenantDeleteRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
+    requireTenant(snapshot, request.tenant());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when deleting a tenant.");
+    }
+
+    boolean hasNamespaces = snapshot.namespaces().stream().anyMatch(namespace -> namespace.startsWith(request.tenant() + "/"));
+    if (hasNamespaces) {
+      throw new BadRequestException("Delete namespaces under tenant " + request.tenant() + " before deleting the tenant itself.");
+    }
+
+    TenantDetails details = getTenantDetails(environmentId, request.tenant());
+    pulsarAdminGateway.deleteTenant(environment.toDetails(), request.tenant());
+    CatalogSummary catalogSummary = toCatalogSummary(refreshSnapshot(environment));
+
+    return new TenantMutationResponse(
+        environmentId,
+        request.tenant(),
+        "DELETE",
+        "Deleted tenant " + request.tenant() + " and refreshed the environment catalog.",
+        details,
         catalogSummary);
   }
 
@@ -414,6 +495,33 @@ public class EnvironmentCatalogService {
             refreshed.healthMessage()));
   }
 
+  public NamespaceMutationResponse deleteNamespace(String environmentId, NamespaceDeleteRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
+    requireNamespace(snapshot, request.tenant(), request.namespace());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when deleting a namespace.");
+    }
+
+    boolean hasTopics = snapshot.topics().stream()
+        .anyMatch(topic -> topic.tenant().equals(request.tenant()) && topic.namespace().equals(request.namespace()));
+    if (hasTopics) {
+      throw new BadRequestException("Delete all topics in " + request.tenant() + "/" + request.namespace() + " before deleting the namespace.");
+    }
+
+    pulsarAdminGateway.deleteNamespace(environment.toDetails(), request.tenant(), request.namespace());
+    CatalogSummary catalogSummary = toCatalogSummary(refreshSnapshot(environment));
+
+    return new NamespaceMutationResponse(
+        environmentId,
+        request.tenant(),
+        request.namespace(),
+        "DELETE",
+        "Deleted namespace " + request.tenant() + "/" + request.namespace() + " and refreshed the environment catalog.",
+        catalogSummary);
+  }
+
   public PublishMessageResponse publishMessage(String environmentId, PublishMessageRequest request) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
     requireTopicFromSnapshot(environmentId, request.topicName());
@@ -539,6 +647,32 @@ public class EnvironmentCatalogService {
         request.topicName(),
         gatewayResponse.message(),
         updatedTopic);
+  }
+
+  public TopicDeleteResponse deleteTopic(String environmentId, TopicDeleteRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    TopicDetails topic = requireTopicFromSnapshot(environmentId, request.topicName());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when deleting a topic.");
+    }
+
+    pulsarAdminGateway.deleteTopic(environment.toDetails(), topic.fullName());
+    CatalogSummary catalogSummary = toCatalogSummary(refreshSnapshot(environment));
+
+    return new TopicDeleteResponse(
+        environmentId,
+        topic.fullName(),
+        topic.tenant(),
+        topic.namespace(),
+        "Deleted topic " + topic.fullName() + " and refreshed the environment catalog.",
+        catalogSummary);
+  }
+
+  public PlatformSummary getPlatformSummary(String environmentId) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
+    return pulsarAdminGateway.getPlatformSummary(environment.toDetails(), snapshot.namespaces());
   }
 
   private void requireEnvironment(String environmentId) {
@@ -714,6 +848,17 @@ public class EnvironmentCatalogService {
     boolean exists = snapshot.namespaces().stream().anyMatch(item -> item.equals(fullNamespace));
     if (!exists) {
       throw new NotFoundException("Unknown namespace: " + fullNamespace);
+    }
+  }
+
+  private void requireTenant(EnvironmentSnapshotRecord snapshot, String tenant) {
+    if (tenant == null || tenant.isBlank()) {
+      throw new BadRequestException("A tenant is required.");
+    }
+
+    boolean exists = snapshot.tenants().stream().anyMatch(item -> item.equals(tenant));
+    if (!exists) {
+      throw new NotFoundException("Unknown tenant: " + tenant);
     }
   }
 

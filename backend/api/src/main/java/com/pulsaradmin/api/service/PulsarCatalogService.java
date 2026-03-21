@@ -10,10 +10,13 @@ import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.NamespaceDetails;
+import com.pulsaradmin.shared.model.NamespaceDeleteRequest;
+import com.pulsaradmin.shared.model.NamespaceMutationResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
@@ -23,6 +26,10 @@ import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
+import com.pulsaradmin.shared.model.TenantDeleteRequest;
+import com.pulsaradmin.shared.model.TenantDetails;
+import com.pulsaradmin.shared.model.TenantMutationResponse;
+import com.pulsaradmin.shared.model.TenantUpdateRequest;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
@@ -30,6 +37,8 @@ import com.pulsaradmin.shared.model.TopicListItem;
 import com.pulsaradmin.shared.model.TopicPoliciesResponse;
 import com.pulsaradmin.shared.model.TopicPoliciesUpdateRequest;
 import com.pulsaradmin.shared.model.TopicPoliciesUpdateResponse;
+import com.pulsaradmin.shared.model.TopicDeleteRequest;
+import com.pulsaradmin.shared.model.TopicDeleteResponse;
 import com.pulsaradmin.shared.model.TenantYamlApplyRequest;
 import com.pulsaradmin.shared.model.TenantYamlApplyResponse;
 import com.pulsaradmin.shared.model.TenantYamlPreviewRequest;
@@ -90,6 +99,18 @@ public class PulsarCatalogService {
     return environmentCatalogService.createNamespace(environmentId, request);
   }
 
+  public TenantDetails getTenantDetails(String environmentId, String tenant) {
+    return environmentCatalogService.getTenantDetails(environmentId, tenant);
+  }
+
+  public TenantMutationResponse updateTenant(String environmentId, TenantUpdateRequest request) {
+    return environmentCatalogService.updateTenant(environmentId, request);
+  }
+
+  public TenantMutationResponse deleteTenant(String environmentId, TenantDeleteRequest request) {
+    return environmentCatalogService.deleteTenant(environmentId, request);
+  }
+
   public SubscriptionMutationResponse createSubscription(String environmentId, CreateSubscriptionRequest request) {
     return environmentCatalogService.createSubscription(environmentId, request);
   }
@@ -122,6 +143,10 @@ public class PulsarCatalogService {
     return environmentCatalogService.updateNamespacePolicies(environmentId, request);
   }
 
+  public NamespaceMutationResponse deleteNamespace(String environmentId, NamespaceDeleteRequest request) {
+    return environmentCatalogService.deleteNamespace(environmentId, request);
+  }
+
   public PublishMessageResponse publishMessage(String environmentId, PublishMessageRequest request) {
     return environmentCatalogService.publishMessage(environmentId, request);
   }
@@ -142,6 +167,10 @@ public class PulsarCatalogService {
     return environmentCatalogService.unloadTopic(environmentId, request);
   }
 
+  public TopicDeleteResponse deleteTopic(String environmentId, TopicDeleteRequest request) {
+    return environmentCatalogService.deleteTopic(environmentId, request);
+  }
+
   public ReplayCopyJobStatusResponse createReplayCopyJob(String environmentId, ReplayCopyJobRequest request) {
     return replayCopyJobService.createJob(environmentId, request);
   }
@@ -160,5 +189,9 @@ public class PulsarCatalogService {
 
   public TenantYamlApplyResponse applyYaml(String environmentId, TenantYamlApplyRequest request) {
     return tenantYamlSyncService.apply(environmentId, request);
+  }
+
+  public PlatformSummary getPlatformSummary(String environmentId) {
+    return environmentCatalogService.getPlatformSummary(environmentId);
   }
 }

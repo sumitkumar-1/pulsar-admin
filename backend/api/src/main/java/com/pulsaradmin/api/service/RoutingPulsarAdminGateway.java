@@ -13,17 +13,21 @@ import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.TenantDetails;
+import com.pulsaradmin.shared.model.TenantUpdateRequest;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicPolicies;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
+import java.util.List;
 
 public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   private final PulsarAdminGateway mockGateway;
@@ -62,6 +66,21 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public void createNamespace(EnvironmentDetails environment, CreateNamespaceRequest request) {
     activeGateway().createNamespace(environment, request);
+  }
+
+  @Override
+  public TenantDetails getTenantDetails(EnvironmentDetails environment, String tenant) {
+    return activeGateway().getTenantDetails(environment, tenant);
+  }
+
+  @Override
+  public TenantDetails updateTenant(EnvironmentDetails environment, TenantUpdateRequest request) {
+    return activeGateway().updateTenant(environment, request);
+  }
+
+  @Override
+  public void deleteTenant(EnvironmentDetails environment, String tenant) {
+    activeGateway().deleteTenant(environment, tenant);
   }
 
   @Override
@@ -126,6 +145,11 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public void deleteNamespace(EnvironmentDetails environment, String tenant, String namespace) {
     activeGateway().deleteNamespace(environment, tenant, namespace);
+  }
+
+  @Override
+  public PlatformSummary getPlatformSummary(EnvironmentDetails environment, List<String> namespaces) {
+    return activeGateway().getPlatformSummary(environment, namespaces);
   }
 
   @Override

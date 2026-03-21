@@ -18,6 +18,8 @@ import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessage;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformArtifactSummary;
+import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
@@ -25,6 +27,8 @@ import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.TenantDetails;
+import com.pulsaradmin.shared.model.TenantUpdateRequest;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
@@ -63,6 +67,9 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
       new ConcurrentHashMap<>();
   private final ConcurrentMap<String, Set<String>> deletedTopicsByEnvironment = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, Set<String>> deletedNamespacesByEnvironment = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, Set<String>> deletedTenantsByEnvironment = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, ConcurrentMap<String, TenantDetails>> tenantDetailsByEnvironment =
+      new ConcurrentHashMap<>();
 
   @Override
   public EnvironmentConnectionTestResult testConnection(EnvironmentDetails environment) {
@@ -92,9 +99,11 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
 
     Set<String> deletedTopics = deletedTopicsByEnvironment.getOrDefault(environment.id(), Set.of());
     Set<String> deletedNamespaces = deletedNamespacesByEnvironment.getOrDefault(environment.id(), Set.of());
+    Set<String> deletedTenants = deletedTenantsByEnvironment.getOrDefault(environment.id(), Set.of());
     topics = topics.stream()
         .filter(topic -> !deletedTopics.contains(topic.fullName()))
         .filter(topic -> !deletedNamespaces.contains(topic.tenant() + "/" + topic.namespace()))
+        .filter(topic -> !deletedTenants.contains(topic.tenant()))
         .toList();
 
     if (topics.isEmpty()) {
@@ -107,11 +116,13 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
 
     LinkedHashSet<String> tenants = new LinkedHashSet<>(topics.stream().map(TopicDetails::tenant).toList());
     tenants.addAll(createdTenantsByEnvironment.getOrDefault(environment.id(), List.of()));
+    tenants.removeIf(deletedTenants::contains);
 
     LinkedHashSet<String> namespaces = new LinkedHashSet<>(topics.stream()
         .map(topic -> topic.tenant() + "/" + topic.namespace())
         .toList());
     namespaces.addAll(createdNamespacesByEnvironment.getOrDefault(environment.id(), List.of()));
+    namespaces.removeIf(namespace -> deletedNamespaces.contains(namespace) || deletedTenants.contains(namespace.split("/", 2)[0]));
 
     EnvironmentHealth health = new EnvironmentHealth(
         environment.id(),
@@ -196,6 +207,46 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
       namespaces.sort(String::compareTo);
       return namespaces;
     });
+  }
+
+  @Override
+  public TenantDetails getTenantDetails(EnvironmentDetails environment, String tenant) {
+    EnvironmentSnapshot snapshot = syncMetadata(environment);
+    boolean exists = snapshot.tenants().stream().anyMatch(existing -> existing.equalsIgnoreCase(tenant));
+    if (!exists) {
+      throw new BadRequestException("Unknown tenant: " + tenant);
+    }
+
+    TopicListItemCounts counts = summarizeTenant(snapshot, tenant);
+    return tenantDetailsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .computeIfAbsent(tenant, ignored -> defaultTenantDetails(environment, tenant, counts.namespaceCount(), counts.topicCount()));
+  }
+
+  @Override
+  public TenantDetails updateTenant(EnvironmentDetails environment, TenantUpdateRequest request) {
+    getTenantDetails(environment, request.tenant().trim());
+    TopicListItemCounts counts = summarizeTenant(syncMetadata(environment), request.tenant().trim());
+    TenantDetails updated = new TenantDetails(
+        environment.id(),
+        request.tenant().trim(),
+        sanitizeStringList(request.adminRoles()),
+        sanitizeStringList(request.allowedClusters()).isEmpty()
+            ? List.of(environment.clusterLabel())
+            : sanitizeStringList(request.allowedClusters()),
+        counts.namespaceCount(),
+        counts.topicCount(),
+        Instant.now());
+    tenantDetailsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .put(request.tenant().trim(), updated);
+    return updated;
+  }
+
+  @Override
+  public void deleteTenant(EnvironmentDetails environment, String tenant) {
+    getTenantDetails(environment, tenant);
+    deletedTenantsByEnvironment.computeIfAbsent(environment.id(), ignored -> new HashSet<>()).add(tenant);
   }
 
   @Override
@@ -594,6 +645,22 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
     deletedNamespacesByEnvironment.computeIfAbsent(environment.id(), ignored -> new HashSet<>()).add(fullNamespace);
   }
 
+  @Override
+  public PlatformSummary getPlatformSummary(EnvironmentDetails environment, List<String> namespaces) {
+    return new PlatformSummary(
+        environment.id(),
+        List.of(
+            new PlatformArtifactSummary("invoice-normalizer", "acme", "orders", "RUNNING", "Function deployed for event normalization."),
+            new PlatformArtifactSummary("payment-ledger-fanout", "acme", "finance", "STOPPED", "Function is configured but not currently running.")),
+        List.of(
+            new PlatformArtifactSummary("orders-jdbc-source", "acme", "orders", "RUNNING", "Source pulls bounded test data into Pulsar.")),
+        List.of(
+            new PlatformArtifactSummary("payments-elastic-sink", "acme", "finance", "RUNNING", "Sink forwards selected payment events to search storage.")),
+        List.of(
+            new PlatformArtifactSummary("jdbc", null, null, "AVAILABLE", "Built-in connector available in this mock environment."),
+            new PlatformArtifactSummary("elastic-search", null, null, "AVAILABLE", "Connector catalog entry ready for guided deployment.")));
+  }
+
   private EnvironmentStatus deriveStatus(EnvironmentDetails environment, List<TopicDetails> topics) {
     if (topics.stream().anyMatch(topic -> topic.health() == TopicHealth.CRITICAL)) {
       return EnvironmentStatus.DEGRADED;
@@ -646,6 +713,47 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
     }
     String compact = payload.replaceAll("\\s+", " ").trim();
     return compact.length() <= 120 ? compact : compact.substring(0, 117) + "...";
+  }
+
+  private List<String> sanitizeStringList(List<String> values) {
+    if (values == null) {
+      return List.of();
+    }
+
+    return values.stream()
+        .filter(value -> value != null && !value.isBlank())
+        .map(String::trim)
+        .distinct()
+        .sorted()
+        .toList();
+  }
+
+  private TenantDetails defaultTenantDetails(
+      EnvironmentDetails environment,
+      String tenant,
+      int namespaceCount,
+      int topicCount) {
+    return new TenantDetails(
+        environment.id(),
+        tenant,
+        List.of("platform-admin"),
+        List.of(environment.clusterLabel()),
+        namespaceCount,
+        topicCount,
+        Instant.now());
+  }
+
+  private TopicListItemCounts summarizeTenant(EnvironmentSnapshot snapshot, String tenant) {
+    int namespaceCount = (int) snapshot.namespaces().stream()
+        .filter(namespace -> namespace.startsWith(tenant + "/"))
+        .count();
+    int topicCount = (int) snapshot.topics().stream()
+        .filter(topic -> topic.tenant().equals(tenant))
+        .count();
+    return new TopicListItemCounts(namespaceCount, topicCount);
+  }
+
+  private record TopicListItemCounts(int namespaceCount, int topicCount) {
   }
 
   private Map<String, List<TopicDetails>> seedTopics() {

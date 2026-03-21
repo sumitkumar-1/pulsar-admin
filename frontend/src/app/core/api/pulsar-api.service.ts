@@ -18,9 +18,12 @@ import {
   EnvironmentSummary,
   EnvironmentUpsertRequest,
   NamespaceDetails,
+  NamespaceDeleteRequest,
+  NamespaceMutationResponse,
   NamespacePoliciesResponse,
   NamespacePoliciesUpdateRequest,
   PeekMessagesResponse,
+  PlatformSummary,
   PublishMessageRequest,
   PublishMessageResponse,
   ReplayCopyJobRequest,
@@ -30,12 +33,18 @@ import {
   SkipMessagesRequest,
   SkipMessagesResponse,
   SubscriptionMutationResponse,
+  TenantDeleteRequest,
+  TenantDetails,
+  TenantMutationResponse,
+  TenantUpdateRequest,
   TenantYamlApplyRequest,
   TenantYamlApplyResponse,
   TenantYamlPreviewRequest,
   TenantYamlPreviewResponse,
   TerminateTopicRequest,
   TerminateTopicResponse,
+  TopicDeleteRequest,
+  TopicDeleteResponse,
   TopicDetails,
   TopicPage,
   TopicPoliciesResponse,
@@ -140,6 +149,28 @@ export class PulsarApiService {
     );
   }
 
+  getTenantDetails(environmentId: string, tenant: string): Observable<TenantDetails> {
+    return this.http.get<TenantDetails>(`${this.baseUrl}/environments/${environmentId}/tenants/detail`, {
+      params: this.demoMode.appendHttpParams(new HttpParams().set('tenant', tenant))
+    });
+  }
+
+  updateTenant(environmentId: string, request: TenantUpdateRequest): Observable<TenantMutationResponse> {
+    return this.http.post<TenantMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/tenants/update`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  deleteTenant(environmentId: string, request: TenantDeleteRequest): Observable<TenantMutationResponse> {
+    return this.http.post<TenantMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/tenants/delete`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
   createNamespace(environmentId: string, request: CreateNamespaceRequest): Observable<CatalogMutationResponse> {
     return this.http.post<CatalogMutationResponse>(
       `${this.baseUrl}/environments/${environmentId}/namespaces`,
@@ -187,10 +218,26 @@ export class PulsarApiService {
     );
   }
 
+  deleteNamespace(environmentId: string, request: NamespaceDeleteRequest): Observable<NamespaceMutationResponse> {
+    return this.http.post<NamespaceMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/namespaces/delete`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
   createTopic(environmentId: string, request: CreateTopicRequest): Observable<TopicDetails> {
     return this.http.post<TopicDetails>(`${this.baseUrl}/environments/${environmentId}/topics`, request, {
       params: this.demoMode.appendHttpParams(new HttpParams())
     });
+  }
+
+  deleteTopic(environmentId: string, request: TopicDeleteRequest): Observable<TopicDeleteResponse> {
+    return this.http.post<TopicDeleteResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/delete`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
   }
 
   createSubscription(
@@ -294,6 +341,13 @@ export class PulsarApiService {
     return this.http.post<UnloadTopicResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/unload`,
       request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  getPlatformSummary(environmentId: string): Observable<PlatformSummary> {
+    return this.http.get<PlatformSummary>(
+      `${this.baseUrl}/environments/${environmentId}/platform`,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );
   }

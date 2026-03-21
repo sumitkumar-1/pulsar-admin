@@ -6,7 +6,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { combineLatest, switchMap } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
-import { NamespaceDetails, NamespacePoliciesUpdateRequest, TopicListItem } from '../../core/models/api.models';
+import { NamespaceDeleteRequest, NamespaceDetails, NamespacePoliciesUpdateRequest, TopicListItem } from '../../core/models/api.models';
 
 @Component({
   selector: 'app-namespace-details',
@@ -31,6 +31,8 @@ export class NamespaceDetailsComponent {
   readonly saveError = signal<string | null>(null);
   readonly saveSuccess = signal<string | null>(null);
   readonly saving = signal(false);
+  readonly deleteDialogOpen = signal(false);
+  readonly deleteSaving = signal(false);
 
   readonly policyForm = this.formBuilder.nonNullable.group({
     retentionTimeInMinutes: [0, [Validators.min(0)]],
@@ -43,6 +45,9 @@ export class NamespaceDetailsComponent {
     dispatchRatePerTopicInByte: [0, [Validators.min(0)]],
     publishRateInMsg: [0, [Validators.min(0)]],
     publishRateInByte: [0, [Validators.min(0)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+  readonly deleteForm = this.formBuilder.nonNullable.group({
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -155,6 +160,56 @@ export class NamespaceDetailsComponent {
         error: (error: { error?: { message?: string } }) => {
           this.saveError.set(error.error?.message ?? 'Unable to update namespace policies.');
           this.saving.set(false);
+        }
+      });
+  }
+
+  openDeleteDialog() {
+    this.deleteForm.reset({ reason: '' });
+    this.deleteDialogOpen.set(true);
+    this.saveError.set(null);
+    this.saveSuccess.set(null);
+  }
+
+  closeDeleteDialog() {
+    if (!this.deleteSaving()) {
+      this.deleteDialogOpen.set(false);
+    }
+  }
+
+  submitDeleteNamespace() {
+    const details = this.namespaceDetails();
+    if (!details) {
+      return;
+    }
+
+    if (this.deleteForm.invalid) {
+      this.deleteForm.markAllAsTouched();
+      return;
+    }
+
+    this.deleteSaving.set(true);
+    this.saveError.set(null);
+    const request: NamespaceDeleteRequest = {
+      tenant: details.tenant,
+      namespace: details.namespace,
+      reason: this.deleteForm.controls.reason.value.trim()
+    };
+
+    this.api.deleteNamespace(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.deleteSaving.set(false);
+          this.deleteDialogOpen.set(false);
+          this.saveSuccess.set(response.message);
+          void this.router.navigate(['/environments', this.environmentId(), 'topics'], {
+            queryParams: this.demoMode.queryParams({})
+          });
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.deleteSaving.set(false);
+          this.saveError.set(error.error?.message ?? 'Unable to delete namespace.');
         }
       });
   }

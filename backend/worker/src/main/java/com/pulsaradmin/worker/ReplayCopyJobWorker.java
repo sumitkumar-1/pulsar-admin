@@ -61,8 +61,10 @@ public class ReplayCopyJobWorker {
     try {
       Map<String, Object> updatedParameters = new LinkedHashMap<>(running.parameters());
       int messageLimit = intValue(updatedParameters.get("messageLimit"));
+      String messageKey = stringValue(updatedParameters.get("messageKey"));
       String filterText = stringValue(updatedParameters.get("filterText"));
-      int matchedMessages = estimateMatches(messageLimit, filterText);
+      Map<String, String> propertyFilters = stringMapValue(updatedParameters.get("propertyFilters"));
+      int matchedMessages = estimateMatches(messageLimit, messageKey, propertyFilters, filterText);
       int publishedMessages = running.type() == JobType.COPY
           ? matchedMessages
           : Math.max(1, matchedMessages - 1);
@@ -116,11 +118,22 @@ public class ReplayCopyJobWorker {
     }
   }
 
-  private int estimateMatches(int messageLimit, String filterText) {
-    if (filterText == null || filterText.isBlank()) {
-      return Math.max(1, Math.min(messageLimit, 120));
+  private int estimateMatches(
+      int messageLimit,
+      String messageKey,
+      Map<String, String> propertyFilters,
+      String filterText) {
+    int base = Math.max(1, Math.min(messageLimit, 120));
+    if (messageKey != null && !messageKey.isBlank()) {
+      base = Math.max(1, Math.min(base, 24));
     }
-    return Math.max(1, Math.min(messageLimit, 36));
+    if (propertyFilters != null && !propertyFilters.isEmpty()) {
+      base = Math.max(1, Math.min(base, 18));
+    }
+    if (filterText == null || filterText.isBlank()) {
+      return base;
+    }
+    return Math.max(1, Math.min(base, 12));
   }
 
   private String stringValue(Object value) {
@@ -132,5 +145,19 @@ public class ReplayCopyJobWorker {
       return number.intValue();
     }
     return value == null ? 0 : Integer.parseInt(value.toString());
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, String> stringMapValue(Object value) {
+    if (value instanceof Map<?, ?> raw) {
+      Map<String, String> normalized = new LinkedHashMap<>();
+      raw.forEach((key, item) -> {
+        if (key != null && item != null) {
+          normalized.put(key.toString(), item.toString());
+        }
+      });
+      return normalized;
+    }
+    return Map.of();
   }
 }

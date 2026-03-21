@@ -60,10 +60,14 @@
   } @else if (namespaceItems().length === 0) {
     <div class="state-card">No tenant and namespace combinations match the current filters.</div>
   } @else {
-    <div class="summary-row">
+      <div class="summary-row">
       <span>{{ catalogSummary()?.tenants?.length || 0 }} tenants</span>
       <span>{{ catalogSummary()?.namespaces?.length || 0 }} namespaces</span>
       <span>{{ totalTopicCount() | number }} topics tracked</span>
+      <span>{{ functionsCount() }} functions</span>
+      <span>{{ sourcesCount() }} sources</span>
+      <span>{{ sinksCount() }} sinks</span>
+      <span>{{ connectorsCount() }} connectors</span>
     </div>
 
     <div class="workspace-grid">
@@ -103,8 +107,17 @@
           <div>
             <p class="eyebrow">Selected Namespace</p>
             <h4>{{ selectedNamespaceLabel() }}</h4>
+            @if (selectedTenantSummary(); as tenantSummary) {
+              <p class="summary">Tenant {{ tenantSummary.name }} spans {{ tenantSummary.namespaceCount }} namespaces and {{ tenantSummary.topicCount }} topics.</p>
+            }
           </div>
           <div class="tenant-actions">
+            <button class="ghost" type="button" (click)="openEditTenantDialog()" [disabled]="!selectedTenant()">
+              Tenant Settings
+            </button>
+            <button class="ghost danger-text" type="button" (click)="openDeleteTenantDialog()" [disabled]="!selectedTenant()">
+              Delete Tenant
+            </button>
             <button class="ghost" type="button" (click)="openNamespace(selectedTenant(), selectedNamespace())" [disabled]="!selectedTenant() || !selectedNamespace()">
               Namespace Details
             </button>
@@ -178,6 +191,75 @@
         } @else {
           <div class="state-card">Select a namespace to load its topic workspace.</div>
         }
+
+        @if (platformSummary(); as platform) {
+          <div class="platform-panel">
+            <div class="namespace-header">
+              <div>
+                <p class="eyebrow">Platform Coverage</p>
+                <h4>Functions, sources, sinks, and connectors</h4>
+              </div>
+            </div>
+
+            <div class="platform-grid">
+              <article class="detail-card">
+                <p class="eyebrow">Functions</p>
+                <h4>{{ platform.functions.length }}</h4>
+                @if (platform.functions.length === 0) {
+                  <p class="summary">No functions are registered for the current environment snapshot.</p>
+                } @else {
+                  <ul class="artifact-list">
+                    @for (item of platform.functions; track item.name + ':' + item.tenant + ':' + item.namespace) {
+                      <li><strong>{{ item.name }}</strong><span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span></li>
+                    }
+                  </ul>
+                }
+              </article>
+
+              <article class="detail-card">
+                <p class="eyebrow">Sources</p>
+                <h4>{{ platform.sources.length }}</h4>
+                @if (platform.sources.length === 0) {
+                  <p class="summary">No sources are registered for the current environment snapshot.</p>
+                } @else {
+                  <ul class="artifact-list">
+                    @for (item of platform.sources; track item.name + ':' + item.tenant + ':' + item.namespace) {
+                      <li><strong>{{ item.name }}</strong><span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span></li>
+                    }
+                  </ul>
+                }
+              </article>
+
+              <article class="detail-card">
+                <p class="eyebrow">Sinks</p>
+                <h4>{{ platform.sinks.length }}</h4>
+                @if (platform.sinks.length === 0) {
+                  <p class="summary">No sinks are registered for the current environment snapshot.</p>
+                } @else {
+                  <ul class="artifact-list">
+                    @for (item of platform.sinks; track item.name + ':' + item.tenant + ':' + item.namespace) {
+                      <li><strong>{{ item.name }}</strong><span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span></li>
+                    }
+                  </ul>
+                }
+              </article>
+
+              <article class="detail-card">
+                <p class="eyebrow">Connectors</p>
+                <h4>{{ platform.connectors.length }}</h4>
+                @if (platform.connectors.length === 0) {
+                  <p class="summary">No connectors were returned by the current cluster.</p>
+                } @else {
+                  <ul class="artifact-list">
+                    @for (item of platform.connectors; track item.name) {
+                      <li><strong>{{ item.name }}</strong><span>{{ item.status }}</span></li>
+                    }
+                  </ul>
+                }
+              </article>
+            </div>
+          </div>
+        }
       </section>
     </div>
   }
@@ -187,9 +269,20 @@
   [open]="tenantDialogOpen()"
   [saving]="savingTenant()"
   [form]="createTenantForm"
+  [mode]="'create'"
   [defaultClusterLabel]="''"
   (cancel)="closeCreateTenantDialog()"
   (save)="submitCreateTenant()" />
+
+<app-create-tenant-dialog
+  [open]="editTenantDialogOpen()"
+  [saving]="savingTenant()"
+  [form]="editTenantForm"
+  [mode]="'edit'"
+  [tenantLocked]="true"
+  [defaultClusterLabel]="''"
+  (cancel)="closeEditTenantDialog()"
+  (save)="submitUpdateTenant()" />
 
 <app-create-namespace-dialog
   [open]="namespaceDialogOpen()"
@@ -208,3 +301,38 @@
   (cancel)="closeCreateTopicDialog()"
   (save)="submitCreateTopic()"
   (namespaceSelected)="applyNamespaceSelection($event)" />
+
+@if (deleteTenantDialogOpen()) {
+  <div class="dialog-backdrop" (click)="closeDeleteTenantDialog()"></div>
+  <section class="dialog-shell" role="dialog" aria-modal="true" aria-labelledby="delete-tenant-title">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Delete Tenant</p>
+          <h3 id="delete-tenant-title">Delete {{ selectedTenant() }}</h3>
+          <p>This removes the tenant only after all namespaces under it have already been cleaned up.</p>
+        </div>
+        <button type="button" class="ghost-icon" (click)="closeDeleteTenantDialog()">Close</button>
+      </div>
+
+      <form class="dialog-form" [formGroup]="deleteTenantForm" (ngSubmit)="submitDeleteTenant()">
+        <section class="preview-card danger-preview">
+          <p class="eyebrow">Preview</p>
+          <p>This will permanently delete tenant <strong>{{ selectedTenant() }}</strong>. Pulsar will reject this operation if namespaces still exist underneath it.</p>
+        </section>
+
+        <label>
+          <span>Reason</span>
+          <textarea formControlName="reason" rows="3" placeholder="Why is this tenant being removed?"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost" type="button" (click)="closeDeleteTenantDialog()">Cancel</button>
+          <button class="danger-button" type="submit" [disabled]="savingTenant()">
+            {{ savingTenant() ? 'Deleting...' : 'Delete Tenant' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+}

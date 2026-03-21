@@ -6,8 +6,15 @@ import com.pulsaradmin.shared.model.CatalogSummary;
 import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.NamespaceDetails;
+import com.pulsaradmin.shared.model.NamespaceDeleteRequest;
+import com.pulsaradmin.shared.model.NamespaceMutationResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.PlatformSummary;
+import com.pulsaradmin.shared.model.TenantDeleteRequest;
+import com.pulsaradmin.shared.model.TenantDetails;
+import com.pulsaradmin.shared.model.TenantMutationResponse;
+import com.pulsaradmin.shared.model.TenantUpdateRequest;
 import com.pulsaradmin.shared.model.TenantYamlApplyRequest;
 import com.pulsaradmin.shared.model.TenantYamlApplyResponse;
 import com.pulsaradmin.shared.model.TenantYamlPreviewRequest;
@@ -42,6 +49,27 @@ public class CatalogController {
     return pulsarCatalogService.createTenant(envId, request);
   }
 
+  @GetMapping("/tenants/detail")
+  public TenantDetails getTenantDetails(
+      @PathVariable("envId") String envId,
+      @RequestParam("tenant") String tenant) {
+    return pulsarCatalogService.getTenantDetails(envId, tenant);
+  }
+
+  @PostMapping("/tenants/update")
+  public TenantMutationResponse updateTenant(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody TenantUpdateRequest request) {
+    return pulsarCatalogService.updateTenant(envId, request);
+  }
+
+  @PostMapping("/tenants/delete")
+  public TenantMutationResponse deleteTenant(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody TenantDeleteRequest request) {
+    return pulsarCatalogService.deleteTenant(envId, request);
+  }
+
   @PostMapping("/namespaces")
   public CatalogMutationResponse createNamespace(
       @PathVariable("envId") String envId,
@@ -64,6 +92,13 @@ public class CatalogController {
     return pulsarCatalogService.updateNamespacePolicies(envId, request);
   }
 
+  @PostMapping("/namespaces/delete")
+  public NamespaceMutationResponse deleteNamespace(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody NamespaceDeleteRequest request) {
+    return pulsarCatalogService.deleteNamespace(envId, request);
+  }
+
   @PostMapping("/namespaces/yaml/validate")
   public TenantYamlPreviewResponse validateYaml(
       @PathVariable("envId") String envId,
@@ -83,5 +118,10 @@ public class CatalogController {
       @PathVariable("envId") String envId,
       @Valid @RequestBody TenantYamlApplyRequest request) {
     return pulsarCatalogService.applyYaml(envId, request);
+  }
+
+  @GetMapping("/platform")
+  public PlatformSummary getPlatformSummary(@PathVariable("envId") String envId) {
+    return pulsarCatalogService.getPlatformSummary(envId);
   }
 }

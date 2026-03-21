@@ -19,6 +19,8 @@ import com.pulsaradmin.shared.model.EnvironmentStatus;
 import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformArtifactSummary;
+import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
@@ -26,6 +28,8 @@ import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
+import com.pulsaradmin.shared.model.TenantDetails;
+import com.pulsaradmin.shared.model.TenantUpdateRequest;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
@@ -215,6 +219,60 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
           "/admin/v2/namespaces/" + request.tenant().trim() + "/" + request.namespace().trim());
     } catch (RestClientException exception) {
       throw new BadRequestException("Unable to create namespace via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public TenantDetails getTenantDetails(EnvironmentDetails environment, String tenant) {
+    try {
+      JsonNode tenantNode = getJson(environment, "/admin/v2/tenants/" + tenant);
+      return new TenantDetails(
+          environment.id(),
+          tenant,
+          readStringArray(tenantNode.path("adminRoles")),
+          readStringArray(tenantNode.path("allowedClusters")),
+          0,
+          0,
+          Instant.now());
+    } catch (IOException | RestClientException exception) {
+      throw new BadRequestException("Unable to load tenant details via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public TenantDetails updateTenant(EnvironmentDetails environment, TenantUpdateRequest request) {
+    String tenantName = request.tenant().trim();
+    List<String> adminRoles = sanitizeStringList(request.adminRoles());
+    List<String> allowedClusters = sanitizeStringList(request.allowedClusters()).isEmpty()
+        ? List.of(environment.clusterLabel())
+        : sanitizeStringList(request.allowedClusters());
+
+    try {
+      putJson(
+          environment,
+          "/admin/v2/tenants/" + tenantName,
+          objectMapper.writeValueAsString(Map.of(
+              "adminRoles", adminRoles,
+              "allowedClusters", allowedClusters)));
+      return new TenantDetails(
+          environment.id(),
+          tenantName,
+          adminRoles,
+          allowedClusters,
+          0,
+          0,
+          Instant.now());
+    } catch (RestClientException | IOException exception) {
+      throw new BadRequestException("Unable to update tenant via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void deleteTenant(EnvironmentDetails environment, String tenant) {
+    try {
+      deleteWithoutBody(environment, "/admin/v2/tenants/" + tenant);
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to delete tenant via Pulsar admin REST API: " + exception.getMessage());
     }
   }
 
@@ -573,12 +631,24 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   public void deleteTopic(EnvironmentDetails environment, String topicName) {
     PulsarTopicName parsed = PulsarTopicName.parse(topicName);
     try {
-      deleteWithoutBody(
-          environment,
-          "/admin/v2/" + parsed.domain()
-              + "/" + parsed.tenant()
-              + "/" + parsed.namespace()
-              + "/" + parsed.topic());
+      PulsarTopicName canonical = PulsarTopicName.parse(parsed.canonicalFullName());
+      int partitionCount = readPartitionCount(safeGetJson(environment, partitionedMetadataPath(canonical)));
+      if (partitionCount > 0) {
+        deleteWithoutBody(
+            environment,
+            "/admin/v2/" + canonical.domain()
+                + "/" + canonical.tenant()
+                + "/" + canonical.namespace()
+                + "/" + canonical.topic()
+                + "/partitions");
+      } else {
+        deleteWithoutBody(
+            environment,
+            "/admin/v2/" + canonical.domain()
+                + "/" + canonical.tenant()
+                + "/" + canonical.namespace()
+                + "/" + canonical.topic());
+      }
     } catch (RestClientException exception) {
       throw new BadRequestException("Unable to delete topic via Pulsar admin REST API: " + exception.getMessage());
     }
@@ -591,6 +661,32 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     } catch (RestClientException exception) {
       throw new BadRequestException("Unable to delete namespace via Pulsar admin REST API: " + exception.getMessage());
     }
+  }
+
+  @Override
+  public PlatformSummary getPlatformSummary(EnvironmentDetails environment, List<String> namespaces) {
+    List<PlatformArtifactSummary> functions = new ArrayList<>();
+    List<PlatformArtifactSummary> sources = new ArrayList<>();
+    List<PlatformArtifactSummary> sinks = new ArrayList<>();
+
+    for (String fullNamespace : namespaces) {
+      String[] segments = fullNamespace.split("/", 2);
+      if (segments.length != 2) {
+        continue;
+      }
+      String tenant = segments[0];
+      String namespace = segments[1];
+      functions.addAll(readPlatformArtifacts(environment, "/admin/v3/functions/" + tenant + "/" + namespace, tenant, namespace, "Configured function"));
+      sources.addAll(readPlatformArtifacts(environment, "/admin/v3/source/" + tenant + "/" + namespace, tenant, namespace, "Configured source"));
+      sinks.addAll(readPlatformArtifacts(environment, "/admin/v3/sink/" + tenant + "/" + namespace, tenant, namespace, "Configured sink"));
+    }
+
+    return new PlatformSummary(
+        environment.id(),
+        functions,
+        sources,
+        sinks,
+        readConnectorArtifacts(environment));
   }
 
   private TopicDetails toTopicDetails(
@@ -738,6 +834,51 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         if (item.isTextual() && deduped.add(item.asText())) {
           values.add(item.asText());
         }
+      }
+    }
+    return values;
+  }
+
+  private List<PlatformArtifactSummary> readPlatformArtifacts(
+      EnvironmentDetails environment,
+      String path,
+      String tenant,
+      String namespace,
+      String details) {
+    JsonNode node = safeGetJson(environment, path);
+    if (!node.isArray()) {
+      return List.of();
+    }
+
+    List<PlatformArtifactSummary> values = new ArrayList<>();
+    for (JsonNode item : node) {
+      String name = item.isTextual() ? item.asText() : item.path("name").asText("");
+      if (!name.isBlank()) {
+        values.add(new PlatformArtifactSummary(name, tenant, namespace, "CONFIGURED", details));
+      }
+    }
+    return values;
+  }
+
+  private List<PlatformArtifactSummary> readConnectorArtifacts(EnvironmentDetails environment) {
+    JsonNode node = safeGetJson(environment, "/admin/v3/functions/connectors");
+    if (!node.isArray()) {
+      return List.of();
+    }
+
+    List<PlatformArtifactSummary> values = new ArrayList<>();
+    for (JsonNode item : node) {
+      String name = item.path("name").asText("");
+      if (name.isBlank() && item.isTextual()) {
+        name = item.asText("");
+      }
+      if (!name.isBlank()) {
+        values.add(new PlatformArtifactSummary(
+            name,
+            null,
+            null,
+            "AVAILABLE",
+            "Connector plugin is registered in the Pulsar cluster catalog."));
       }
     }
     return values;

@@ -14,6 +14,8 @@ public record ReplayCopyJobStatusResponse(
     String destinationTopicName,
     int messageLimit,
     int messagesPerSecond,
+    String messageKey,
+    java.util.Map<String, String> propertyFilters,
     String filterText,
     int matchedMessages,
     int publishedMessages,
