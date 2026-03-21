@@ -186,7 +186,8 @@ class TopicControllerTest {
                 """))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
-        .andExpect(jsonPath("$.messageId").exists());
+        .andExpect(jsonPath("$.messageId").exists())
+        .andExpect(jsonPath("$.warnings").isArray());
   }
 
   @Test
@@ -206,7 +207,30 @@ class TopicControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
         .andExpect(jsonPath("$.requestedCount").value(2))
-        .andExpect(jsonPath("$.messages").isArray());
+        .andExpect(jsonPath("$.messages").isArray())
+        .andExpect(jsonPath("$.warnings").isArray());
+  }
+
+  @Test
+  void shouldExportBoundedPeekMessages() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/export")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "source": "PEEK",
+                  "subscriptionName": null,
+                  "ephemeral": true,
+                  "maxMessages": 2,
+                  "waitTimeSeconds": 5,
+                  "reason": "Export bounded sampled messages for debugging"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.source").value("PEEK"))
+        .andExpect(jsonPath("$.fileName").value("acme-orders-payment-events-peek-export.json"))
+        .andExpect(jsonPath("$.content").exists());
   }
 
   @Test

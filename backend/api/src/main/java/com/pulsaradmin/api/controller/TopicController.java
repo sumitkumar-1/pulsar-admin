@@ -7,6 +7,8 @@ import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.ExportMessagesRequest;
+import com.pulsaradmin.shared.model.ExportMessagesResponse;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
@@ -134,6 +136,13 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @Valid @RequestBody ConsumeMessagesRequest request) {
     return pulsarCatalogService.consumeMessages(envId, request);
+  }
+
+  @PostMapping("/export")
+  public ExportMessagesResponse exportMessages(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody ExportMessagesRequest request) {
+    return pulsarCatalogService.exportMessages(envId, request);
   }
 
   @PostMapping("/reset-cursor")

@@ -327,6 +327,9 @@
                 @if (peek.truncated) {
                   <span>Showing the first {{ peek.requestedCount }} available messages</span>
                 }
+                <button type="button" class="secondary-button" [disabled]="exportSaving()" (click)="submitExport('PEEK')">
+                  {{ exportSaving() ? 'Exporting...' : 'Export Peek JSON' }}
+                </button>
               </div>
 
               @if (peek.messages.length === 0) {
@@ -352,6 +355,17 @@
             } @else {
               <div class="placeholder-panel">
                 <p>Peek results are not available for this topic yet.</p>
+              </div>
+            }
+            @if (exportError()) {
+              <div class="placeholder-panel error">
+                <p>{{ exportError() }}</p>
+              </div>
+            }
+            @if (exportResult(); as exportResult) {
+              <div class="placeholder-panel success">
+                <p>{{ exportResult.message }}</p>
+                <p class="result-meta">{{ exportResult.exportedCount }} messages exported to {{ exportResult.fileName }}</p>
               </div>
             }
           }
@@ -525,6 +539,15 @@
                 <p>{{ replayPreview() }}</p>
               </div>
 
+              @if (replayWarnings().length > 0) {
+                <div class="placeholder-panel">
+                  <p class="result-meta">Schema and destination checks</p>
+                  @for (warning of replayWarnings(); track warning) {
+                    <p>{{ warning }}</p>
+                  }
+                </div>
+              }
+
               @if (replayError()) {
                 <div class="placeholder-panel error"><p>{{ replayError() }}</p></div>
               }
@@ -533,6 +556,11 @@
                 <div class="placeholder-panel success">
                   <p>{{ result.statusMessage }}</p>
                   <p class="result-meta">{{ result.matchedMessages }} matched · {{ result.publishedMessages }} published</p>
+                  @if (result.warnings?.length) {
+                    @for (warning of result.warnings; track warning) {
+                      <p class="result-meta">{{ warning }}</p>
+                    }
+                  }
                 </div>
               }
 
@@ -732,6 +760,13 @@
                   <p class="eyebrow">Preview</p>
                   <p>{{ publishPreview() }}</p>
                 </div>
+                @if (publishWarnings().length > 0) {
+                  <div class="placeholder-panel full-width">
+                    @for (warning of publishWarnings(); track warning) {
+                      <p>{{ warning }}</p>
+                    }
+                  </div>
+                }
                 @if (publishError()) {
                   <div class="placeholder-panel error full-width"><p>{{ publishError() }}</p></div>
                 }
@@ -739,6 +774,11 @@
                   <div class="placeholder-panel success full-width">
                     <p>{{ result.message }}</p>
                     <p class="result-meta">Message {{ result.messageId }} at {{ result.publishedAt | date: 'medium' }}</p>
+                    @if (result.warnings?.length) {
+                      @for (warning of result.warnings; track warning) {
+                        <p class="result-meta">{{ warning }}</p>
+                      }
+                    }
                   </div>
                 }
                 <div class="form-button-row full-width">
@@ -785,6 +825,11 @@
                   <div class="placeholder-panel success full-width">
                     <p>{{ result.message }}</p>
                     <p class="result-meta">{{ result.receivedCount }} of {{ result.requestedCount }} messages returned.</p>
+                    @if (result.warnings?.length) {
+                      @for (warning of result.warnings; track warning) {
+                        <p class="result-meta">{{ warning }}</p>
+                      }
+                    }
                   </div>
                   @if (result.messages.length > 0) {
                     <div class="message-list full-width">
@@ -801,8 +846,20 @@
                     </div>
                   }
                 }
+                @if (exportError()) {
+                  <div class="placeholder-panel error full-width"><p>{{ exportError() }}</p></div>
+                }
+                @if (exportResult(); as exportResult) {
+                  <div class="placeholder-panel success full-width">
+                    <p>{{ exportResult.message }}</p>
+                    <p class="result-meta">{{ exportResult.exportedCount }} messages exported to {{ exportResult.fileName }}</p>
+                  </div>
+                }
                 <div class="form-button-row full-width">
                   <button type="submit" [disabled]="consumeSaving()">{{ consumeSaving() ? 'Consuming...' : 'Run Consume Test' }}</button>
+                  <button type="button" class="secondary-button" [disabled]="exportSaving()" (click)="submitExport('CONSUME')">
+                    {{ exportSaving() ? 'Exporting...' : 'Export Consume JSON' }}
+                  </button>
                 </div>
               </form>
             </div>
@@ -823,7 +880,10 @@
               }
 
               @if (deleteTopicResult(); as result) {
-                <div class="placeholder-panel success"><p>{{ result.message }}</p></div>
+                <div class="placeholder-panel success">
+                  <p>{{ result.message }}</p>
+                  <p class="result-meta">Returning to {{ result.tenant }}/{{ result.namespace }} after refresh.</p>
+                </div>
               }
 
               <div class="form-button-row">
@@ -995,6 +1055,14 @@
                 <p>{{ replayPreview() }}</p>
               </div>
 
+              @if (replayWarnings().length > 0) {
+                <div class="placeholder-panel">
+                  @for (warning of replayWarnings(); track warning) {
+                    <p>{{ warning }}</p>
+                  }
+                </div>
+              }
+
               @if (replayError()) {
                 <div class="placeholder-panel error">
                   <p>{{ replayError() }}</p>
@@ -1010,12 +1078,20 @@
                   <p class="result-meta">
                     Matched {{ result.matchedMessages }} · Published {{ result.publishedMessages }} · Destination {{ result.destinationTopicName }}
                   </p>
+                  @if (result.warnings?.length) {
+                    @for (warning of result.warnings; track warning) {
+                      <p class="result-meta">{{ warning }}</p>
+                    }
+                  }
                 </div>
               }
 
               <div class="form-button-row">
                 <button type="submit" [disabled]="replaySaving()">
                   {{ replaySaving() ? 'Submitting...' : 'Start Replay / Copy Job' }}
+                </button>
+                <button type="button" class="secondary-button" [disabled]="exportSaving()" (click)="submitExport('PEEK')">
+                  {{ exportSaving() ? 'Exporting...' : 'Export Sample JSON' }}
                 </button>
                 @if (replayCanRefresh()) {
                   <button type="button" class="secondary-button" (click)="refreshReplayJob()">

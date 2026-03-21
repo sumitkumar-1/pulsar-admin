@@ -203,8 +203,13 @@ export class NamespaceDetailsComponent {
           this.deleteSaving.set(false);
           this.deleteDialogOpen.set(false);
           this.saveSuccess.set(response.message);
+          const nextNamespace = response.catalogSummary.namespaces[0];
           void this.router.navigate(['/environments', this.environmentId(), 'topics'], {
-            queryParams: this.demoMode.queryParams({})
+            queryParams: this.demoMode.queryParams(
+              nextNamespace
+                ? { tenant: nextNamespace.tenant, namespace: nextNamespace.namespace, page: '0' }
+                : {}
+            )
           });
         },
         error: (error: { error?: { message?: string } }) => {

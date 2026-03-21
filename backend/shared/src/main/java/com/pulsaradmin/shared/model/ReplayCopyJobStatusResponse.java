@@ -3,6 +3,7 @@ package com.pulsaradmin.shared.model;
 import com.pulsaradmin.shared.job.JobStatus;
 import com.pulsaradmin.shared.job.JobType;
 import java.time.Instant;
+import java.util.List;
 
 public record ReplayCopyJobStatusResponse(
     String jobId,
@@ -20,6 +21,7 @@ public record ReplayCopyJobStatusResponse(
     int matchedMessages,
     int publishedMessages,
     String statusMessage,
+    List<String> warnings,
     Instant createdAt,
     Instant updatedAt) {
 }

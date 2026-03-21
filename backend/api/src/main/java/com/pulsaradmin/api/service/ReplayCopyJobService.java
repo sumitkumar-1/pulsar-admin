@@ -6,12 +6,14 @@ import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
 import com.pulsaradmin.shared.job.JobRecord;
 import com.pulsaradmin.shared.job.JobStatus;
 import com.pulsaradmin.shared.job.JobType;
+import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
 import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,6 +53,7 @@ public class ReplayCopyJobService {
     EnvironmentRecord environment = requireEnvironment(environmentId);
     TopicDetails sourceTopic = requireTopic(environmentId, request.topicName());
     requireSubscription(sourceTopic, request.subscriptionName());
+    List<String> warnings = validateSchemaCompatibility(environmentId, sourceTopic, request.destinationTopicName());
 
     JobType jobType = normalizeJobType(request.operation());
     Instant now = Instant.now();
@@ -73,6 +76,7 @@ public class ReplayCopyJobService {
           Math.min(request.messageLimit(), 24),
           Math.min(request.messageLimit(), 24),
           "Mock replay/copy job completed immediately for demo mode.",
+          warnings,
           now,
           now);
       mockJobs.put(jobId, mockResponse);
@@ -92,6 +96,7 @@ public class ReplayCopyJobService {
     parameters.put("statusMessage", "Queued for worker pickup.");
     parameters.put("matchedMessages", 0);
     parameters.put("publishedMessages", 0);
+    parameters.put("warnings", warnings);
 
     JobRecord queued = new JobRecord(
         jobId,
@@ -198,6 +203,7 @@ public class ReplayCopyJobService {
         intValue(parameters.get("matchedMessages")),
         intValue(parameters.get("publishedMessages")),
         stringValue(parameters.get("statusMessage")),
+        stringListValue(parameters.get("warnings")),
         job.createdAt(),
         job.updatedAt());
   }
@@ -248,6 +254,51 @@ public class ReplayCopyJobService {
       }
     });
     return normalized;
+  }
+
+  private List<String> validateSchemaCompatibility(String environmentId, TopicDetails sourceTopic, String destinationTopicName) {
+    TopicDetails destinationTopic = findTopic(environmentId, destinationTopicName);
+    if (destinationTopic == null) {
+      return List.of("Destination topic is not present in the current synced snapshot, so schema compatibility could not be verified.");
+    }
+
+    SchemaSummary sourceSchema = sourceTopic.schema();
+    SchemaSummary destinationSchema = destinationTopic.schema();
+
+    if (!sourceSchema.present() || !destinationSchema.present()) {
+      return List.of("One or both topics do not expose schema metadata, so compatibility could not be fully verified before submit.");
+    }
+
+    if (!sourceSchema.type().equalsIgnoreCase(destinationSchema.type())) {
+      throw new BadRequestException(
+          "Source topic schema type " + sourceSchema.type()
+              + " does not match destination schema type " + destinationSchema.type() + ".");
+    }
+
+    if (!sourceSchema.compatibility().equalsIgnoreCase(destinationSchema.compatibility())) {
+      return List.of(
+          "Source schema compatibility is " + sourceSchema.compatibility()
+              + " while destination compatibility is " + destinationSchema.compatibility()
+              + ". Review the destination policy before replaying.");
+    }
+
+    return List.of("Schema types match between source and destination topics.");
+  }
+
+  private TopicDetails findTopic(String environmentId, String topicName) {
+    try {
+      return requireTopic(environmentId, topicName);
+    } catch (NotFoundException exception) {
+      return null;
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<String> stringListValue(Object value) {
+    if (value instanceof List<?> list) {
+      return list.stream().filter(item -> item != null).map(Object::toString).toList();
+    }
+    return List.of();
   }
 
   private EnvironmentRecord requireEnvironment(String environmentId) {

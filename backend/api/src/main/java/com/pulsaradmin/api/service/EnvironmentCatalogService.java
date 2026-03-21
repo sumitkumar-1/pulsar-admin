@@ -12,6 +12,8 @@ import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
+import com.pulsaradmin.shared.model.ExportMessagesRequest;
+import com.pulsaradmin.shared.model.ExportMessagesResponse;
 import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
@@ -49,10 +51,12 @@ import com.pulsaradmin.shared.model.TopicStatsSummary;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -524,7 +528,7 @@ public class EnvironmentCatalogService {
 
   public PublishMessageResponse publishMessage(String environmentId, PublishMessageRequest request) {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
-    requireTopicFromSnapshot(environmentId, request.topicName());
+    TopicDetails topic = requireTopicFromSnapshot(environmentId, request.topicName());
 
     if (request.payload() == null || request.payload().isBlank()) {
       throw new BadRequestException("A payload is required.");
@@ -538,7 +542,18 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("A reason is required when publishing a test message.");
     }
 
-    return pulsarAdminGateway.publishMessage(environment.toDetails(), request);
+    SchemaValidation schemaValidation = validatePublishSchema(topic, request);
+    PublishMessageResponse response = pulsarAdminGateway.publishMessage(environment.toDetails(), request);
+    return new PublishMessageResponse(
+        response.environmentId(),
+        response.topicName(),
+        response.messageId(),
+        response.key(),
+        response.properties(),
+        response.schemaMode(),
+        response.publishedAt(),
+        response.message(),
+        schemaValidation.warnings());
   }
 
   public ConsumeMessagesResponse consumeMessages(String environmentId, ConsumeMessagesRequest request) {
@@ -553,7 +568,72 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("A reason is required when consuming test messages.");
     }
 
-    return pulsarAdminGateway.consumeMessages(environment.toDetails(), request);
+    ConsumeMessagesResponse response = pulsarAdminGateway.consumeMessages(environment.toDetails(), request);
+    List<String> warnings = buildConsumeWarnings(requireTopicFromSnapshot(environmentId, request.topicName()), request);
+    return new ConsumeMessagesResponse(
+        response.environmentId(),
+        response.topicName(),
+        response.subscriptionName(),
+        response.ephemeral(),
+        response.requestedCount(),
+        response.receivedCount(),
+        response.waitTimeSeconds(),
+        response.completed(),
+        response.completedAt(),
+        response.message(),
+        response.messages(),
+        warnings);
+  }
+
+  public ExportMessagesResponse exportMessages(String environmentId, ExportMessagesRequest request) {
+    requireEnvironment(environmentId);
+    TopicDetails topic = requireTopicFromSnapshot(environmentId, request.topicName());
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when exporting messages.");
+    }
+
+    String source = request.source() == null ? "" : request.source().trim().toUpperCase();
+    if (!source.equals("PEEK") && !source.equals("CONSUME")) {
+      throw new BadRequestException("Export source must be PEEK or CONSUME.");
+    }
+
+    List<String> warnings = new ArrayList<>();
+    String content;
+    int exportedCount;
+
+    if (source.equals("PEEK")) {
+      PeekMessagesResponse response = peekMessages(environmentId, request.topicName(), request.maxMessages());
+      warnings.addAll(buildPeekWarnings(topic));
+      content = buildPeekExportJson(response);
+      exportedCount = response.returnedCount();
+    } else {
+      ConsumeMessagesRequest consumeRequest = new ConsumeMessagesRequest(
+          request.topicName(),
+          request.ephemeral() ? null : request.subscriptionName(),
+          request.ephemeral(),
+          request.maxMessages(),
+          request.waitTimeSeconds(),
+          request.reason());
+      ConsumeMessagesResponse response = consumeMessages(environmentId, consumeRequest);
+      warnings.addAll(response.warnings());
+      content = buildConsumeExportJson(response);
+      exportedCount = response.receivedCount();
+    }
+
+    return new ExportMessagesResponse(
+        environmentId,
+        request.topicName(),
+        source,
+        exportedCount,
+        exportFileName(topic, source),
+        "application/json",
+        content,
+        Instant.now(),
+        exportedCount == 0
+            ? "No messages were available for export within the bounded window."
+            : "Prepared a bounded " + source.toLowerCase() + " export for " + request.topicName() + ".",
+        warnings.stream().distinct().toList());
   }
 
   public ResetCursorResponse resetCursor(String environmentId, ResetCursorRequest request) {
@@ -761,6 +841,161 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("Initial position must be EARLIEST or LATEST.");
     }
     return normalized;
+  }
+
+  private SchemaValidation validatePublishSchema(TopicDetails topic, PublishMessageRequest request) {
+    List<String> warnings = new ArrayList<>();
+    String schemaMode = request.schemaMode() == null ? "RAW" : request.schemaMode().trim().toUpperCase();
+    String schemaType = topic.schema().type() == null ? "NONE" : topic.schema().type().trim().toUpperCase();
+
+    if ("JSON".equals(schemaMode)) {
+      try {
+        new com.fasterxml.jackson.databind.ObjectMapper().readTree(request.payload());
+      } catch (Exception exception) {
+        throw new BadRequestException("JSON schema mode requires a valid JSON payload.");
+      }
+    }
+
+    if (!topic.schema().present()) {
+      if ("JSON".equals(schemaMode)) {
+        warnings.add("This topic does not expose schema metadata. JSON mode will still publish a bounded test message, but compatibility cannot be verified.");
+      }
+      return new SchemaValidation(warnings);
+    }
+
+    if (schemaType.contains("JSON") && !"JSON".equals(schemaMode)) {
+      warnings.add("This topic advertises a JSON schema. RAW publish mode may bypass the expected payload shape.");
+    } else if (!schemaType.contains("JSON") && "JSON".equals(schemaMode)) {
+      warnings.add("This topic advertises schema type " + topic.schema().type() + ". JSON mode may not match the live schema encoding.");
+    }
+
+    if (topic.schema().compatibility() != null
+        && !topic.schema().compatibility().isBlank()
+        && !"NONE".equalsIgnoreCase(topic.schema().compatibility())) {
+      warnings.add("Schema compatibility is " + topic.schema().compatibility() + ". Validate your payload before publishing to production-like environments.");
+    }
+
+    return new SchemaValidation(warnings);
+  }
+
+  private List<String> buildConsumeWarnings(TopicDetails topic, ConsumeMessagesRequest request) {
+    List<String> warnings = new ArrayList<>();
+    if (request.ephemeral()) {
+      warnings.add("Ephemeral consume mode is bounded and may not reflect committed subscription state.");
+    } else if (request.subscriptionName() != null && !request.subscriptionName().isBlank()) {
+      warnings.add("Consume results reflect subscription " + request.subscriptionName() + " within a bounded test window only.");
+    }
+    warnings.addAll(buildPeekWarnings(topic));
+    return warnings.stream().distinct().toList();
+  }
+
+  private List<String> buildPeekWarnings(TopicDetails topic) {
+    List<String> warnings = new ArrayList<>();
+    if (!topic.schema().present()) {
+      warnings.add("Schema metadata is unavailable for this topic, so payload compatibility cannot be verified.");
+    } else {
+      warnings.add("Payloads on this topic are governed by schema type " + topic.schema().type() + ".");
+    }
+    if (topic.partitioned()) {
+      warnings.add("Partitioned topics may return messages from only a subset of partitions during bounded reads.");
+    }
+    return warnings;
+  }
+
+  private String buildPeekExportJson(PeekMessagesResponse response) {
+    StringBuilder builder = new StringBuilder();
+    builder.append("{\n");
+    builder.append("  \"environmentId\": \"").append(escapeJson(response.environmentId())).append("\",\n");
+    builder.append("  \"topicName\": \"").append(escapeJson(response.topicName())).append("\",\n");
+    builder.append("  \"source\": \"PEEK\",\n");
+    builder.append("  \"requestedCount\": ").append(response.requestedCount()).append(",\n");
+    builder.append("  \"returnedCount\": ").append(response.returnedCount()).append(",\n");
+    builder.append("  \"truncated\": ").append(response.truncated()).append(",\n");
+    builder.append("  \"messages\": [\n");
+    for (int index = 0; index < response.messages().size(); index++) {
+      var message = response.messages().get(index);
+      builder.append("    {\n");
+      builder.append("      \"messageId\": \"").append(escapeJson(message.messageId())).append("\",\n");
+      builder.append("      \"key\": \"").append(escapeJson(message.key())).append("\",\n");
+      builder.append("      \"publishTime\": \"").append(escapeJson(String.valueOf(message.publishTime()))).append("\",\n");
+      builder.append("      \"eventTime\": \"").append(escapeJson(String.valueOf(message.eventTime()))).append("\",\n");
+      builder.append("      \"producerName\": \"").append(escapeJson(message.producerName())).append("\",\n");
+      builder.append("      \"summary\": \"").append(escapeJson(message.summary())).append("\",\n");
+      builder.append("      \"payload\": \"").append(escapeJson(message.payload())).append("\",\n");
+      builder.append("      \"schemaVersion\": \"").append(escapeJson(message.schemaVersion())).append("\"\n");
+      builder.append("    }");
+      if (index < response.messages().size() - 1) {
+        builder.append(",");
+      }
+      builder.append("\n");
+    }
+    builder.append("  ]\n");
+    builder.append("}");
+    return builder.toString();
+  }
+
+  private String buildConsumeExportJson(ConsumeMessagesResponse response) {
+    StringBuilder builder = new StringBuilder();
+    builder.append("{\n");
+    builder.append("  \"environmentId\": \"").append(escapeJson(response.environmentId())).append("\",\n");
+    builder.append("  \"topicName\": \"").append(escapeJson(response.topicName())).append("\",\n");
+    builder.append("  \"source\": \"CONSUME\",\n");
+    builder.append("  \"subscriptionName\": \"").append(escapeJson(response.subscriptionName())).append("\",\n");
+    builder.append("  \"requestedCount\": ").append(response.requestedCount()).append(",\n");
+    builder.append("  \"receivedCount\": ").append(response.receivedCount()).append(",\n");
+    builder.append("  \"messages\": [\n");
+    for (int index = 0; index < response.messages().size(); index++) {
+      var message = response.messages().get(index);
+      builder.append("    {\n");
+      builder.append("      \"messageId\": \"").append(escapeJson(message.messageId())).append("\",\n");
+      builder.append("      \"key\": \"").append(escapeJson(String.valueOf(message.key()))).append("\",\n");
+      builder.append("      \"publishTime\": \"").append(escapeJson(String.valueOf(message.publishTime()))).append("\",\n");
+      builder.append("      \"eventTime\": \"").append(escapeJson(String.valueOf(message.eventTime()))).append("\",\n");
+      builder.append("      \"producerName\": \"").append(escapeJson(message.producerName())).append("\",\n");
+      builder.append("      \"payload\": \"").append(escapeJson(message.payload())).append("\",\n");
+      builder.append("      \"properties\": ").append(mapToJson(message.properties())).append("\n");
+      builder.append("    }");
+      if (index < response.messages().size() - 1) {
+        builder.append(",");
+      }
+      builder.append("\n");
+    }
+    builder.append("  ]\n");
+    builder.append("}");
+    return builder.toString();
+  }
+
+  private String mapToJson(Map<String, String> values) {
+    StringBuilder builder = new StringBuilder("{");
+    int index = 0;
+    for (Map.Entry<String, String> entry : values.entrySet()) {
+      if (index > 0) {
+        builder.append(", ");
+      }
+      builder.append("\"").append(escapeJson(entry.getKey())).append("\": ");
+      builder.append("\"").append(escapeJson(entry.getValue())).append("\"");
+      index++;
+    }
+    builder.append("}");
+    return builder.toString();
+  }
+
+  private String exportFileName(TopicDetails topic, String source) {
+    return topic.tenant() + "-" + topic.namespace() + "-" + topic.topic() + "-" + source.toLowerCase() + "-export.json";
+  }
+
+  private String escapeJson(String value) {
+    if (value == null) {
+      return "";
+    }
+    return value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r");
+  }
+
+  private record SchemaValidation(List<String> warnings) {
   }
 
   private EnvironmentSnapshotRecord refreshSnapshot(EnvironmentRecord environment) {

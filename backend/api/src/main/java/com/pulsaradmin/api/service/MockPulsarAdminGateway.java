@@ -567,7 +567,8 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         request.properties() == null ? Map.of() : request.properties(),
         request.schemaMode() == null || request.schemaMode().isBlank() ? "RAW" : request.schemaMode(),
         Instant.now(),
-        "Published a bounded test message to " + request.topicName() + ".");
+        "Published a bounded test message to " + request.topicName() + ".",
+        List.of());
   }
 
   @Override
@@ -599,7 +600,8 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         messages.isEmpty()
             ? "No messages were available within the bounded consume window."
             : "Consumed " + messages.size() + " messages from " + request.topicName() + ".",
-        messages);
+        messages,
+        List.of());
   }
 
   @Override

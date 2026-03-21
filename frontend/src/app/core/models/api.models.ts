@@ -415,6 +415,7 @@ export interface PublishMessageResponse {
   schemaMode: string;
   publishedAt: string;
   message: string;
+  warnings?: string[];
 }
 
 export interface ConsumedMessage {
@@ -448,6 +449,7 @@ export interface ConsumeMessagesResponse {
   completedAt: string;
   message: string;
   messages: ConsumedMessage[];
+  warnings?: string[];
 }
 
 export interface ReplayCopyJobRequest {
@@ -479,8 +481,32 @@ export interface ReplayCopyJobStatusResponse {
   matchedMessages: number;
   publishedMessages: number;
   statusMessage: string;
+  warnings?: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ExportMessagesRequest {
+  topicName: string;
+  source: 'PEEK' | 'CONSUME';
+  subscriptionName: string | null;
+  ephemeral: boolean;
+  maxMessages: number;
+  waitTimeSeconds: number;
+  reason: string;
+}
+
+export interface ExportMessagesResponse {
+  environmentId: string;
+  topicName: string;
+  source: 'PEEK' | 'CONSUME';
+  exportedCount: number;
+  fileName: string;
+  contentType: string;
+  content: string;
+  exportedAt: string;
+  message: string;
+  warnings?: string[];
 }
 
 export interface TenantYamlPreviewRequest {

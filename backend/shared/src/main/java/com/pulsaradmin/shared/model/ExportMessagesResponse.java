@@ -2,16 +2,16 @@ package com.pulsaradmin.shared.model;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
-public record PublishMessageResponse(
+public record ExportMessagesResponse(
     String environmentId,
     String topicName,
-    String messageId,
-    String key,
-    Map<String, String> properties,
-    String schemaMode,
-    Instant publishedAt,
+    String source,
+    int exportedCount,
+    String fileName,
+    String contentType,
+    String content,
+    Instant exportedAt,
     String message,
     List<String> warnings) {
 }

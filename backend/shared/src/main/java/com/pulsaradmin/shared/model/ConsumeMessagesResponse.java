@@ -14,5 +14,6 @@ public record ConsumeMessagesResponse(
     boolean completed,
     Instant completedAt,
     String message,
-    List<ConsumedMessage> messages) {
+    List<ConsumedMessage> messages,
+    List<String> warnings) {
 }

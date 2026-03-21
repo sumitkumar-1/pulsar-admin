@@ -489,7 +489,8 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
             request.properties() == null ? Map.of() : request.properties(),
             request.schemaMode() == null || request.schemaMode().isBlank() ? "RAW" : request.schemaMode(),
             Instant.now(),
-            "Published a test message through the Pulsar client.");
+            "Published a test message through the Pulsar client.",
+            List.of());
       }
     } catch (Exception exception) {
       throw new BadRequestException("Unable to publish a test message through the Pulsar client: " + exception.getMessage());
@@ -545,7 +546,8 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
             messages.isEmpty()
                 ? "No messages were available within the bounded consume window."
                 : "Consumed " + messages.size() + " messages through the Pulsar client.",
-            messages);
+            messages,
+            List.of());
       }
     } catch (Exception exception) {
       throw new BadRequestException("Unable to consume test messages through the Pulsar client: " + exception.getMessage());

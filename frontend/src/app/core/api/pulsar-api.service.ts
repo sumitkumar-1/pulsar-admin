@@ -17,6 +17,8 @@ import {
   EnvironmentSyncStatus,
   EnvironmentSummary,
   EnvironmentUpsertRequest,
+  ExportMessagesRequest,
+  ExportMessagesResponse,
   NamespaceDetails,
   NamespaceDeleteRequest,
   NamespaceMutationResponse,
@@ -316,6 +318,14 @@ export class PulsarApiService {
   consumeMessages(environmentId: string, request: ConsumeMessagesRequest): Observable<ConsumeMessagesResponse> {
     return this.http.post<ConsumeMessagesResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/consume`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  exportMessages(environmentId: string, request: ExportMessagesRequest): Observable<ExportMessagesResponse> {
+    return this.http.post<ExportMessagesResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/export`,
       request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );

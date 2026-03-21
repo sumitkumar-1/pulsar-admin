@@ -522,8 +522,17 @@ export class TopicExplorerComponent {
           this.deleteTenantDialogOpen.set(false);
           this.savingTenant.set(false);
           this.actionFeedback.set({ kind: 'success', message: response.message });
-          this.selectedTenant.set('');
-          this.selectedNamespace.set('');
+          const nextNamespace = response.catalogSummary.namespaces[0];
+          this.selectedTenant.set(nextNamespace?.tenant ?? '');
+          this.selectedNamespace.set(nextNamespace?.namespace ?? '');
+          const queryParams = nextNamespace
+            ? this.demoMode.queryParams({ tenant: nextNamespace.tenant, namespace: nextNamespace.namespace, page: '0' })
+            : this.demoMode.queryParams({});
+          void this.router.navigate([], {
+            relativeTo: this.route,
+            queryParams,
+            queryParamsHandling: nextNamespace ? 'merge' : undefined
+          });
           this.refresh$.next(undefined);
         },
         error: (error: { error?: { message?: string } }) => {

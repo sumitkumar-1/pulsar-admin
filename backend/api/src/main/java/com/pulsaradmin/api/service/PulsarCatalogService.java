@@ -9,6 +9,8 @@ import com.pulsaradmin.shared.model.CatalogSummary;
 import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
+import com.pulsaradmin.shared.model.ExportMessagesRequest;
+import com.pulsaradmin.shared.model.ExportMessagesResponse;
 import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespaceDeleteRequest;
 import com.pulsaradmin.shared.model.NamespaceMutationResponse;
@@ -153,6 +155,10 @@ public class PulsarCatalogService {
 
   public ConsumeMessagesResponse consumeMessages(String environmentId, ConsumeMessagesRequest request) {
     return environmentCatalogService.consumeMessages(environmentId, request);
+  }
+
+  public ExportMessagesResponse exportMessages(String environmentId, ExportMessagesRequest request) {
+    return environmentCatalogService.exportMessages(environmentId, request);
   }
 
   public ResetCursorResponse resetCursor(String environmentId, ResetCursorRequest request) {

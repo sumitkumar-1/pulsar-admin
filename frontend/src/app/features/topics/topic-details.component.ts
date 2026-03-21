@@ -2,7 +2,7 @@ import { DatePipe, DecimalPipe, NgClass, UpperCasePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { combineLatest, Subscription, switchMap, timer } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
@@ -10,6 +10,7 @@ import {
   ConsumeMessagesRequest,
   ConsumeMessagesResponse,
   CreateSubscriptionRequest,
+  ExportMessagesResponse,
   PublishMessageRequest,
   PublishMessageResponse,
   PeekMessagesResponse,
@@ -44,6 +45,7 @@ export class TopicDetailsComponent {
   private readonly api = inject(PulsarApiService);
   private readonly demoMode = inject(DemoModeService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly formBuilder = inject(FormBuilder);
   private replayJobPolling: Subscription | null = null;
@@ -79,6 +81,9 @@ export class TopicDetailsComponent {
   readonly publishSaving = signal(false);
   readonly publishResult = signal<PublishMessageResponse | null>(null);
   readonly publishError = signal<string | null>(null);
+  readonly exportSaving = signal(false);
+  readonly exportError = signal<string | null>(null);
+  readonly exportResult = signal<ExportMessagesResponse | null>(null);
   readonly consumeSaving = signal(false);
   readonly consumeResult = signal<ConsumeMessagesResponse | null>(null);
   readonly consumeError = signal<string | null>(null);
@@ -89,6 +94,8 @@ export class TopicDetailsComponent {
   readonly subscriptionResult = signal<SubscriptionMutationResponse | null>(null);
   readonly subscriptionError = signal<string | null>(null);
   readonly subscriptionPendingDelete = signal<string | null>(null);
+  readonly replayDestinationTopic = signal<TopicDetails | null>(null);
+  readonly replayDestinationLoadError = signal<string | null>(null);
 
   readonly resetForm = this.formBuilder.nonNullable.group({
     subscriptionName: ['', [Validators.required]],
@@ -221,12 +228,17 @@ export class TopicDetailsComponent {
             reason: ''
           });
           this.loading.set(false);
+          this.loadReplayDestinationPreview(this.replayForm.controls.destinationTopicName.value);
         },
         error: (error: { error?: { message?: string } }) => {
           this.loadError.set(error.error?.message ?? 'Unable to load topic details.');
           this.loading.set(false);
         }
       });
+
+    this.replayForm.controls.destinationTopicName.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((value) => this.loadReplayDestinationPreview(value));
   }
 
   healthClass(status: string): string {
@@ -349,6 +361,8 @@ export class TopicDetailsComponent {
       const topic = this.details();
       this.publishError.set(null);
       this.publishResult.set(null);
+      this.exportError.set(null);
+      this.exportResult.set(null);
       this.consumeError.set(null);
       this.consumeResult.set(null);
       this.publishForm.patchValue({ reason: '' });
@@ -364,6 +378,7 @@ export class TopicDetailsComponent {
       const topic = this.details();
       this.replayError.set(null);
       this.replayResult.set(null);
+      this.replayDestinationLoadError.set(null);
       this.stopReplayPolling();
 
       if (topic && topic.subscriptions.length > 0) {
@@ -386,6 +401,7 @@ export class TopicDetailsComponent {
       const topic = this.details();
       this.replayError.set(null);
       this.replayResult.set(null);
+      this.replayDestinationLoadError.set(null);
       this.stopReplayPolling();
 
       if (topic && topic.subscriptions.length > 0) {
@@ -631,6 +647,13 @@ export class TopicDetailsComponent {
         next: (response) => {
           this.deleteTopicSaving.set(false);
           this.deleteTopicResult.set(response);
+          void this.router.navigate(['/environments', this.environmentId(), 'topics'], {
+            queryParams: this.demoMode.queryParams({
+              tenant: response.tenant,
+              namespace: response.namespace,
+              page: '0'
+            })
+          });
         },
         error: (error: { error?: { message?: string } }) => {
           this.deleteTopicSaving.set(false);
@@ -1085,6 +1108,122 @@ export class TopicDetailsComponent {
     return this.demoMode.queryParams({});
   }
 
+  publishWarnings(): string[] {
+    const topic = this.details();
+    const form = this.publishForm.getRawValue();
+    if (!topic) {
+      return [];
+    }
+
+    const warnings: string[] = [];
+    const schemaMode = (form.schemaMode || 'RAW').toUpperCase();
+    const schemaType = (topic.schema.type || 'NONE').toUpperCase();
+
+    if (schemaMode === 'JSON') {
+      try {
+        JSON.parse(form.payload);
+      } catch {
+        warnings.push('The current payload is not valid JSON, so publish will be rejected in JSON mode.');
+      }
+    }
+
+    if (topic.schema.present) {
+      if (schemaType.includes('JSON') && schemaMode !== 'JSON') {
+        warnings.push(`This topic advertises a ${topic.schema.type} schema. RAW mode may not match the expected payload encoding.`);
+      } else if (!schemaType.includes('JSON') && schemaMode === 'JSON') {
+        warnings.push(`This topic advertises schema type ${topic.schema.type}. JSON mode may not match the live schema encoding.`);
+      }
+      warnings.push(`Schema compatibility is ${topic.schema.compatibility}.`);
+    } else if (schemaMode === 'JSON') {
+      warnings.push('This topic does not expose schema metadata, so JSON compatibility cannot be verified before publish.');
+    }
+
+    return warnings;
+  }
+
+  replayWarnings(): string[] {
+    const topic = this.details();
+    const destination = this.replayDestinationTopic();
+    const warnings: string[] = [];
+
+    if (!topic) {
+      return warnings;
+    }
+
+    if (this.replayDestinationLoadError()) {
+      warnings.push(this.replayDestinationLoadError()!);
+      return warnings;
+    }
+
+    if (!destination) {
+      warnings.push('Destination topic details are not loaded yet, so schema compatibility cannot be previewed.');
+      return warnings;
+    }
+
+    if (!topic.schema.present || !destination.schema.present) {
+      warnings.push('One or both topics do not expose schema metadata, so compatibility cannot be fully verified.');
+      return warnings;
+    }
+
+    if (topic.schema.type !== destination.schema.type) {
+      warnings.push(`Source schema type ${topic.schema.type} does not match destination schema type ${destination.schema.type}.`);
+    } else {
+      warnings.push(`Source and destination both advertise schema type ${topic.schema.type}.`);
+    }
+
+    if (topic.schema.compatibility !== destination.schema.compatibility) {
+      warnings.push(`Source compatibility ${topic.schema.compatibility} differs from destination compatibility ${destination.schema.compatibility}.`);
+    }
+
+    return warnings;
+  }
+
+  submitExport(source: 'PEEK' | 'CONSUME') {
+    const topic = this.details();
+    if (!topic) {
+      this.exportError.set('Topic details are still loading.');
+      return;
+    }
+
+    this.exportSaving.set(true);
+    this.exportError.set(null);
+    this.exportResult.set(null);
+
+    const request = source === 'PEEK'
+      ? {
+          topicName: topic.fullName,
+          source,
+          subscriptionName: null,
+          ephemeral: true,
+          maxMessages: 5,
+          waitTimeSeconds: 5,
+          reason: 'Export bounded sampled messages for debugging'
+        }
+      : {
+          topicName: topic.fullName,
+          source,
+          subscriptionName: this.consumeForm.controls.ephemeral.value ? null : (this.consumeForm.controls.subscriptionName.value || null),
+          ephemeral: this.consumeForm.controls.ephemeral.value,
+          maxMessages: Number(this.consumeForm.controls.maxMessages.value),
+          waitTimeSeconds: Number(this.consumeForm.controls.waitTimeSeconds.value),
+          reason: this.consumeForm.controls.reason.value.trim() || 'Export bounded consumed messages for debugging'
+        };
+
+    this.api.exportMessages(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.exportSaving.set(false);
+          this.exportResult.set(response);
+          this.downloadExport(response);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.exportSaving.set(false);
+          this.exportError.set(error.error?.message ?? 'Unable to export bounded messages.');
+        }
+      });
+  }
+
   parseProperties(value: string): Record<string, string> {
     return value.split('\n')
       .map((line) => line.trim())
@@ -1117,5 +1256,40 @@ export class TopicDetailsComponent {
     this.resetForm.patchValue({ subscriptionName: firstSubscription });
     this.skipForm.patchValue({ subscriptionName: firstSubscription });
     this.replayForm.patchValue({ subscriptionName: firstSubscription });
+  }
+
+  private loadReplayDestinationPreview(topicName: string | null | undefined) {
+    const currentTopic = this.details();
+    const trimmed = topicName?.trim();
+
+    if (!trimmed || !currentTopic || trimmed === currentTopic.fullName) {
+      this.replayDestinationTopic.set(null);
+      this.replayDestinationLoadError.set(trimmed === currentTopic?.fullName ? 'Destination topic must be different from the source topic.' : null);
+      return;
+    }
+
+    this.replayDestinationLoadError.set(null);
+    this.api.getTopicDetails(this.environmentId(), trimmed)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.replayDestinationTopic.set(response);
+          this.replayDestinationLoadError.set(null);
+        },
+        error: () => {
+          this.replayDestinationTopic.set(null);
+          this.replayDestinationLoadError.set('Destination topic is not present in the current synced snapshot, so schema compatibility cannot be previewed.');
+        }
+      });
+  }
+
+  private downloadExport(response: ExportMessagesResponse) {
+    const blob = new Blob([response.content], { type: response.contentType });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = response.fileName;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
   }
 }
