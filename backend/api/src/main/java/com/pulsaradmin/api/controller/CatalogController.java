@@ -10,6 +10,10 @@ import com.pulsaradmin.shared.model.NamespaceDeleteRequest;
 import com.pulsaradmin.shared.model.NamespaceMutationResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.PlatformArtifactDeleteRequest;
+import com.pulsaradmin.shared.model.PlatformArtifactDetails;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationRequest;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationResponse;
 import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.TenantDeleteRequest;
 import com.pulsaradmin.shared.model.TenantDetails;
@@ -123,5 +127,29 @@ public class CatalogController {
   @GetMapping("/platform")
   public PlatformSummary getPlatformSummary(@PathVariable("envId") String envId) {
     return pulsarCatalogService.getPlatformSummary(envId);
+  }
+
+  @GetMapping("/platform/artifacts/detail")
+  public PlatformArtifactDetails getPlatformArtifactDetails(
+      @PathVariable("envId") String envId,
+      @RequestParam("type") String artifactType,
+      @RequestParam(name = "tenant", required = false) String tenant,
+      @RequestParam(name = "namespace", required = false) String namespace,
+      @RequestParam("name") String name) {
+    return pulsarCatalogService.getPlatformArtifactDetails(envId, artifactType, tenant, namespace, name);
+  }
+
+  @PostMapping("/platform/artifacts")
+  public PlatformArtifactMutationResponse upsertPlatformArtifact(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody PlatformArtifactMutationRequest request) {
+    return pulsarCatalogService.upsertPlatformArtifact(envId, request);
+  }
+
+  @PostMapping("/platform/artifacts/delete")
+  public PlatformArtifactMutationResponse deletePlatformArtifact(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody PlatformArtifactDeleteRequest request) {
+    return pulsarCatalogService.deletePlatformArtifact(envId, request);
   }
 }

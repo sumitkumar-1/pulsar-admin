@@ -18,6 +18,10 @@ import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformArtifactDeleteRequest;
+import com.pulsaradmin.shared.model.PlatformArtifactDetails;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationRequest;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationResponse;
 import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
@@ -25,6 +29,10 @@ import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
 import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.SchemaDeleteRequest;
+import com.pulsaradmin.shared.model.SchemaDetails;
+import com.pulsaradmin.shared.model.SchemaMutationResponse;
+import com.pulsaradmin.shared.model.SchemaUpdateRequest;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
@@ -199,5 +207,38 @@ public class PulsarCatalogService {
 
   public PlatformSummary getPlatformSummary(String environmentId) {
     return environmentCatalogService.getPlatformSummary(environmentId);
+  }
+
+  public PlatformArtifactDetails getPlatformArtifactDetails(
+      String environmentId,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    return environmentCatalogService.getPlatformArtifactDetails(environmentId, artifactType, tenant, namespace, name);
+  }
+
+  public PlatformArtifactMutationResponse upsertPlatformArtifact(
+      String environmentId,
+      PlatformArtifactMutationRequest request) {
+    return environmentCatalogService.upsertPlatformArtifact(environmentId, request);
+  }
+
+  public PlatformArtifactMutationResponse deletePlatformArtifact(
+      String environmentId,
+      PlatformArtifactDeleteRequest request) {
+    return environmentCatalogService.deletePlatformArtifact(environmentId, request);
+  }
+
+  public SchemaDetails getSchemaDetails(String environmentId, String topicName) {
+    return environmentCatalogService.getSchemaDetails(environmentId, topicName);
+  }
+
+  public SchemaMutationResponse upsertSchema(String environmentId, SchemaUpdateRequest request) {
+    return environmentCatalogService.upsertSchema(environmentId, request);
+  }
+
+  public SchemaMutationResponse deleteSchema(String environmentId, SchemaDeleteRequest request) {
+    return environmentCatalogService.deleteSchema(environmentId, request);
   }
 }

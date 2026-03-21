@@ -18,13 +18,17 @@ import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessage;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformArtifactDetails;
 import com.pulsaradmin.shared.model.PlatformArtifactSummary;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationRequest;
 import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.SchemaDetails;
 import com.pulsaradmin.shared.model.SchemaSummary;
+import com.pulsaradmin.shared.model.SchemaUpdateRequest;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.TenantDetails;
@@ -70,6 +74,12 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
   private final ConcurrentMap<String, Set<String>> deletedTenantsByEnvironment = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, ConcurrentMap<String, TenantDetails>> tenantDetailsByEnvironment =
       new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, ConcurrentMap<String, PlatformArtifactDetails>> platformArtifactsByEnvironment =
+      new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, Set<String>> deletedPlatformArtifactsByEnvironment =
+      new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, ConcurrentMap<String, SchemaDetails>> schemaByEnvironment =
+      new ConcurrentHashMap<>();
 
   @Override
   public EnvironmentConnectionTestResult testConnection(EnvironmentDetails environment) {
@@ -112,6 +122,7 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
 
     topics = topics.stream()
         .map(topic -> applySubscriptionOverrides(environment.id(), topic))
+        .map(topic -> applySchemaOverrides(environment.id(), topic))
         .collect(Collectors.toList());
 
     LinkedHashSet<String> tenants = new LinkedHashSet<>(topics.stream().map(TopicDetails::tenant).toList());
@@ -649,18 +660,134 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
 
   @Override
   public PlatformSummary getPlatformSummary(EnvironmentDetails environment, List<String> namespaces) {
+    List<PlatformArtifactDetails> artifacts = readPlatformArtifacts(environment.id());
     return new PlatformSummary(
         environment.id(),
-        List.of(
-            new PlatformArtifactSummary("invoice-normalizer", "acme", "orders", "RUNNING", "Function deployed for event normalization."),
-            new PlatformArtifactSummary("payment-ledger-fanout", "acme", "finance", "STOPPED", "Function is configured but not currently running.")),
-        List.of(
-            new PlatformArtifactSummary("orders-jdbc-source", "acme", "orders", "RUNNING", "Source pulls bounded test data into Pulsar.")),
-        List.of(
-            new PlatformArtifactSummary("payments-elastic-sink", "acme", "finance", "RUNNING", "Sink forwards selected payment events to search storage.")),
-        List.of(
-            new PlatformArtifactSummary("jdbc", null, null, "AVAILABLE", "Built-in connector available in this mock environment."),
-            new PlatformArtifactSummary("elastic-search", null, null, "AVAILABLE", "Connector catalog entry ready for guided deployment.")));
+        summarizePlatformArtifacts(artifacts, "FUNCTION"),
+        summarizePlatformArtifacts(artifacts, "SOURCE"),
+        summarizePlatformArtifacts(artifacts, "SINK"),
+        summarizePlatformArtifacts(artifacts, "CONNECTOR"));
+  }
+
+  @Override
+  public PlatformArtifactDetails getPlatformArtifactDetails(
+      EnvironmentDetails environment,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    return readPlatformArtifacts(environment.id()).stream()
+        .filter(item -> item.artifactType().equalsIgnoreCase(artifactType))
+        .filter(item -> item.name().equals(name))
+        .filter(item -> tenant == null || tenant.equals(item.tenant()))
+        .filter(item -> namespace == null || namespace.equals(item.namespace()))
+        .findFirst()
+        .orElseThrow(() -> new BadRequestException("Unknown platform artifact: " + name));
+  }
+
+  @Override
+  public PlatformArtifactDetails upsertPlatformArtifact(
+      EnvironmentDetails environment,
+      PlatformArtifactMutationRequest request) {
+    PlatformArtifactDetails details = new PlatformArtifactDetails(
+        environment.id(),
+        request.artifactType().trim().toUpperCase(),
+        request.name().trim(),
+        trimToNull(request.tenant()),
+        trimToNull(request.namespace()),
+        "RUNNING",
+        buildPlatformDetails(request),
+        trimToNull(request.archive()),
+        trimToNull(request.className()),
+        trimToNull(request.inputTopic()),
+        trimToNull(request.outputTopic()),
+        request.parallelism() == null ? 1 : request.parallelism(),
+        request.configs() == null ? "{}" : request.configs().trim(),
+        true);
+    platformArtifactsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .put(platformArtifactKey(details.artifactType(), details.tenant(), details.namespace(), details.name()), details);
+    deletedPlatformArtifactsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> ConcurrentHashMap.newKeySet())
+        .remove(platformArtifactKey(details.artifactType(), details.tenant(), details.namespace(), details.name()));
+    return details;
+  }
+
+  @Override
+  public void deletePlatformArtifact(
+      EnvironmentDetails environment,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    String key = platformArtifactKey(artifactType, tenant, namespace, name);
+    platformArtifactsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .remove(key);
+    deletedPlatformArtifactsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> ConcurrentHashMap.newKeySet())
+        .add(key);
+  }
+
+  @Override
+  public SchemaDetails getSchemaDetails(EnvironmentDetails environment, String topicName) {
+    TopicDetails topic = findTopic(environment, topicName);
+    SchemaDetails override = schemaByEnvironment
+        .getOrDefault(environment.id(), new ConcurrentHashMap<>())
+        .get(topic.fullName());
+    if (override != null) {
+      return override;
+    }
+    return new SchemaDetails(
+        environment.id(),
+        topic.fullName(),
+        topic.schema().present(),
+        topic.schema().type(),
+        topic.schema().version(),
+        topic.schema().compatibility(),
+        defaultSchemaDefinition(topic.schema()),
+        true,
+        topic.schema().present()
+            ? "Mock schema metadata is available for this topic."
+            : "This topic does not currently expose schema metadata.");
+  }
+
+  @Override
+  public SchemaDetails upsertSchema(EnvironmentDetails environment, SchemaUpdateRequest request) {
+    TopicDetails topic = findTopic(environment, request.topicName());
+    SchemaDetails details = new SchemaDetails(
+        environment.id(),
+        topic.fullName(),
+        true,
+        request.schemaType().trim().toUpperCase(),
+        String.valueOf(Math.abs((request.definition() + request.reason()).hashCode())),
+        trimToNull(request.compatibility()) == null ? "FULL" : request.compatibility().trim().toUpperCase(),
+        request.definition().trim(),
+        true,
+        "Saved schema definition in mock mode.");
+    schemaByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .put(topic.fullName(), details);
+    return details;
+  }
+
+  @Override
+  public void deleteSchema(EnvironmentDetails environment, String topicName) {
+    TopicDetails topic = findTopic(environment, topicName);
+    schemaByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .put(
+            topic.fullName(),
+            new SchemaDetails(
+                environment.id(),
+                topic.fullName(),
+                false,
+                "NONE",
+                "-",
+                "N/A",
+                "",
+                true,
+                "Schema removed in mock mode."));
   }
 
   private EnvironmentStatus deriveStatus(EnvironmentDetails environment, List<TopicDetails> topics) {
@@ -926,6 +1053,30 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         overriddenSubscriptions);
   }
 
+  private TopicDetails applySchemaOverrides(String environmentId, TopicDetails topic) {
+    SchemaDetails details = schemaByEnvironment
+        .getOrDefault(environmentId, new ConcurrentHashMap<>())
+        .get(topic.fullName());
+    if (details == null) {
+      return topic;
+    }
+
+    return new TopicDetails(
+        topic.fullName(),
+        topic.tenant(),
+        topic.namespace(),
+        topic.topic(),
+        topic.partitioned(),
+        topic.partitions(),
+        topic.health(),
+        topic.stats(),
+        new SchemaSummary(details.type(), details.version(), details.compatibility(), details.present()),
+        topic.ownerTeam(),
+        topic.notes(),
+        topic.partitionSummaries(),
+        topic.subscriptions());
+  }
+
   private TopicDetails findTopic(EnvironmentDetails environment, String topicName) {
     List<TopicDetails> topics = syncMetadata(environment).topics();
     return topics.stream()
@@ -1000,6 +1151,89 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         base.notes(),
         partitionSummaries,
         base.subscriptions());
+  }
+
+  private List<PlatformArtifactDetails> readPlatformArtifacts(String environmentId) {
+    Map<String, PlatformArtifactDetails> values = new LinkedHashMap<>();
+    for (PlatformArtifactDetails item : seededPlatformArtifacts(environmentId)) {
+      values.put(platformArtifactKey(item.artifactType(), item.tenant(), item.namespace(), item.name()), item);
+    }
+    values.putAll(platformArtifactsByEnvironment.getOrDefault(environmentId, new ConcurrentHashMap<>()));
+    for (String deleted : deletedPlatformArtifactsByEnvironment.getOrDefault(environmentId, Set.of())) {
+      values.remove(deleted);
+    }
+    return new ArrayList<>(values.values());
+  }
+
+  private List<PlatformArtifactSummary> summarizePlatformArtifacts(
+      List<PlatformArtifactDetails> artifacts,
+      String artifactType) {
+    return artifacts.stream()
+        .filter(item -> artifactType.equals(item.artifactType()))
+        .map(item -> new PlatformArtifactSummary(
+            item.name(),
+            item.tenant(),
+            item.namespace(),
+            item.status(),
+            item.details()))
+        .toList();
+  }
+
+  private List<PlatformArtifactDetails> seededPlatformArtifacts(String environmentId) {
+    return List.of(
+        new PlatformArtifactDetails(environmentId, "FUNCTION", "invoice-normalizer", "acme", "orders",
+            "RUNNING", "Function deployed for event normalization.", "builtin://function", "com.acme.fn.InvoiceNormalizer",
+            "persistent://acme/orders/invoices", "persistent://acme/orders/invoices-normalized", 1, "{\"runtime\":\"java\"}", true),
+        new PlatformArtifactDetails(environmentId, "FUNCTION", "payment-ledger-fanout", "acme", "finance",
+            "STOPPED", "Function is configured but not currently running.", "builtin://function", "com.acme.fn.PaymentLedgerFanout",
+            "persistent://acme/finance/payments", "persistent://acme/finance/payment-ledger", 1, "{\"runtime\":\"java\"}", true),
+        new PlatformArtifactDetails(environmentId, "SOURCE", "orders-jdbc-source", "acme", "orders",
+            "RUNNING", "Source pulls bounded test data into Pulsar.", "builtin://jdbc", "org.apache.pulsar.io.jdbc.JdbcSource",
+            null, "persistent://acme/orders/order-events", 1, "{\"connector\":\"jdbc\"}", true),
+        new PlatformArtifactDetails(environmentId, "SINK", "payments-elastic-sink", "acme", "finance",
+            "RUNNING", "Sink forwards selected payment events to search storage.", "builtin://elastic-search", "org.apache.pulsar.io.elasticsearch.ElasticSearchSink",
+            "persistent://acme/finance/payments", null, 1, "{\"connector\":\"elastic-search\"}", true),
+        new PlatformArtifactDetails(environmentId, "CONNECTOR", "jdbc", null, null,
+            "AVAILABLE", "Built-in connector available in this mock environment.", "builtin://jdbc", null, null, null, null, "{\"category\":\"source\"}", false),
+        new PlatformArtifactDetails(environmentId, "CONNECTOR", "elastic-search", null, null,
+            "AVAILABLE", "Connector catalog entry ready for guided deployment.", "builtin://elastic-search", null, null, null, null, "{\"category\":\"sink\"}", false));
+  }
+
+  private String platformArtifactKey(String artifactType, String tenant, String namespace, String name) {
+    return String.join("::",
+        artifactType == null ? "" : artifactType.trim().toUpperCase(),
+        tenant == null ? "" : tenant.trim(),
+        namespace == null ? "" : namespace.trim(),
+        name == null ? "" : name.trim());
+  }
+
+  private String buildPlatformDetails(PlatformArtifactMutationRequest request) {
+    String type = request.artifactType().trim().toUpperCase();
+    if ("FUNCTION".equals(type)) {
+      return "Function " + request.name().trim() + " is configured for " + request.tenant() + "/" + request.namespace() + ".";
+    }
+    if ("SOURCE".equals(type)) {
+      return "Source " + request.name().trim() + " is ready to publish into " + trimToNull(request.outputTopic()) + ".";
+    }
+    return "Sink " + request.name().trim() + " is ready to drain " + trimToNull(request.inputTopic()) + ".";
+  }
+
+  private String defaultSchemaDefinition(SchemaSummary schema) {
+    if (schema == null || !schema.present()) {
+      return "";
+    }
+    if ("JSON".equalsIgnoreCase(schema.type())) {
+      return "{\n  \"type\": \"object\",\n  \"title\": \"MockTopicEvent\",\n  \"properties\": {\n    \"id\": { \"type\": \"string\" }\n  }\n}";
+    }
+    return "type MockTopicEvent {\n  string id = 1;\n}";
+  }
+
+  private String trimToNull(String value) {
+    if (value == null) {
+      return null;
+    }
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? null : trimmed;
   }
 
 }

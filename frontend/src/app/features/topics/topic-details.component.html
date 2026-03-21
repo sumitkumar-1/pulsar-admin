@@ -67,6 +67,7 @@
       <div class="action-group">
         <p class="eyebrow">Admin</p>
         <div class="action-group-buttons">
+          <button type="button" (click)="openWorkflow('schema')">Schema Admin</button>
           <button type="button" (click)="openWorkflow('policies')">Topic Policies</button>
           <button type="button" (click)="openWorkflow('unload')">Unload Topic</button>
           <button type="button" (click)="openWorkflow('replay')">Replay / Copy</button>
@@ -165,8 +166,15 @@
 
       <div class="secondary-column">
         <article class="detail-card">
-          <p class="eyebrow">Schema Summary</p>
-          <h3>{{ topic.schema.present ? topic.schema.type : 'No schema' }}</h3>
+          <div class="card-header-row">
+            <div>
+              <p class="eyebrow">Schema Summary</p>
+              <h3>{{ topic.schema.present ? topic.schema.type : 'No schema' }}</h3>
+            </div>
+            <button type="button" class="secondary-action" (click)="openWorkflow('schema')">
+              Manage Schema
+            </button>
+          </div>
           <dl>
             <div>
               <dt>Version</dt>
@@ -260,6 +268,11 @@
               <h3>Topic policies</h3>
               <p class="workflow-copy">
                 Review and update the bounded topic policy set with an explicit operator reason and a clear preview.
+              </p>
+            } @else if (activeWorkflow() === 'schema') {
+              <h3>Schema workspace</h3>
+              <p class="workflow-copy">
+                Inspect the current topic schema, update it with a guided definition form, or remove the registered schema when the live cluster allows it.
               </p>
             } @else if (activeWorkflow() === 'test-messages') {
               <h3>Test messages</h3>
@@ -714,6 +727,106 @@
                 </div>
               }
             </form>
+          } @else if (activeWorkflow() === 'schema') {
+            <div class="workflow-grid">
+              <article class="workflow-card">
+                <p class="eyebrow">Current State</p>
+                <h4>{{ schemaState()?.present ? schemaState()?.type : 'No registered schema' }}</h4>
+                <p class="workflow-copy">{{ schemaState()?.message || 'Schema details will load here.' }}</p>
+              </article>
+              <article class="workflow-card">
+                <p class="eyebrow">Safety</p>
+                <h4>Compatibility first</h4>
+                <p class="workflow-copy">Schema updates can change publish, consume, and replay behavior. Use bounded test-message workflows after every schema change.</p>
+              </article>
+            </div>
+
+            @if (schemaLoading()) {
+              <div class="placeholder-panel">
+                <p>Loading schema details...</p>
+              </div>
+            } @else {
+              <form class="reset-form" [formGroup]="schemaForm" (ngSubmit)="submitSchemaUpdate()">
+                <label>
+                  <span>Schema Type</span>
+                  <select formControlName="schemaType">
+                    <option value="JSON">JSON</option>
+                    <option value="AVRO">AVRO</option>
+                    <option value="PROTOBUF">PROTOBUF</option>
+                    <option value="STRING">STRING</option>
+                    <option value="BYTES">BYTES</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Compatibility</span>
+                  <select formControlName="compatibility">
+                    <option value="FULL">FULL</option>
+                    <option value="BACKWARD">BACKWARD</option>
+                    <option value="FORWARD">FORWARD</option>
+                    <option value="NONE">NONE</option>
+                  </select>
+                </label>
+
+                <label class="full-width">
+                  <span>Schema Definition</span>
+                  <textarea formControlName="definition" rows="12" placeholder="Paste a topic-scoped schema definition"></textarea>
+                </label>
+
+                <label class="full-width">
+                  <span>Reason</span>
+                  <textarea formControlName="reason" rows="3" placeholder="Why are we changing this schema?"></textarea>
+                </label>
+
+                <div class="preview-panel">
+                  <p class="eyebrow">Preview</p>
+                  <p>{{ schemaPreview() }}</p>
+                </div>
+
+                @if (schemaWarnings().length > 0) {
+                  <div class="placeholder-panel">
+                    @for (warning of schemaWarnings(); track warning) {
+                      <p>{{ warning }}</p>
+                    }
+                  </div>
+                }
+
+                @if (schemaError()) {
+                  <div class="placeholder-panel error">
+                    <p>{{ schemaError() }}</p>
+                  </div>
+                }
+
+                @if (schemaResult(); as result) {
+                  <div class="placeholder-panel success">
+                    <p>{{ result.message }}</p>
+                    <p class="result-meta">{{ result.schema.type }} · {{ result.schema.compatibility }} · version {{ result.schema.version }}</p>
+                  </div>
+                }
+
+                <div class="form-button-row">
+                  <button type="submit" [disabled]="schemaSaving()">
+                    {{ schemaSaving() ? 'Saving...' : 'Save Schema' }}
+                  </button>
+                </div>
+              </form>
+
+              <form class="reset-form danger-zone" [formGroup]="schemaDeleteForm" (ngSubmit)="submitSchemaDelete()">
+                <label class="full-width">
+                  <span>Delete Reason</span>
+                  <textarea formControlName="reason" rows="2" placeholder="Why are we removing this schema?"></textarea>
+                </label>
+                <div class="preview-panel danger">
+                  <p class="eyebrow">Delete Preview</p>
+                  <p>This will remove the registered schema for {{ topic.topic }}. Producers and consumers may need to switch to raw payload handling after deletion.</p>
+                </div>
+                <div class="form-button-row">
+                  <button type="submit" class="danger-button" [disabled]="schemaDeleting()">
+                    {{ schemaDeleting() ? 'Deleting...' : 'Delete Schema' }}
+                  </button>
+                </div>
+              </form>
+            }
           } @else if (activeWorkflow() === 'test-messages') {
             <div class="workflow-grid">
               <article class="workflow-card">

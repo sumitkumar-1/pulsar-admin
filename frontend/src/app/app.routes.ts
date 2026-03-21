@@ -1,38 +1,39 @@
 import { Routes } from '@angular/router';
-import { ShellComponent } from './layout/shell.component';
-import { EnvironmentOverviewComponent } from './features/environments/environment-overview.component';
-import { TopicExplorerComponent } from './features/topics/topic-explorer.component';
-import { TopicDetailsComponent } from './features/topics/topic-details.component';
-import { NamespaceDetailsComponent } from './features/topics/namespace-details.component';
-import { TenantYamlSyncComponent } from './features/topics/tenant-yaml-sync.component';
 
 export const routes: Routes = [
   {
     path: '',
-    component: ShellComponent,
+    loadComponent: () => import('./layout/shell.component').then((m) => m.ShellComponent),
     children: [
       {
         path: 'environments',
         children: [
           {
             path: '',
-            component: EnvironmentOverviewComponent
+            loadComponent: () =>
+              import('./features/environments/environment-overview.component').then(
+                (m) => m.EnvironmentOverviewComponent
+              )
           },
           {
             path: ':envId/topics',
-            component: TopicExplorerComponent
+            loadComponent: () =>
+              import('./features/topics/topic-explorer.component').then((m) => m.TopicExplorerComponent)
           },
           {
             path: ':envId/topic-details',
-            component: TopicDetailsComponent
+            loadComponent: () =>
+              import('./features/topics/topic-details.component').then((m) => m.TopicDetailsComponent)
           },
           {
             path: ':envId/namespace-details',
-            component: NamespaceDetailsComponent
+            loadComponent: () =>
+              import('./features/topics/namespace-details.component').then((m) => m.NamespaceDetailsComponent)
           },
           {
             path: ':envId/namespace-yaml',
-            component: TenantYamlSyncComponent
+            loadComponent: () =>
+              import('./features/topics/tenant-yaml-sync.component').then((m) => m.TenantYamlSyncComponent)
           }
         ]
       },

@@ -13,11 +13,15 @@ import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformArtifactDetails;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationRequest;
 import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.SchemaDetails;
+import com.pulsaradmin.shared.model.SchemaUpdateRequest;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.TenantDetails;
@@ -150,6 +154,48 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public PlatformSummary getPlatformSummary(EnvironmentDetails environment, List<String> namespaces) {
     return activeGateway().getPlatformSummary(environment, namespaces);
+  }
+
+  @Override
+  public PlatformArtifactDetails getPlatformArtifactDetails(
+      EnvironmentDetails environment,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    return activeGateway().getPlatformArtifactDetails(environment, artifactType, tenant, namespace, name);
+  }
+
+  @Override
+  public PlatformArtifactDetails upsertPlatformArtifact(
+      EnvironmentDetails environment,
+      PlatformArtifactMutationRequest request) {
+    return activeGateway().upsertPlatformArtifact(environment, request);
+  }
+
+  @Override
+  public void deletePlatformArtifact(
+      EnvironmentDetails environment,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    activeGateway().deletePlatformArtifact(environment, artifactType, tenant, namespace, name);
+  }
+
+  @Override
+  public SchemaDetails getSchemaDetails(EnvironmentDetails environment, String topicName) {
+    return activeGateway().getSchemaDetails(environment, topicName);
+  }
+
+  @Override
+  public SchemaDetails upsertSchema(EnvironmentDetails environment, SchemaUpdateRequest request) {
+    return activeGateway().upsertSchema(environment, request);
+  }
+
+  @Override
+  public void deleteSchema(EnvironmentDetails environment, String topicName) {
+    activeGateway().deleteSchema(environment, topicName);
   }
 
   @Override

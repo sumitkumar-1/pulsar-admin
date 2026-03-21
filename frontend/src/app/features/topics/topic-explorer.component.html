@@ -198,19 +198,34 @@
               <div>
                 <p class="eyebrow">Platform Coverage</p>
                 <h4>Functions, sources, sinks, and connectors</h4>
+                <p class="summary">The selected namespace is the active workspace for guided platform deployments and updates.</p>
+              </div>
+              <div class="action-row">
+                <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('FUNCTION')">Add Function</button>
+                <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('SOURCE')">Add Source</button>
+                <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('SINK')">Add Sink</button>
               </div>
             </div>
 
             <div class="platform-grid">
               <article class="detail-card">
                 <p class="eyebrow">Functions</p>
-                <h4>{{ platform.functions.length }}</h4>
-                @if (platform.functions.length === 0) {
-                  <p class="summary">No functions are registered for the current environment snapshot.</p>
+                <h4>{{ visibleFunctions().length }}</h4>
+                @if (visibleFunctions().length === 0) {
+                  <p class="summary">No functions are registered for the selected namespace.</p>
                 } @else {
                   <ul class="artifact-list">
-                    @for (item of platform.functions; track item.name + ':' + item.tenant + ':' + item.namespace) {
-                      <li><strong>{{ item.name }}</strong><span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span></li>
+                    @for (item of visibleFunctions(); track item.name + ':' + item.tenant + ':' + item.namespace) {
+                      <li>
+                        <div>
+                          <strong>{{ item.name }}</strong>
+                          <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
+                        </div>
+                        <div class="artifact-actions">
+                          <button type="button" class="ghost" (click)="openEditPlatformArtifact('FUNCTION', item.name, item.tenant, item.namespace)">Edit</button>
+                          <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('FUNCTION', item.name, item.tenant, item.namespace)">Delete</button>
+                        </div>
+                      </li>
                     }
                   </ul>
                 }
@@ -218,13 +233,22 @@
 
               <article class="detail-card">
                 <p class="eyebrow">Sources</p>
-                <h4>{{ platform.sources.length }}</h4>
-                @if (platform.sources.length === 0) {
-                  <p class="summary">No sources are registered for the current environment snapshot.</p>
+                <h4>{{ visibleSources().length }}</h4>
+                @if (visibleSources().length === 0) {
+                  <p class="summary">No sources are registered for the selected namespace.</p>
                 } @else {
                   <ul class="artifact-list">
-                    @for (item of platform.sources; track item.name + ':' + item.tenant + ':' + item.namespace) {
-                      <li><strong>{{ item.name }}</strong><span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span></li>
+                    @for (item of visibleSources(); track item.name + ':' + item.tenant + ':' + item.namespace) {
+                      <li>
+                        <div>
+                          <strong>{{ item.name }}</strong>
+                          <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
+                        </div>
+                        <div class="artifact-actions">
+                          <button type="button" class="ghost" (click)="openEditPlatformArtifact('SOURCE', item.name, item.tenant, item.namespace)">Edit</button>
+                          <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('SOURCE', item.name, item.tenant, item.namespace)">Delete</button>
+                        </div>
+                      </li>
                     }
                   </ul>
                 }
@@ -232,13 +256,22 @@
 
               <article class="detail-card">
                 <p class="eyebrow">Sinks</p>
-                <h4>{{ platform.sinks.length }}</h4>
-                @if (platform.sinks.length === 0) {
-                  <p class="summary">No sinks are registered for the current environment snapshot.</p>
+                <h4>{{ visibleSinks().length }}</h4>
+                @if (visibleSinks().length === 0) {
+                  <p class="summary">No sinks are registered for the selected namespace.</p>
                 } @else {
                   <ul class="artifact-list">
-                    @for (item of platform.sinks; track item.name + ':' + item.tenant + ':' + item.namespace) {
-                      <li><strong>{{ item.name }}</strong><span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span></li>
+                    @for (item of visibleSinks(); track item.name + ':' + item.tenant + ':' + item.namespace) {
+                      <li>
+                        <div>
+                          <strong>{{ item.name }}</strong>
+                          <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
+                        </div>
+                        <div class="artifact-actions">
+                          <button type="button" class="ghost" (click)="openEditPlatformArtifact('SINK', item.name, item.tenant, item.namespace)">Edit</button>
+                          <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('SINK', item.name, item.tenant, item.namespace)">Delete</button>
+                        </div>
+                      </li>
                     }
                   </ul>
                 }
@@ -246,12 +279,12 @@
 
               <article class="detail-card">
                 <p class="eyebrow">Connectors</p>
-                <h4>{{ platform.connectors.length }}</h4>
-                @if (platform.connectors.length === 0) {
+                <h4>{{ visibleConnectors().length }}</h4>
+                @if (visibleConnectors().length === 0) {
                   <p class="summary">No connectors were returned by the current cluster.</p>
                 } @else {
                   <ul class="artifact-list">
-                    @for (item of platform.connectors; track item.name) {
+                    @for (item of visibleConnectors(); track item.name) {
                       <li><strong>{{ item.name }}</strong><span>{{ item.status }}</span></li>
                     }
                   </ul>
@@ -330,6 +363,141 @@
           <button class="ghost" type="button" (click)="closeDeleteTenantDialog()">Cancel</button>
           <button class="danger-button" type="submit" [disabled]="savingTenant()">
             {{ savingTenant() ? 'Deleting...' : 'Delete Tenant' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+}
+
+@if (platformDialogOpen()) {
+  <div class="dialog-backdrop" (click)="closePlatformDialog()"></div>
+  <section class="dialog-shell" role="dialog" aria-modal="true" aria-labelledby="platform-artifact-title">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Platform Artifact</p>
+          <h3 id="platform-artifact-title">{{ platformMode() === 'create' ? 'Create' : 'Edit' }} {{ platformForm.controls.artifactType.value.toLowerCase() }}</h3>
+          <p>Use a guided namespace-scoped form instead of raw admin payloads.</p>
+        </div>
+        <button type="button" class="ghost-icon" (click)="closePlatformDialog()">Close</button>
+      </div>
+
+      @if (platformLoading()) {
+        <div class="state-card">Loading artifact details...</div>
+      } @else {
+        <form class="dialog-form" [formGroup]="platformForm" (ngSubmit)="submitPlatformArtifact()">
+          <label>
+            <span>Artifact Type</span>
+            <select formControlName="artifactType">
+              <option value="FUNCTION">Function</option>
+              <option value="SOURCE">Source</option>
+              <option value="SINK">Sink</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Name</span>
+            <input formControlName="name" type="text" />
+          </label>
+
+          <label>
+            <span>Tenant</span>
+            <input formControlName="tenant" type="text" />
+          </label>
+
+          <label>
+            <span>Namespace</span>
+            <input formControlName="namespace" type="text" />
+          </label>
+
+          <label>
+            <span>Class Name</span>
+            <input formControlName="className" type="text" placeholder="com.example.MyFunction" />
+          </label>
+
+          <label>
+            <span>Archive</span>
+            <input formControlName="archive" type="text" placeholder="builtin://, file://, or package URL" />
+          </label>
+
+          <label>
+            <span>Input Topic</span>
+            <input formControlName="inputTopic" type="text" placeholder="Source topic or input stream" />
+          </label>
+
+          <label>
+            <span>Output Topic</span>
+            <input formControlName="outputTopic" type="text" placeholder="Output topic when applicable" />
+          </label>
+
+          <label>
+            <span>Parallelism</span>
+            <input formControlName="parallelism" type="number" min="1" max="128" />
+          </label>
+
+          <label class="full-width">
+            <span>Configs</span>
+            <textarea formControlName="configs" rows="8" placeholder="JSON configs"></textarea>
+          </label>
+
+          <label class="full-width">
+            <span>Reason</span>
+            <textarea formControlName="reason" rows="3" placeholder="Why are we saving this deployment?"></textarea>
+          </label>
+
+          <section class="preview-card">
+            <p class="eyebrow">Preview</p>
+            <p>
+              This will {{ platformMode() === 'create' ? 'create or deploy' : 'update' }}
+              <strong>{{ platformForm.controls.name.value || 'the artifact' }}</strong>
+              in {{ platformForm.controls.tenant.value || selectedTenant() }}/{{ platformForm.controls.namespace.value || selectedNamespace() }}.
+            </p>
+          </section>
+
+          <div class="dialog-actions">
+            <button class="ghost" type="button" (click)="closePlatformDialog()">Cancel</button>
+            <button type="submit" [disabled]="savingPlatform()">
+              {{ savingPlatform() ? 'Saving...' : 'Save Artifact' }}
+            </button>
+          </div>
+        </form>
+      }
+    </div>
+  </section>
+}
+
+@if (platformDeleteDialogOpen()) {
+  <div class="dialog-backdrop" (click)="closePlatformDeleteDialog()"></div>
+  <section class="dialog-shell" role="dialog" aria-modal="true" aria-labelledby="delete-platform-title">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Delete Artifact</p>
+          <h3 id="delete-platform-title">Delete {{ platformArtifact()?.name }}</h3>
+          <p>Remove this platform deployment from the selected namespace.</p>
+        </div>
+        <button type="button" class="ghost-icon" (click)="closePlatformDeleteDialog()">Close</button>
+      </div>
+
+      <form class="dialog-form" [formGroup]="platformDeleteForm" (ngSubmit)="submitDeletePlatformArtifact()">
+        <section class="preview-card danger-preview">
+          <p class="eyebrow">Preview</p>
+          <p>
+            This will remove <strong>{{ platformArtifact()?.name }}</strong> from
+            {{ platformArtifact()?.tenant }}/{{ platformArtifact()?.namespace }}.
+          </p>
+        </section>
+
+        <label>
+          <span>Reason</span>
+          <textarea formControlName="reason" rows="3" placeholder="Why are we deleting this deployment?"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost" type="button" (click)="closePlatformDeleteDialog()">Cancel</button>
+          <button class="danger-button" type="submit" [disabled]="savingPlatform()">
+            {{ savingPlatform() ? 'Deleting...' : 'Delete Artifact' }}
           </button>
         </div>
       </form>

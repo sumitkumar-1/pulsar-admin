@@ -14,6 +14,10 @@ import {
   EnvironmentHealth,
   NamespaceDeleteRequest,
   NamespaceSummary,
+  PlatformArtifactDeleteRequest,
+  PlatformArtifactDetails,
+  PlatformArtifactMutationRequest,
+  PlatformArtifactMutationResponse,
   PlatformSummary,
   TenantDeleteRequest,
   TenantDetails,
@@ -33,6 +37,8 @@ interface NamespaceWorkspaceItem {
   topicCount: number;
   matchingTopicCount: number;
 }
+
+type PlatformArtifactType = 'FUNCTION' | 'SOURCE' | 'SINK' | 'CONNECTOR';
 
 @Component({
   selector: 'app-topic-explorer',
@@ -85,6 +91,22 @@ export class TopicExplorerComponent {
   readonly deleteTenantForm = new FormGroup({
     reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(240)] })
   });
+  readonly platformForm = new FormGroup({
+    artifactType: new FormControl<PlatformArtifactType>('FUNCTION', { nonNullable: true, validators: [Validators.required] }),
+    name: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] }),
+    tenant: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] }),
+    namespace: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)] }),
+    className: new FormControl('', { nonNullable: true }),
+    archive: new FormControl('', { nonNullable: true }),
+    inputTopic: new FormControl('', { nonNullable: true }),
+    outputTopic: new FormControl('', { nonNullable: true }),
+    parallelism: new FormControl(1, { nonNullable: true, validators: [Validators.min(1), Validators.max(128)] }),
+    configs: new FormControl('{\n}', { nonNullable: true, validators: [Validators.required] }),
+    reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(240)] })
+  });
+  readonly platformDeleteForm = new FormGroup({
+    reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(240)] })
+  });
   readonly environmentId = signal('');
   readonly environmentHealth = signal<EnvironmentHealth | null>(null);
   readonly catalogSummary = signal<CatalogSummary | null>(null);
@@ -99,10 +121,16 @@ export class TopicExplorerComponent {
   readonly dialogOpen = signal(false);
   readonly editTenantDialogOpen = signal(false);
   readonly deleteTenantDialogOpen = signal(false);
+  readonly platformDialogOpen = signal(false);
+  readonly platformDeleteDialogOpen = signal(false);
   readonly savingTenant = signal(false);
   readonly savingNamespace = signal(false);
   readonly savingTopic = signal(false);
+  readonly savingPlatform = signal(false);
+  readonly platformLoading = signal(false);
   readonly actionFeedback = signal<{ kind: 'success' | 'error'; message: string } | null>(null);
+  readonly platformArtifact = signal<PlatformArtifactDetails | null>(null);
+  readonly platformMode = signal<'create' | 'edit'>('create');
 
   readonly namespaceItems = computed<NamespaceWorkspaceItem[]>(() => {
     const catalog = this.catalogSummary();
@@ -197,6 +225,10 @@ export class TopicExplorerComponent {
     const catalog = this.catalogSummary();
     return catalog ? catalog.tenants.map((tenant) => tenant.name).sort((left, right) => left.localeCompare(right)) : [];
   });
+  readonly visibleFunctions = computed(() => this.filterPlatformArtifacts(this.platformSummary()?.functions ?? []));
+  readonly visibleSources = computed(() => this.filterPlatformArtifacts(this.platformSummary()?.sources ?? []));
+  readonly visibleSinks = computed(() => this.filterPlatformArtifacts(this.platformSummary()?.sinks ?? []));
+  readonly visibleConnectors = computed(() => this.platformSummary()?.connectors ?? []);
 
   constructor() {
     combineLatest([this.route.paramMap, this.route.queryParamMap, this.refresh$])
@@ -382,6 +414,18 @@ export class TopicExplorerComponent {
   closeDeleteTenantDialog() {
     if (!this.savingTenant()) {
       this.deleteTenantDialogOpen.set(false);
+    }
+  }
+
+  closePlatformDialog() {
+    if (!this.savingPlatform()) {
+      this.platformDialogOpen.set(false);
+    }
+  }
+
+  closePlatformDeleteDialog() {
+    if (!this.savingPlatform()) {
+      this.platformDeleteDialogOpen.set(false);
     }
   }
 
@@ -586,6 +630,156 @@ export class TopicExplorerComponent {
       });
   }
 
+  openCreatePlatformArtifact(type: PlatformArtifactType) {
+    this.platformMode.set('create');
+    this.platformArtifact.set(null);
+    this.platformForm.reset({
+      artifactType: type,
+      name: '',
+      tenant: this.selectedTenant(),
+      namespace: this.selectedNamespace(),
+      className: '',
+      archive: '',
+      inputTopic: '',
+      outputTopic: '',
+      parallelism: 1,
+      configs: '{\n}',
+      reason: ''
+    });
+    this.platformDialogOpen.set(true);
+  }
+
+  openEditPlatformArtifact(type: PlatformArtifactType, name: string, tenant?: string | null, namespace?: string | null) {
+    this.platformMode.set('edit');
+    this.platformLoading.set(true);
+    this.platformArtifact.set(null);
+    this.api.getPlatformArtifactDetails(this.environmentId(), type, name, tenant, namespace)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (details) => {
+          this.platformArtifact.set(details);
+          this.platformForm.reset({
+            artifactType: details.artifactType as PlatformArtifactType,
+            name: details.name,
+            tenant: details.tenant ?? this.selectedTenant(),
+            namespace: details.namespace ?? this.selectedNamespace(),
+            className: details.className ?? '',
+            archive: details.archive ?? '',
+            inputTopic: details.inputTopic ?? '',
+            outputTopic: details.outputTopic ?? '',
+            parallelism: details.parallelism ?? 1,
+            configs: details.configs || '{\n}',
+            reason: ''
+          });
+          this.platformLoading.set(false);
+          this.platformDialogOpen.set(true);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.platformLoading.set(false);
+          this.actionFeedback.set({
+            kind: 'error',
+            message: error.error?.message ?? 'Unable to load the platform artifact details.'
+          });
+        }
+      });
+  }
+
+  openDeletePlatformArtifact(type: PlatformArtifactType, name: string, tenant?: string | null, namespace?: string | null) {
+    this.platformArtifact.set({
+      environmentId: this.environmentId(),
+      artifactType: type,
+      name,
+      tenant: tenant ?? null,
+      namespace: namespace ?? null,
+      status: '',
+      details: '',
+      archive: null,
+      className: null,
+      inputTopic: null,
+      outputTopic: null,
+      parallelism: null,
+      configs: '',
+      editable: type !== 'CONNECTOR'
+    });
+    this.platformDeleteForm.reset({ reason: '' });
+    this.platformDeleteDialogOpen.set(true);
+  }
+
+  submitPlatformArtifact() {
+    if (this.platformForm.invalid) {
+      this.platformForm.markAllAsTouched();
+      return;
+    }
+    const form = this.platformForm.getRawValue();
+    const request: PlatformArtifactMutationRequest = {
+      artifactType: form.artifactType,
+      name: form.name.trim(),
+      tenant: form.tenant.trim() || null,
+      namespace: form.namespace.trim() || null,
+      className: form.className.trim() || null,
+      archive: form.archive.trim() || null,
+      inputTopic: form.inputTopic.trim() || null,
+      outputTopic: form.outputTopic.trim() || null,
+      parallelism: Number(form.parallelism),
+      configs: form.configs.trim() || '{}',
+      reason: form.reason.trim()
+    };
+    this.savingPlatform.set(true);
+    this.api.upsertPlatformArtifact(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response: PlatformArtifactMutationResponse) => {
+          this.savingPlatform.set(false);
+          this.platformDialogOpen.set(false);
+          this.platformSummary.set(response.platformSummary);
+          this.actionFeedback.set({ kind: 'success', message: response.message });
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.savingPlatform.set(false);
+          this.actionFeedback.set({
+            kind: 'error',
+            message: error.error?.message ?? 'Unable to save the platform artifact.'
+          });
+        }
+      });
+  }
+
+  submitDeletePlatformArtifact() {
+    const artifact = this.platformArtifact();
+    if (!artifact) {
+      return;
+    }
+    if (this.platformDeleteForm.invalid) {
+      this.platformDeleteForm.markAllAsTouched();
+      return;
+    }
+    const request: PlatformArtifactDeleteRequest = {
+      artifactType: artifact.artifactType,
+      name: artifact.name,
+      tenant: artifact.tenant,
+      namespace: artifact.namespace,
+      reason: this.platformDeleteForm.controls.reason.value.trim()
+    };
+    this.savingPlatform.set(true);
+    this.api.deletePlatformArtifact(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.savingPlatform.set(false);
+          this.platformDeleteDialogOpen.set(false);
+          this.platformSummary.set(response.platformSummary);
+          this.actionFeedback.set({ kind: 'success', message: response.message });
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.savingPlatform.set(false);
+          this.actionFeedback.set({
+            kind: 'error',
+            message: error.error?.message ?? 'Unable to delete the platform artifact.'
+          });
+        }
+      });
+  }
+
   private loadData(params: ParamMap, queryParams: ParamMap) {
     const envId = params.get('envId') ?? '';
     const search = queryParams.get('search') ?? '';
@@ -640,5 +834,14 @@ export class TopicExplorerComponent {
 
   connectorsCount(): number {
     return this.platformSummary()?.connectors.length ?? 0;
+  }
+
+  private filterPlatformArtifacts<T extends { tenant: string | null; namespace: string | null }>(artifacts: T[]): T[] {
+    const tenant = this.selectedTenant();
+    const namespace = this.selectedNamespace();
+    if (!tenant || !namespace) {
+      return artifacts;
+    }
+    return artifacts.filter((item) => item.tenant === tenant && item.namespace === namespace);
   }
 }

@@ -25,6 +25,10 @@ import {
   NamespacePoliciesResponse,
   NamespacePoliciesUpdateRequest,
   PeekMessagesResponse,
+  PlatformArtifactDeleteRequest,
+  PlatformArtifactDetails,
+  PlatformArtifactMutationRequest,
+  PlatformArtifactMutationResponse,
   PlatformSummary,
   PublishMessageRequest,
   PublishMessageResponse,
@@ -32,6 +36,10 @@ import {
   ReplayCopyJobStatusResponse,
   ResetCursorRequest,
   ResetCursorResponse,
+  SchemaDeleteRequest,
+  SchemaDetails,
+  SchemaMutationResponse,
+  SchemaUpdateRequest,
   SkipMessagesRequest,
   SkipMessagesResponse,
   SubscriptionMutationResponse,
@@ -296,6 +304,29 @@ export class PulsarApiService {
     );
   }
 
+  getSchemaDetails(environmentId: string, topicName: string): Observable<SchemaDetails> {
+    return this.http.get<SchemaDetails>(
+      `${this.baseUrl}/environments/${environmentId}/topics/schema`,
+      { params: this.demoMode.appendHttpParams(new HttpParams().set('topic', topicName)) }
+    );
+  }
+
+  upsertSchema(environmentId: string, request: SchemaUpdateRequest): Observable<SchemaMutationResponse> {
+    return this.http.post<SchemaMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/schema`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  deleteSchema(environmentId: string, request: SchemaDeleteRequest): Observable<SchemaMutationResponse> {
+    return this.http.post<SchemaMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/schema/delete`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
   updateTopicPolicies(
     environmentId: string,
     request: TopicPoliciesUpdateRequest
@@ -358,6 +389,50 @@ export class PulsarApiService {
   getPlatformSummary(environmentId: string): Observable<PlatformSummary> {
     return this.http.get<PlatformSummary>(
       `${this.baseUrl}/environments/${environmentId}/platform`,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  getPlatformArtifactDetails(
+    environmentId: string,
+    artifactType: string,
+    name: string,
+    tenant?: string | null,
+    namespace?: string | null
+  ): Observable<PlatformArtifactDetails> {
+    let params = new HttpParams()
+      .set('type', artifactType)
+      .set('name', name);
+    if (tenant) {
+      params = params.set('tenant', tenant);
+    }
+    if (namespace) {
+      params = params.set('namespace', namespace);
+    }
+    return this.http.get<PlatformArtifactDetails>(
+      `${this.baseUrl}/environments/${environmentId}/platform/artifacts/detail`,
+      { params: this.demoMode.appendHttpParams(params) }
+    );
+  }
+
+  upsertPlatformArtifact(
+    environmentId: string,
+    request: PlatformArtifactMutationRequest
+  ): Observable<PlatformArtifactMutationResponse> {
+    return this.http.post<PlatformArtifactMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/platform/artifacts`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  deletePlatformArtifact(
+    environmentId: string,
+    request: PlatformArtifactDeleteRequest
+  ): Observable<PlatformArtifactMutationResponse> {
+    return this.http.post<PlatformArtifactMutationResponse>(
+      `${this.baseUrl}/environments/${environmentId}/platform/artifacts/delete`,
+      request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );
   }

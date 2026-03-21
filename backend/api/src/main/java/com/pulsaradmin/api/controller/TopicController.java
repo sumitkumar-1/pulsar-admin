@@ -15,6 +15,10 @@ import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
 import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.SchemaDeleteRequest;
+import com.pulsaradmin.shared.model.SchemaDetails;
+import com.pulsaradmin.shared.model.SchemaMutationResponse;
+import com.pulsaradmin.shared.model.SchemaUpdateRequest;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
@@ -115,6 +119,27 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @RequestParam("topic") String topicName) {
     return pulsarCatalogService.getTopicPolicies(envId, topicName);
+  }
+
+  @GetMapping("/schema")
+  public SchemaDetails getSchemaDetails(
+      @PathVariable("envId") String envId,
+      @RequestParam("topic") String topicName) {
+    return pulsarCatalogService.getSchemaDetails(envId, topicName);
+  }
+
+  @PostMapping("/schema")
+  public SchemaMutationResponse upsertSchema(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody SchemaUpdateRequest request) {
+    return pulsarCatalogService.upsertSchema(envId, request);
+  }
+
+  @PostMapping("/schema/delete")
+  public SchemaMutationResponse deleteSchema(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody SchemaDeleteRequest request) {
+    return pulsarCatalogService.deleteSchema(envId, request);
   }
 
   @PostMapping("/policies")

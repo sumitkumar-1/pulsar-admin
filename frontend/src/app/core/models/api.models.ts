@@ -226,6 +226,40 @@ export interface SchemaSummary {
   present: boolean;
 }
 
+export interface SchemaDetails {
+  environmentId: string;
+  topicName: string;
+  present: boolean;
+  type: string;
+  version: string;
+  compatibility: string;
+  definition: string;
+  editable: boolean;
+  message: string;
+}
+
+export interface SchemaUpdateRequest {
+  topicName: string;
+  schemaType: string;
+  compatibility: string | null;
+  definition: string;
+  reason: string;
+}
+
+export interface SchemaDeleteRequest {
+  topicName: string;
+  reason: string;
+}
+
+export interface SchemaMutationResponse {
+  environmentId: string;
+  topicName: string;
+  action: 'UPSERT' | 'DELETE';
+  message: string;
+  schema: SchemaDetails;
+  topicDetails: TopicDetails;
+}
+
 export interface TopicDetails {
   fullName: string;
   tenant: string;
@@ -554,6 +588,55 @@ export interface PlatformArtifactSummary {
   namespace: string | null;
   status: string;
   details: string;
+}
+
+export interface PlatformArtifactDetails {
+  environmentId: string;
+  artifactType: string;
+  name: string;
+  tenant: string | null;
+  namespace: string | null;
+  status: string;
+  details: string;
+  archive: string | null;
+  className: string | null;
+  inputTopic: string | null;
+  outputTopic: string | null;
+  parallelism: number | null;
+  configs: string;
+  editable: boolean;
+}
+
+export interface PlatformArtifactMutationRequest {
+  artifactType: string;
+  name: string;
+  tenant: string | null;
+  namespace: string | null;
+  archive: string | null;
+  className: string | null;
+  inputTopic: string | null;
+  outputTopic: string | null;
+  parallelism: number | null;
+  configs: string | null;
+  reason: string;
+}
+
+export interface PlatformArtifactDeleteRequest {
+  artifactType: string;
+  name: string;
+  tenant: string | null;
+  namespace: string | null;
+  reason: string;
+}
+
+export interface PlatformArtifactMutationResponse {
+  environmentId: string;
+  artifactType: string;
+  action: 'UPSERT' | 'DELETE';
+  name: string;
+  message: string;
+  artifact: PlatformArtifactDetails | null;
+  platformSummary: PlatformSummary;
 }
 
 export interface PlatformSummary {

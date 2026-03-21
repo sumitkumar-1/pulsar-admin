@@ -18,6 +18,10 @@ import {
   ReplayCopyJobStatusResponse,
   ResetCursorRequest,
   ResetCursorResponse,
+  SchemaDeleteRequest,
+  SchemaDetails,
+  SchemaMutationResponse,
+  SchemaUpdateRequest,
   SkipMessagesRequest,
   SkipMessagesResponse,
   SubscriptionMutationResponse,
@@ -54,7 +58,7 @@ export class TopicDetailsComponent {
   readonly environmentId = signal('');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
-  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription' | 'delete-subscription' | null>(null);
+  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription' | 'delete-subscription' | null>(null);
   readonly peekState = signal<PeekMessagesResponse | null>(null);
   readonly peekLoading = signal(false);
   readonly peekError = signal<string | null>(null);
@@ -96,6 +100,12 @@ export class TopicDetailsComponent {
   readonly subscriptionPendingDelete = signal<string | null>(null);
   readonly replayDestinationTopic = signal<TopicDetails | null>(null);
   readonly replayDestinationLoadError = signal<string | null>(null);
+  readonly schemaLoading = signal(false);
+  readonly schemaSaving = signal(false);
+  readonly schemaDeleting = signal(false);
+  readonly schemaState = signal<SchemaDetails | null>(null);
+  readonly schemaResult = signal<SchemaMutationResponse | null>(null);
+  readonly schemaError = signal<string | null>(null);
 
   readonly resetForm = this.formBuilder.nonNullable.group({
     subscriptionName: ['', [Validators.required]],
@@ -126,6 +136,17 @@ export class TopicDetailsComponent {
     maxProducers: [0, [Validators.min(0)]],
     maxConsumers: [0, [Validators.min(0)]],
     maxSubscriptions: [0, [Validators.min(0)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly schemaForm = this.formBuilder.nonNullable.group({
+    schemaType: ['JSON', [Validators.required]],
+    compatibility: ['FULL'],
+    definition: ['{\n  "type": "object",\n  "title": "TopicEvent",\n  "properties": {\n    "id": { "type": "string" }\n  }\n}', [Validators.required, Validators.maxLength(40000)]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
+  readonly schemaDeleteForm = this.formBuilder.nonNullable.group({
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -249,7 +270,7 @@ export class TopicDetailsComponent {
     return !this.details()?.partitioned;
   }
 
-  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription') {
+  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription') {
     this.activeWorkflow.set(workflow);
 
     if (workflow === 'peek') {
@@ -357,6 +378,36 @@ export class TopicDetailsComponent {
       }
     }
 
+    if (workflow === 'schema') {
+      const currentTopic = this.details();
+      if (!currentTopic) {
+        this.schemaError.set('Topic details are still loading.');
+        return;
+      }
+      this.schemaLoading.set(true);
+      this.schemaError.set(null);
+      this.schemaResult.set(null);
+      this.api.getSchemaDetails(this.environmentId(), currentTopic.fullName)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (response) => {
+            this.schemaState.set(response);
+            this.schemaForm.patchValue({
+              schemaType: response.present ? response.type : 'JSON',
+              compatibility: response.present ? response.compatibility : 'FULL',
+              definition: response.definition || this.schemaForm.controls.definition.value,
+              reason: ''
+            });
+            this.schemaDeleteForm.patchValue({ reason: '' });
+            this.schemaLoading.set(false);
+          },
+          error: (error: { error?: { message?: string } }) => {
+            this.schemaError.set(error.error?.message ?? 'Unable to load schema details.');
+            this.schemaLoading.set(false);
+          }
+        });
+    }
+
     if (workflow === 'test-messages') {
       const topic = this.details();
       this.publishError.set(null);
@@ -454,6 +505,78 @@ export class TopicDetailsComponent {
     this.stopReplayPolling();
     this.subscriptionPendingDelete.set(null);
     this.deleteTopicError.set(null);
+  }
+
+  submitSchemaUpdate() {
+    const topic = this.details();
+    if (!topic) {
+      this.schemaError.set('Topic details are still loading.');
+      return;
+    }
+    if (this.schemaForm.invalid) {
+      this.schemaForm.markAllAsTouched();
+      return;
+    }
+    const form = this.schemaForm.getRawValue();
+    const request: SchemaUpdateRequest = {
+      topicName: topic.fullName,
+      schemaType: form.schemaType,
+      compatibility: form.compatibility.trim() || null,
+      definition: form.definition,
+      reason: form.reason.trim()
+    };
+    this.schemaSaving.set(true);
+    this.schemaError.set(null);
+    this.schemaResult.set(null);
+    this.api.upsertSchema(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.schemaSaving.set(false);
+          this.schemaResult.set(response);
+          this.schemaState.set(response.schema);
+          this.applyUpdatedTopic(response.topicDetails);
+          this.schemaForm.patchValue({ reason: '' });
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.schemaSaving.set(false);
+          this.schemaError.set(error.error?.message ?? 'Unable to save schema details.');
+        }
+      });
+  }
+
+  submitSchemaDelete() {
+    const topic = this.details();
+    if (!topic) {
+      this.schemaError.set('Topic details are still loading.');
+      return;
+    }
+    if (this.schemaDeleteForm.invalid) {
+      this.schemaDeleteForm.markAllAsTouched();
+      return;
+    }
+    const request: SchemaDeleteRequest = {
+      topicName: topic.fullName,
+      reason: this.schemaDeleteForm.controls.reason.value.trim()
+    };
+    this.schemaDeleting.set(true);
+    this.schemaError.set(null);
+    this.schemaResult.set(null);
+    this.api.deleteSchema(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.schemaDeleting.set(false);
+          this.schemaResult.set(response);
+          this.schemaState.set(response.schema);
+          this.applyUpdatedTopic(response.topicDetails);
+          this.schemaDeleteForm.patchValue({ reason: '' });
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.schemaDeleting.set(false);
+          this.schemaError.set(error.error?.message ?? 'Unable to delete the schema.');
+        }
+      });
   }
 
   submitResetCursor() {
@@ -1012,6 +1135,37 @@ export class TopicDetailsComponent {
       return 'Topic details are still loading.';
     }
     return `This will align retention (${form.retentionTimeInMinutes} min / ${form.retentionSizeInMb} MB), TTL (${form.ttlInSeconds}s), compaction (${form.compactionThresholdInBytes} bytes), and producer/consumer/subscription limits for ${topic.topic}.`;
+  }
+
+  schemaPreview(): string {
+    const topic = this.details();
+    const form = this.schemaForm.getRawValue();
+    if (!topic) {
+      return 'Topic details are still loading.';
+    }
+    return `This will save ${form.schemaType.toUpperCase()} schema metadata for ${topic.topic} with ${form.compatibility || 'default'} compatibility. Review downstream producers, consumers, and replay targets before applying the change.`;
+  }
+
+  schemaWarnings(): string[] {
+    const warnings: string[] = [];
+    const topic = this.details();
+    const current = this.schemaState();
+    const form = this.schemaForm.getRawValue();
+    if (!topic) {
+      return warnings;
+    }
+    if (current?.present) {
+      warnings.push(`Current schema type is ${current.type} with compatibility ${current.compatibility}.`);
+    } else {
+      warnings.push('This topic does not currently expose a registered schema.');
+    }
+    if (form.schemaType.trim().toUpperCase() !== (current?.type || 'NONE').toUpperCase()) {
+      warnings.push('Changing schema type can break producers, consumers, and replay/copy workflows if payload encoding no longer matches.');
+    }
+    if ((form.compatibility || '').trim()) {
+      warnings.push(`Requested compatibility will be ${form.compatibility.trim().toUpperCase()}.`);
+    }
+    return warnings;
   }
 
   publishPreview(): string {

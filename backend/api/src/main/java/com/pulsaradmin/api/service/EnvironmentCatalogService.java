@@ -23,6 +23,10 @@ import com.pulsaradmin.shared.model.NamespaceMutationResponse;
 import com.pulsaradmin.shared.model.NamespaceSummary;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformArtifactDeleteRequest;
+import com.pulsaradmin.shared.model.PlatformArtifactDetails;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationRequest;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationResponse;
 import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
@@ -30,11 +34,15 @@ import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
+import com.pulsaradmin.shared.model.SchemaDeleteRequest;
+import com.pulsaradmin.shared.model.SchemaDetails;
+import com.pulsaradmin.shared.model.SchemaMutationResponse;
 import com.pulsaradmin.shared.model.TenantDeleteRequest;
 import com.pulsaradmin.shared.model.TenantDetails;
 import com.pulsaradmin.shared.model.TenantMutationResponse;
 import com.pulsaradmin.shared.model.TenantSummary;
 import com.pulsaradmin.shared.model.TenantUpdateRequest;
+import com.pulsaradmin.shared.model.SchemaUpdateRequest;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.SubscriptionMutationResponse;
@@ -755,6 +763,125 @@ public class EnvironmentCatalogService {
     return pulsarAdminGateway.getPlatformSummary(environment.toDetails(), snapshot.namespaces());
   }
 
+  public PlatformArtifactDetails getPlatformArtifactDetails(
+      String environmentId,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    String normalizedType = normalizePlatformArtifactType(artifactType);
+    validatePlatformScope(normalizedType, tenant, namespace, name);
+    return pulsarAdminGateway.getPlatformArtifactDetails(
+        environment.toDetails(),
+        normalizedType,
+        sanitizeNullable(tenant),
+        sanitizeNullable(namespace),
+        name.trim());
+  }
+
+  public PlatformArtifactMutationResponse upsertPlatformArtifact(
+      String environmentId,
+      PlatformArtifactMutationRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    String normalizedType = normalizePlatformArtifactType(request.artifactType());
+    validatePlatformScope(normalizedType, request.tenant(), request.namespace(), request.name());
+    requireReason(request.reason(), "saving a platform artifact");
+    if ("CONNECTOR".equals(normalizedType)) {
+      throw new BadRequestException(
+          "Connector catalog entries are read-only. Deploy them as sources or sinks through the guided platform workflows.");
+    }
+
+    PlatformArtifactDetails details =
+        pulsarAdminGateway.upsertPlatformArtifact(environment.toDetails(), request);
+    PlatformSummary platformSummary = getPlatformSummary(environmentId);
+
+    return new PlatformArtifactMutationResponse(
+        environmentId,
+        normalizedType,
+        "UPSERT",
+        request.name().trim(),
+        "Saved " + normalizedType.toLowerCase() + " " + request.name().trim() + " and refreshed platform coverage.",
+        details,
+        platformSummary);
+  }
+
+  public PlatformArtifactMutationResponse deletePlatformArtifact(
+      String environmentId,
+      PlatformArtifactDeleteRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    String normalizedType = normalizePlatformArtifactType(request.artifactType());
+    validatePlatformScope(normalizedType, request.tenant(), request.namespace(), request.name());
+    requireReason(request.reason(), "deleting a platform artifact");
+    if ("CONNECTOR".equals(normalizedType)) {
+      throw new BadRequestException("Connector catalog entries cannot be deleted from the live cluster catalog.");
+    }
+
+    pulsarAdminGateway.deletePlatformArtifact(
+        environment.toDetails(),
+        normalizedType,
+        sanitizeNullable(request.tenant()),
+        sanitizeNullable(request.namespace()),
+        request.name().trim());
+    PlatformSummary platformSummary = getPlatformSummary(environmentId);
+
+    return new PlatformArtifactMutationResponse(
+        environmentId,
+        normalizedType,
+        "DELETE",
+        request.name().trim(),
+        "Deleted " + normalizedType.toLowerCase() + " " + request.name().trim() + " and refreshed platform coverage.",
+        null,
+        platformSummary);
+  }
+
+  public SchemaDetails getSchemaDetails(String environmentId, String topicName) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    TopicDetails topic = requireTopicFromSnapshot(environmentId, topicName);
+    return pulsarAdminGateway.getSchemaDetails(environment.toDetails(), topic.fullName());
+  }
+
+  public SchemaMutationResponse upsertSchema(String environmentId, SchemaUpdateRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    TopicDetails topic = requireTopicFromSnapshot(environmentId, request.topicName());
+    requireReason(request.reason(), "updating a topic schema");
+    if (request.definition() == null || request.definition().isBlank()) {
+      throw new BadRequestException("A schema definition is required.");
+    }
+    if (request.schemaType() == null || request.schemaType().isBlank()) {
+      throw new BadRequestException("A schema type is required.");
+    }
+
+    SchemaDetails schema = pulsarAdminGateway.upsertSchema(environment.toDetails(), request);
+    TopicDetails refreshedTopic = findTopicAfterRefresh(environment, topic.fullName(), topic);
+
+    return new SchemaMutationResponse(
+        environmentId,
+        topic.fullName(),
+        "UPSERT",
+        "Saved schema for " + topic.fullName() + " and refreshed topic metadata.",
+        schema,
+        refreshedTopic);
+  }
+
+  public SchemaMutationResponse deleteSchema(String environmentId, SchemaDeleteRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+    TopicDetails topic = requireTopicFromSnapshot(environmentId, request.topicName());
+    requireReason(request.reason(), "deleting a topic schema");
+
+    pulsarAdminGateway.deleteSchema(environment.toDetails(), topic.fullName());
+    TopicDetails refreshedTopic = findTopicAfterRefresh(environment, topic.fullName(), topic);
+
+    return new SchemaMutationResponse(
+        environmentId,
+        topic.fullName(),
+        "DELETE",
+        "Deleted schema for " + topic.fullName() + " and refreshed topic metadata.",
+        new SchemaDetails(environmentId, topic.fullName(), false, "NONE", "-", "N/A", "", true,
+            "Schema definition removed from the topic."),
+        refreshedTopic);
+  }
+
   private void requireEnvironment(String environmentId) {
     requireEnvironmentRecord(environmentId);
   }
@@ -822,6 +949,40 @@ public class EnvironmentCatalogService {
       throw new BadRequestException(
           "Topic " + fieldName + " can contain only letters, numbers, dots, dashes, and underscores.");
     }
+  }
+
+  private void requireReason(String reason, String actionDescription) {
+    if (reason == null || reason.isBlank()) {
+      throw new BadRequestException("A reason is required when " + actionDescription + ".");
+    }
+  }
+
+  private String normalizePlatformArtifactType(String artifactType) {
+    String normalized = artifactType == null ? "" : artifactType.trim().toUpperCase();
+    return switch (normalized) {
+      case "FUNCTION", "FUNCTIONS" -> "FUNCTION";
+      case "SOURCE", "SOURCES" -> "SOURCE";
+      case "SINK", "SINKS" -> "SINK";
+      case "CONNECTOR", "CONNECTORS" -> "CONNECTOR";
+      default -> throw new BadRequestException(
+          "Platform artifact type must be one of FUNCTION, SOURCE, SINK, or CONNECTOR.");
+    };
+  }
+
+  private void validatePlatformScope(String artifactType, String tenant, String namespace, String name) {
+    validateTopicSegment("artifact name", name);
+    if (!"CONNECTOR".equals(artifactType)) {
+      validateTopicSegment("tenant", tenant);
+      validateTopicSegment("namespace", namespace);
+    }
+  }
+
+  private String sanitizeNullable(String value) {
+    if (value == null) {
+      return null;
+    }
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? null : trimmed;
   }
 
   private void validateSubscriptionName(String value) {
@@ -1355,5 +1516,15 @@ public class EnvironmentCatalogService {
         topic.notes(),
         topic.partitionSummaries(),
         subscriptions);
+  }
+
+  private TopicDetails findTopicAfterRefresh(
+      EnvironmentRecord environment,
+      String topicName,
+      TopicDetails fallback) {
+    return refreshSnapshot(environment).topics().stream()
+        .filter(item -> item.fullName().equals(topicName))
+        .findFirst()
+        .orElse(fallback);
   }
 }

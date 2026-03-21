@@ -19,13 +19,17 @@ import com.pulsaradmin.shared.model.EnvironmentStatus;
 import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PlatformArtifactDetails;
 import com.pulsaradmin.shared.model.PlatformArtifactSummary;
+import com.pulsaradmin.shared.model.PlatformArtifactMutationRequest;
 import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
+import com.pulsaradmin.shared.model.SchemaDetails;
 import com.pulsaradmin.shared.model.SchemaSummary;
+import com.pulsaradmin.shared.model.SchemaUpdateRequest;
 import com.pulsaradmin.shared.model.SkipMessagesRequest;
 import com.pulsaradmin.shared.model.SkipMessagesResponse;
 import com.pulsaradmin.shared.model.TenantDetails;
@@ -691,6 +695,136 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         readConnectorArtifacts(environment));
   }
 
+  @Override
+  public PlatformArtifactDetails getPlatformArtifactDetails(
+      EnvironmentDetails environment,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    String normalizedType = normalizeArtifactType(artifactType);
+    if ("CONNECTOR".equals(normalizedType)) {
+      JsonNode node = safeGetJson(environment, "/admin/v3/functions/connectors");
+      for (JsonNode item : iterable(node.elements())) {
+        String connectorName = item.path("name").asText(item.asText(""));
+        if (name.equals(connectorName)) {
+          return new PlatformArtifactDetails(
+              environment.id(),
+              normalizedType,
+              connectorName,
+              null,
+              null,
+              "AVAILABLE",
+              item.path("description").asText("Connector plugin is registered in the Pulsar cluster catalog."),
+              item.path("archive").asText("builtin://" + connectorName),
+              item.path("className").asText(null),
+              null,
+              null,
+              null,
+              stringifyNode(item),
+              false);
+        }
+      }
+      throw new BadRequestException("Unknown connector: " + name);
+    }
+
+    requireArtifactScope(tenant, namespace, name);
+    String basePath = platformArtifactBasePath(normalizedType, tenant, namespace, name);
+    JsonNode config = safeGetJson(environment, basePath);
+    JsonNode status = safeGetJson(environment, basePath + "/status");
+    return toPlatformArtifactDetails(environment, normalizedType, tenant, namespace, name, config, status);
+  }
+
+  @Override
+  public PlatformArtifactDetails upsertPlatformArtifact(
+      EnvironmentDetails environment,
+      PlatformArtifactMutationRequest request) {
+    String normalizedType = normalizeArtifactType(request.artifactType());
+    if ("CONNECTOR".equals(normalizedType)) {
+      throw new BadRequestException("Connector catalog entries are read-only in live mode.");
+    }
+
+    requireArtifactScope(request.tenant(), request.namespace(), request.name());
+    String path = platformArtifactBasePath(normalizedType, request.tenant(), request.namespace(), request.name());
+    String body = buildPlatformArtifactBody(normalizedType, request);
+    try {
+      JsonNode existing = safeGetJson(environment, path);
+      boolean exists = existing != null && existing.isObject() && existing.size() > 0;
+      if (exists) {
+        putJson(environment, path, body);
+      } else {
+        postJson(environment, path, body);
+      }
+      return getPlatformArtifactDetails(
+          environment,
+          normalizedType,
+          request.tenant(),
+          request.namespace(),
+          request.name());
+    } catch (RestClientException exception) {
+      throw new BadRequestException(
+          "Unable to save " + normalizedType.toLowerCase()
+              + " via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void deletePlatformArtifact(
+      EnvironmentDetails environment,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    String normalizedType = normalizeArtifactType(artifactType);
+    if ("CONNECTOR".equals(normalizedType)) {
+      throw new BadRequestException("Connector catalog entries are read-only in live mode.");
+    }
+
+    requireArtifactScope(tenant, namespace, name);
+    try {
+      deleteWithoutBody(environment, platformArtifactBasePath(normalizedType, tenant, namespace, name));
+    } catch (RestClientException exception) {
+      throw new BadRequestException(
+          "Unable to delete " + normalizedType.toLowerCase()
+              + " via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public SchemaDetails getSchemaDetails(EnvironmentDetails environment, String topicName) {
+    TopicDetails topic = toTopicDetails(environment, topicName, PulsarTopicName.parse(topicName).tenant(), PulsarTopicName.parse(topicName).namespace());
+    JsonNode schemaNode = safeGetJson(environment, schemaPath(PulsarTopicName.parse(topicName)));
+    return toSchemaDetails(environment.id(), topic.fullName(), schemaNode);
+  }
+
+  @Override
+  public SchemaDetails upsertSchema(EnvironmentDetails environment, SchemaUpdateRequest request) {
+    PulsarTopicName topic = PulsarTopicName.parse(request.topicName());
+    String body;
+    try {
+      body = objectMapper.writeValueAsString(Map.of(
+          "type", request.schemaType().trim().toUpperCase(),
+          "schema", request.definition(),
+          "compatibilityStrategy",
+          request.compatibility() == null || request.compatibility().isBlank()
+              ? "FULL"
+              : request.compatibility().trim().toUpperCase()));
+      postJson(environment, schemaPath(topic), body);
+      return toSchemaDetails(environment.id(), topic.canonicalFullName(), getJson(environment, schemaPath(topic)));
+    } catch (IOException | RestClientException exception) {
+      throw new BadRequestException("Unable to save schema via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public void deleteSchema(EnvironmentDetails environment, String topicName) {
+    try {
+      deleteWithoutBody(environment, schemaPath(PulsarTopicName.parse(topicName)));
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to delete schema via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
   private TopicDetails toTopicDetails(
       EnvironmentDetails environment,
       String fullTopicName,
@@ -862,6 +996,36 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return values;
   }
 
+  private PlatformArtifactDetails toPlatformArtifactDetails(
+      EnvironmentDetails environment,
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name,
+      JsonNode config,
+      JsonNode status) {
+    String runningStatus = status.path("running").asBoolean(false) ? "RUNNING" : status.path("instances").size() > 0 ? "DEPLOYED" : "CONFIGURED";
+    String details = status.path("error").asText(
+        config.path("tenant").isMissingNode()
+            ? "Artifact details loaded from Pulsar admin REST."
+            : "Artifact configuration loaded from Pulsar admin REST.");
+    return new PlatformArtifactDetails(
+        environment.id(),
+        artifactType,
+        name,
+        tenant,
+        namespace,
+        runningStatus,
+        details,
+        config.path("archive").asText(null),
+        config.path("className").asText(null),
+        firstText(config, "inputSpecsTopic", "inputs", "sourceTopic"),
+        firstText(config, "output", "outputTopic", "sinkTopic"),
+        config.path("parallelism").isNumber() ? config.path("parallelism").asInt() : null,
+        stringifyNode(config),
+        !"CONNECTOR".equals(artifactType));
+  }
+
   private List<PlatformArtifactSummary> readConnectorArtifacts(EnvironmentDetails environment) {
     JsonNode node = safeGetJson(environment, "/admin/v3/functions/connectors");
     if (!node.isArray()) {
@@ -930,6 +1094,115 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         + "/" + topicName.namespace()
         + "/" + topicName.topic()
         + "/schema";
+  }
+
+  private String platformArtifactBasePath(
+      String artifactType,
+      String tenant,
+      String namespace,
+      String name) {
+    return platformArtifactCollectionPath(artifactType, tenant, namespace) + "/" + name;
+  }
+
+  private String platformArtifactCollectionPath(
+      String artifactType,
+      String tenant,
+      String namespace) {
+    String segment = switch (normalizeArtifactType(artifactType)) {
+      case "FUNCTION" -> "functions";
+      case "SOURCE" -> "source";
+      case "SINK" -> "sink";
+      default -> throw new BadRequestException("Unsupported platform artifact type: " + artifactType);
+    };
+    return "/admin/v3/" + segment + "/" + tenant + "/" + namespace;
+  }
+
+  private void requireArtifactScope(String tenant, String namespace, String name) {
+    if (tenant == null || tenant.isBlank() || namespace == null || namespace.isBlank() || name == null || name.isBlank()) {
+      throw new BadRequestException("Platform artifact tenant, namespace, and name are required.");
+    }
+  }
+
+  private String normalizeArtifactType(String artifactType) {
+    String normalized = artifactType == null ? "" : artifactType.trim().toUpperCase();
+    return switch (normalized) {
+      case "FUNCTION", "FUNCTIONS" -> "FUNCTION";
+      case "SOURCE", "SOURCES" -> "SOURCE";
+      case "SINK", "SINKS" -> "SINK";
+      case "CONNECTOR", "CONNECTORS" -> "CONNECTOR";
+      default -> throw new BadRequestException("Unsupported platform artifact type: " + artifactType);
+    };
+  }
+
+  private String buildPlatformArtifactBody(String artifactType, PlatformArtifactMutationRequest request) {
+    try {
+      return objectMapper.writeValueAsString(Map.of(
+          "tenant", request.tenant(),
+          "namespace", request.namespace(),
+          "name", request.name(),
+          "className", request.className() == null ? "" : request.className(),
+          "archive", request.archive() == null ? "" : request.archive(),
+          "parallelism", request.parallelism() == null ? 1 : request.parallelism(),
+          "inputTopic", request.inputTopic() == null ? "" : request.inputTopic(),
+          "outputTopic", request.outputTopic() == null ? "" : request.outputTopic(),
+          "configs", parseConfigs(request.configs()),
+          "artifactType", normalizeArtifactType(artifactType)));
+    } catch (IOException exception) {
+      throw new BadRequestException("Unable to serialize platform artifact configuration: " + exception.getMessage());
+    }
+  }
+
+  private Object parseConfigs(String configs) throws IOException {
+    if (configs == null || configs.isBlank()) {
+      return Map.of();
+    }
+    JsonNode node = objectMapper.readTree(configs);
+    if (node.isObject()) {
+      return objectMapper.convertValue(node, Map.class);
+    }
+    return Map.of("raw", configs.trim());
+  }
+
+  private SchemaDetails toSchemaDetails(String environmentId, String topicName, JsonNode schemaNode) {
+    SchemaSummary summary = toSchemaSummary(schemaNode);
+    JsonNode dataNode = schemaNode.path("data");
+    String definition = dataNode.isTextual()
+        ? dataNode.asText("")
+        : dataNode.path("schema").asText(
+            schemaNode.path("schema").asText(stringifyNode(dataNode)));
+    return new SchemaDetails(
+        environmentId,
+        topicName,
+        summary.present(),
+        summary.type(),
+        summary.version(),
+        summary.compatibility(),
+        definition == null ? "" : definition,
+        true,
+        summary.present()
+            ? "Schema definition loaded from Pulsar admin REST."
+            : "No schema definition is currently registered for this topic.");
+  }
+
+  private String stringifyNode(JsonNode node) {
+    try {
+      if (node == null || node.isMissingNode() || node.isNull()) {
+        return "";
+      }
+      return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(node);
+    } catch (IOException exception) {
+      return "";
+    }
+  }
+
+  private String firstText(JsonNode node, String... fields) {
+    for (String field : fields) {
+      JsonNode value = node.path(field);
+      if (value.isTextual() && !value.asText().isBlank()) {
+        return value.asText();
+      }
+    }
+    return null;
   }
 
   private NamespacePolicies getNamespacePolicies(EnvironmentDetails environment, String tenant, String namespace) {
