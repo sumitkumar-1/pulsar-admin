@@ -10,5 +10,11 @@ public record TenantYamlPreviewResponse(
     boolean valid,
     String message,
     List<String> errors,
+    int totalCreates,
+    int totalUpdates,
+    int totalRemovals,
+    int dangerousRemovals,
+    int blockedChanges,
+    List<String> requiredConfirmations,
     List<TenantYamlDiffEntry> changes) {
 }

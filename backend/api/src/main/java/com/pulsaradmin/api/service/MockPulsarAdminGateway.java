@@ -59,6 +59,7 @@ import java.util.stream.Collectors;
 
 public class MockPulsarAdminGateway implements PulsarAdminGateway {
   private final ConcurrentMap<String, List<TopicDetails>> createdTopicsByEnvironment = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, ConcurrentMap<String, TopicDetails>> updatedTopicsByEnvironment = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, List<String>> createdTenantsByEnvironment = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, List<String>> createdNamespacesByEnvironment = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, ConcurrentMap<String, List<String>>> subscriptionsByEnvironment =
@@ -115,6 +116,13 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         .filter(topic -> !deletedNamespaces.contains(topic.tenant() + "/" + topic.namespace()))
         .filter(topic -> !deletedTenants.contains(topic.tenant()))
         .toList();
+
+    Map<String, TopicDetails> topicMap = new LinkedHashMap<>();
+    for (TopicDetails topic : topics) {
+      topicMap.put(topic.fullName(), topic);
+    }
+    topicMap.putAll(updatedTopicsByEnvironment.getOrDefault(environment.id(), new ConcurrentHashMap<>()));
+    topics = new ArrayList<>(topicMap.values());
 
     if (topics.isEmpty()) {
       topics = createCustomEnvironmentTopics(environment);
@@ -182,6 +190,25 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
       topics.add(createdTopic);
       return topics;
     });
+  }
+
+  @Override
+  public void updateTopicPartitions(EnvironmentDetails environment, String topicName, int partitions) {
+    TopicDetails existing = findTopic(environment, topicName);
+    if (!existing.partitioned()) {
+      throw new BadRequestException("Only existing partitioned topics can be resized.");
+    }
+    if (partitions < existing.partitions()) {
+      throw new BadRequestException("Partition count cannot be decreased for an existing partitioned topic.");
+    }
+    if (partitions == existing.partitions()) {
+      return;
+    }
+
+    TopicDetails updated = withPartitionCount(existing, partitions);
+    updatedTopicsByEnvironment
+        .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
+        .put(topicName, updated);
   }
 
   @Override
@@ -1151,6 +1178,42 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         base.notes(),
         partitionSummaries,
         base.subscriptions());
+  }
+
+  private TopicDetails withPartitionCount(TopicDetails topic, int partitions) {
+    if (!topic.partitioned()) {
+      return topic;
+    }
+
+    List<TopicPartitionSummary> partitionSummaries = new ArrayList<>();
+    for (int index = 0; index < partitions; index++) {
+      if (index < topic.partitionSummaries().size()) {
+        partitionSummaries.add(topic.partitionSummaries().get(index));
+      } else {
+        partitionSummaries.add(new TopicPartitionSummary(
+            topic.fullName() + "-partition-" + index,
+            0,
+            0,
+            0,
+            0,
+            TopicHealth.INACTIVE));
+      }
+    }
+
+    return new TopicDetails(
+        topic.fullName(),
+        topic.tenant(),
+        topic.namespace(),
+        topic.topic(),
+        true,
+        partitions,
+        topic.health(),
+        topic.stats(),
+        topic.schema(),
+        topic.ownerTeam(),
+        topic.notes(),
+        partitionSummaries,
+        topic.subscriptions());
   }
 
   private List<PlatformArtifactDetails> readPlatformArtifacts(String environmentId) {

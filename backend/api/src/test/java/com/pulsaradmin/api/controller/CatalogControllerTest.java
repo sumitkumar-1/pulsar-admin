@@ -106,7 +106,7 @@ class CatalogControllerTest {
                 {
                   "tenant": "acme",
                   "namespace": "orders",
-                  "yaml": "tenant: acme\\nnamespace: orders\\npolicies:\\n  retentionTimeInMinutes: 1440\\ntopics:\\n  - name: order-events\\n    domain: persistent\\n    partitions: 0\\n    policies:\\n      maxProducers: 10\\n"
+                  "yaml": "tenant: acme\\nnamespace: orders\\npolicies:\\n  retentionTimeInMinutes: 1440\\n  retentionSizeInMb: 0\\n  messageTtlInSeconds: 0\\n  deduplicationEnabled: false\\n  backlogQuotaLimitInBytes: 0\\n  backlogQuotaLimitTimeInSeconds: 0\\n  dispatchRatePerTopicInMsg: 0\\n  dispatchRatePerTopicInByte: 0\\n  publishRateInMsg: 0\\n  publishRateInByte: 0\\ntopics:\\n  - name: order-events\\n    domain: persistent\\n    partitions: 0\\n    notes: \\"Healthy live traffic with steady subscriber throughput.\\"\\n    policies:\\n      retentionTimeInMinutes: 0\\n      retentionSizeInMb: 0\\n      ttlInSeconds: 0\\n      compactionThresholdInBytes: 0\\n      maxProducers: 10\\n      maxConsumers: 0\\n      maxSubscriptions: 0\\n  - name: payment-events\\n    domain: persistent\\n    partitions: 0\\n    notes: \\"Backlog-heavy topic with slow consumer dispatch and high oldest-message age.\\"\\n    policies:\\n      retentionTimeInMinutes: 0\\n      retentionSizeInMb: 0\\n      ttlInSeconds: 0\\n      compactionThresholdInBytes: 0\\n      maxProducers: 0\\n      maxConsumers: 0\\n      maxSubscriptions: 0\\n"
                 }
                 """))
         .andExpect(status().isOk())
@@ -114,5 +114,96 @@ class CatalogControllerTest {
         .andExpect(jsonPath("$.namespace").value("orders"))
         .andExpect(jsonPath("$.previewId").exists())
         .andExpect(jsonPath("$.changes").isArray());
+  }
+
+  @Test
+  void shouldRequireConfirmationForDangerousTopicRemovalInYamlPreview() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/namespaces/yaml/preview")
+            .contentType("application/json")
+            .content("""
+                {
+                  "tenant": "acme",
+                  "namespace": "orders",
+                  "yaml": "tenant: acme\\nnamespace: orders\\npolicies:\\n  retentionTimeInMinutes: 0\\n  retentionSizeInMb: 0\\n  messageTtlInSeconds: 0\\n  deduplicationEnabled: false\\n  backlogQuotaLimitInBytes: 0\\n  backlogQuotaLimitTimeInSeconds: 0\\n  dispatchRatePerTopicInMsg: 0\\n  dispatchRatePerTopicInByte: 0\\n  publishRateInMsg: 0\\n  publishRateInByte: 0\\ntopics: []\\n"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.dangerousRemovals").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+        .andExpect(jsonPath("$.blockedChanges").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+        .andExpect(jsonPath("$.requiredConfirmations[?(@=='remove-topic:persistent://acme/orders/order-events')]").exists())
+        .andExpect(jsonPath("$.changes[?(@.resourceName=='persistent://acme/orders/order-events')].action").value(org.hamcrest.Matchers.hasItem("REMOVE")))
+        .andExpect(jsonPath("$.changes[?(@.resourceName=='persistent://acme/orders/order-events')].resourceType").value(org.hamcrest.Matchers.hasItem("TOPIC")))
+        .andExpect(jsonPath("$.changes[?(@.resourceName=='persistent://acme/orders/order-events')].requiresConfirmation").value(org.hamcrest.Matchers.hasItem(true)));
+  }
+
+  @Test
+  void shouldRejectYamlApplyWithoutDangerousRemovalConfirmation() throws Exception {
+    String previewBody = mockMvc.perform(post("/api/v1/environments/prod/namespaces/yaml/preview")
+            .contentType("application/json")
+            .content("""
+                {
+                  "tenant": "acme",
+                  "namespace": "orders",
+                  "yaml": "tenant: acme\\nnamespace: orders\\npolicies:\\n  retentionTimeInMinutes: 0\\n  retentionSizeInMb: 0\\n  messageTtlInSeconds: 0\\n  deduplicationEnabled: false\\n  backlogQuotaLimitInBytes: 0\\n  backlogQuotaLimitTimeInSeconds: 0\\n  dispatchRatePerTopicInMsg: 0\\n  dispatchRatePerTopicInByte: 0\\n  publishRateInMsg: 0\\n  publishRateInByte: 0\\ntopics: []\\n"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+
+    String previewId = previewBody.replaceAll(".*\\\"previewId\\\":\\\"([^\\\"]+)\\\".*", "$1");
+
+    mockMvc.perform(post("/api/v1/environments/prod/namespaces/yaml/apply")
+            .contentType("application/json")
+            .content("""
+                {
+                  "previewId": "%s",
+                  "reason": "Remove topic through namespace YAML",
+                  "confirmedChangeKeys": []
+                }
+                """.formatted(previewId)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Confirm the destructive YAML removals")));
+  }
+
+  @Test
+  void shouldPreviewPartitionIncreaseForExistingPartitionedTopic() throws Exception {
+    String currentYaml = mockMvc.perform(get("/api/v1/environments/prod/namespaces/yaml/current")
+            .param("tenant", "acme")
+            .param("namespace", "analytics"))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+
+    String yamlBody = currentYaml.replaceAll(".*\\\"yaml\\\":\\\"(.*)\\\",\\\"message\\\".*", "$1")
+        .replace("\\n", "\n")
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\");
+    String updatedYaml = yamlBody.replace("partitions: 6", "partitions: 8");
+
+    mockMvc.perform(post("/api/v1/environments/prod/namespaces/yaml/preview")
+            .contentType("application/json")
+            .content("""
+                {
+                  "tenant": "acme",
+                  "namespace": "analytics",
+                  "yaml": %s
+                }
+                """.formatted(toJsonString(updatedYaml))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.valid").value(true))
+        .andExpect(jsonPath("$.totalUpdates").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+        .andExpect(jsonPath("$.changes[?(@.resourceType=='TOPIC')].resourceName").value(org.hamcrest.Matchers.hasItem("persistent://acme/analytics/usage-rollups")))
+        .andExpect(jsonPath("$.changes[?(@.resourceType=='TOPIC')].summary").value(org.hamcrest.Matchers.hasItem("Topic lifecycle settings will be aligned to the YAML state.")));
+  }
+
+  private static String toJsonString(String value) {
+    return "\"" + value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        + "\"";
   }
 }

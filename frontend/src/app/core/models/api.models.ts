@@ -561,13 +561,27 @@ export interface TenantYamlPreviewRequest {
 export interface TenantYamlApplyRequest {
   previewId: string;
   reason: string;
+  confirmedChangeKeys: string[];
+}
+
+export interface TenantYamlFieldChange {
+  field: string;
+  currentValue: string | null;
+  desiredValue: string | null;
 }
 
 export interface TenantYamlDiffEntry {
   action: string;
   resourceType: string;
   resourceName: string;
+  displayName: string;
   summary: string;
+  severity: string;
+  iconKey: string;
+  riskFlags: string[];
+  requiresConfirmation: boolean;
+  confirmationKey: string | null;
+  fieldChanges: TenantYamlFieldChange[];
 }
 
 export interface TenantYamlPreviewResponse {
@@ -578,7 +592,21 @@ export interface TenantYamlPreviewResponse {
   valid: boolean;
   message: string;
   errors: string[];
+  totalCreates: number;
+  totalUpdates: number;
+  totalRemovals: number;
+  dangerousRemovals: number;
+  blockedChanges: number;
+  requiredConfirmations: string[];
   changes: TenantYamlDiffEntry[];
+}
+
+export interface TenantYamlApplyResultEntry {
+  action: string;
+  resourceType: string;
+  resourceName: string;
+  status: string;
+  message: string;
 }
 
 export interface TenantYamlApplyResponse {
@@ -588,6 +616,10 @@ export interface TenantYamlApplyResponse {
   namespace: string;
   message: string;
   appliedChanges: TenantYamlDiffEntry[];
+  applyResults: TenantYamlApplyResultEntry[];
+  appliedCount: number;
+  skippedCount: number;
+  failedCount: number;
   catalogSummary: CatalogSummary;
 }
 

@@ -63,6 +63,11 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   @Override
+  public void updateTopicPartitions(EnvironmentDetails environment, String topicName, int partitions) {
+    activeGateway().updateTopicPartitions(environment, topicName, partitions);
+  }
+
+  @Override
   public void createTenant(EnvironmentDetails environment, CreateTenantRequest request) {
     activeGateway().createTenant(environment, request);
   }

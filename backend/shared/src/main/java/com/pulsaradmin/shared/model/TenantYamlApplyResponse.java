@@ -9,5 +9,9 @@ public record TenantYamlApplyResponse(
     String namespace,
     String message,
     List<TenantYamlDiffEntry> appliedChanges,
+    List<TenantYamlApplyResultEntry> applyResults,
+    int appliedCount,
+    int skippedCount,
+    int failedCount,
     CatalogSummary catalogSummary) {
 }

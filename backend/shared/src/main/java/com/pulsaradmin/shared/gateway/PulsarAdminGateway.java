@@ -39,6 +39,8 @@ public interface PulsarAdminGateway {
 
   void createTopic(EnvironmentDetails environment, CreateTopicRequest request);
 
+  void updateTopicPartitions(EnvironmentDetails environment, String topicName, int partitions);
+
   void createTenant(EnvironmentDetails environment, CreateTenantRequest request);
 
   void createNamespace(EnvironmentDetails environment, CreateNamespaceRequest request);

@@ -890,6 +890,10 @@ public class EnvironmentCatalogService {
     pulsarAdminGateway.deleteTopic(environment.toDetails(), topicName);
   }
 
+  void updateTopicPartitionsForSync(EnvironmentRecord environment, String topicName, int partitions) {
+    pulsarAdminGateway.updateTopicPartitions(environment.toDetails(), topicName, partitions);
+  }
+
   void deleteNamespaceForSync(EnvironmentRecord environment, String tenant, String namespace) {
     pulsarAdminGateway.deleteNamespace(environment.toDetails(), tenant, namespace);
   }

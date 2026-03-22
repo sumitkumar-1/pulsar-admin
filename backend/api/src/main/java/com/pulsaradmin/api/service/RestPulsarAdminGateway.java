@@ -196,6 +196,24 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   @Override
+  public void updateTopicPartitions(EnvironmentDetails environment, String topicName, int partitions) {
+    PulsarTopicName parsedTopicName = PulsarTopicName.parse(topicName);
+
+    try {
+      postJson(
+          environment,
+          "/admin/v2/" + parsedTopicName.domain()
+              + "/" + parsedTopicName.tenant()
+              + "/" + parsedTopicName.namespace()
+              + "/" + parsedTopicName.topic()
+              + "/partitions",
+          String.valueOf(partitions));
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to update topic partitions via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
   public void createTenant(EnvironmentDetails environment, CreateTenantRequest request) {
     String tenantName = request.tenant().trim();
     List<String> adminRoles = sanitizeStringList(request.adminRoles());

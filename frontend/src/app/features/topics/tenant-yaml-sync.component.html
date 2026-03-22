@@ -5,10 +5,10 @@
 } @else {
   <section class="yaml-hero">
     <div>
-      <p class="eyebrow">Namespace YAML Authoring</p>
+      <p class="eyebrow">Namespace YAML Sync</p>
       <h2>{{ tenant() || 'Selected Tenant' }}/{{ namespace() || 'Selected Namespace' }}</h2>
       <p class="yaml-hero-copy">
-        Start from the live namespace state, adjust the YAML for your intended namespace changes, then preview and apply safely.
+        Author changes in YAML, validate the scope, review the exact impact, and explicitly confirm dangerous removals before apply.
       </p>
     </div>
     <div class="yaml-hero-meta">
@@ -17,6 +17,22 @@
         <span class="yaml-meta-pill">Generated {{ current.generatedAt | date: 'medium' }}</span>
       }
     </div>
+  </section>
+
+  <section class="stage-strip">
+    @for (item of stageCards; track item.key) {
+      <button
+        type="button"
+        class="stage-card"
+        [ngClass]="{ active: stage() === item.key }"
+        (click)="setStage(item.key)">
+        <span class="stage-step">{{ $index + 1 }}</span>
+        <span class="stage-copy">
+          <strong>{{ item.title }}</strong>
+          <small>{{ item.copy }}</small>
+        </span>
+      </button>
+    }
   </section>
 
   <section class="yaml-grid">
@@ -34,10 +50,11 @@
               <input formControlName="namespace" type="text" readonly />
             </label>
           </div>
+
           @if (currentYamlState(); as current) {
             <div class="yaml-generated-note">
               <strong>{{ current.message }}</strong>
-              <span>Generated {{ current.generatedAt | date: 'medium' }}</span>
+              <span>Use this as the trusted starting point for edits.</span>
             </div>
           }
         </div>
@@ -51,21 +68,21 @@
               <input type="file" accept=".yaml,.yml" (change)="onYamlFileSelected($event)" />
               Upload YAML
             </label>
-            <button type="button" class="secondary-button" (click)="resetToCurrentYaml()">
-              Reset
-            </button>
+            <button type="button" class="secondary-button" (click)="resetToCurrentYaml()">Reset</button>
+            <button type="button" class="secondary-button" (click)="formatYamlEditor()">Format YAML</button>
           </div>
         </div>
 
-        <label class="yaml-editor-field">
-          <span>Editable Namespace YAML</span>
-          <textarea formControlName="yaml" rows="28"></textarea>
-        </label>
-
-        <label class="reason-field">
-          <span>Apply Reason</span>
-          <textarea formControlName="reason" rows="3" placeholder="Why are we applying these namespace changes?"></textarea>
-        </label>
+        <section class="editor-panel">
+          <div class="editor-header">
+            <div>
+              <p class="eyebrow">Edit</p>
+              <h3>Namespace YAML editor</h3>
+            </div>
+            <span class="editor-hint">Code editor with syntax highlighting and line numbers</span>
+          </div>
+          <div #editorHost class="editor-host"></div>
+        </section>
 
         <div class="button-row">
           <button type="button" class="secondary-button" (click)="validateYaml()" [disabled]="validating()">
@@ -73,9 +90,6 @@
           </button>
           <button type="button" (click)="previewYaml()" [disabled]="previewing()">
             {{ previewing() ? 'Previewing...' : 'Preview Changes' }}
-          </button>
-          <button type="button" class="danger-button" (click)="applyYaml()" [disabled]="applying() || !previewState()?.previewId">
-            {{ applying() ? 'Applying...' : 'Apply Preview' }}
           </button>
         </div>
       </form>
@@ -87,45 +101,207 @@
       }
 
       @if (validationState(); as validation) {
-        <div class="state-card" [class.error]="!validation.valid">
-          <strong>{{ validation.message }}</strong>
+        <section class="review-card" [ngClass]="{ error: !validation.valid }">
+          <div class="review-header">
+            <div>
+              <p class="eyebrow">Validate</p>
+              <h3>{{ validation.valid ? 'YAML passed validation' : 'Validation needs attention' }}</h3>
+            </div>
+          </div>
+          <p>{{ validation.message }}</p>
           @if (validation.errors.length > 0) {
-            <ul>
+            <ul class="issue-list">
               @for (entry of validation.errors; track entry) {
                 <li>{{ entry }}</li>
               }
             </ul>
           }
-        </div>
+        </section>
       }
 
       @if (previewState(); as preview) {
-        <div class="state-card success">
-          <strong>{{ preview.message }}</strong>
-          <p>Preview ID {{ preview.previewId }}</p>
-          <p>Scope: {{ preview.tenant }}/{{ preview.namespace }}</p>
-        </div>
-
-        <div class="diff-list">
-          @for (change of preview.changes; track change.resourceType + change.resourceName + change.action) {
-            <div class="diff-entry" [attr.data-action]="change.action.toLowerCase()">
-              <div>
-                <strong>{{ change.action }}</strong>
-                <p>{{ change.resourceType }} · {{ change.resourceName }}</p>
-              </div>
-              <span>{{ change.summary }}</span>
+        <section class="review-card summary-card">
+          <div class="review-header">
+            <div>
+              <p class="eyebrow">Review Changes</p>
+              <h3>{{ preview.message }}</h3>
             </div>
+            <span class="preview-id">Preview {{ preview.previewId }}</span>
+          </div>
+
+          <div class="review-metrics">
+            <span class="metric create">+ {{ preview.totalCreates }} creates</span>
+            <span class="metric update">~ {{ preview.totalUpdates }} updates</span>
+            <span class="metric remove">- {{ preview.totalRemovals }} removals</span>
+            <span class="metric danger">! {{ preview.dangerousRemovals }} dangerous removals</span>
+            <span class="metric blocked">{{ preview.blockedChanges }} confirmations required</span>
+          </div>
+        </section>
+
+        @if (!preview.valid) {
+          <section class="review-card error">
+            <div class="review-header">
+              <div>
+                <p class="eyebrow">Blocked Changes</p>
+                <h3>Resolve these unsupported or unsafe YAML changes first</h3>
+              </div>
+            </div>
+
+            <p>
+              This preview is blocked, so nothing will be applied yet. Update the YAML to remove the unsupported change and preview again.
+            </p>
+
+            <ul class="issue-list">
+              @for (entry of previewIssues(); track entry) {
+                <li>{{ entry }}</li>
+              }
+            </ul>
+          </section>
+        } @else {
+          @for (group of groupedChanges(); track group.key) {
+            <section class="review-card">
+              <div class="review-header">
+                <div>
+                  <p class="eyebrow">Change Group</p>
+                  <h3>{{ group.title }}</h3>
+                </div>
+              </div>
+
+              <div class="change-list">
+                @for (change of group.changes; track change.resourceType + change.resourceName + change.action) {
+                  <article class="change-card" [ngClass]="change.severity">
+                    <div class="change-topline">
+                      <span class="change-icon">{{ actionIcon(change) }}</span>
+                      <div class="change-headings">
+                        <strong>{{ change.displayName }}</strong>
+                        <span>{{ change.action }} · {{ change.resourceType }}</span>
+                      </div>
+                      <span class="severity-pill" [ngClass]="change.severity">{{ severityLabel(change) }}</span>
+                    </div>
+
+                    <p class="change-summary">{{ change.summary }}</p>
+
+                    @if (change.fieldChanges.length > 0) {
+                      <div class="field-diff-list">
+                        @for (fieldChange of change.fieldChanges; track fieldChange.field) {
+                          <div class="field-diff">
+                            <strong>{{ fieldChange.field }}</strong>
+                            <span>{{ fieldChange.currentValue ?? 'unset' }} → {{ fieldChange.desiredValue ?? 'unset' }}</span>
+                          </div>
+                        }
+                      </div>
+                    }
+
+                    @if (change.riskFlags.length > 0) {
+                      <div class="risk-flag-list">
+                        @for (flag of change.riskFlags; track flag) {
+                          <span class="risk-flag">{{ flag }}</span>
+                        }
+                      </div>
+                    }
+                  </article>
+                }
+              </div>
+            </section>
           }
-        </div>
+
+          @if (dangerousChanges().length > 0) {
+            <section class="review-card danger-card">
+              <div class="review-header">
+                <div>
+                  <p class="eyebrow">Confirm & Apply</p>
+                  <h3>Explicit confirmation is required for dangerous removals</h3>
+                </div>
+              </div>
+
+              <p>
+                These removals may delete topics that still have retained data, subscriptions, partitions, schema metadata, or active traffic signals. Confirm each one before apply.
+              </p>
+
+              <div class="confirmation-list">
+                @for (change of dangerousChanges(); track change.confirmationKey) {
+                  <label class="confirmation-item">
+                    <input
+                      type="checkbox"
+                      [checked]="isDangerousChangeConfirmed(change.confirmationKey)"
+                      (change)="toggleDangerousChange(change.confirmationKey, $any($event.target).checked)" />
+                    <div>
+                      <strong>{{ change.displayName }}</strong>
+                      <p>{{ change.summary }}</p>
+                      <div class="risk-flag-list">
+                        @for (flag of change.riskFlags; track flag) {
+                          <span class="risk-flag">{{ flag }}</span>
+                        }
+                      </div>
+                    </div>
+                  </label>
+                }
+              </div>
+
+              @if (missingConfirmations().length > 0) {
+                <div class="state-card error compact-card">
+                  Confirm all dangerous removals before applying this preview.
+                </div>
+              }
+            </section>
+          }
+
+          <section class="review-card apply-card">
+            <div class="review-header">
+              <div>
+                <p class="eyebrow">Apply</p>
+                <h3>Apply the reviewed namespace changes</h3>
+              </div>
+            </div>
+            <p>Apply uses the exact stored preview so the reviewed changes and the executed changes stay aligned.</p>
+
+            <label class="reason-field">
+              <span>Change reason</span>
+              <textarea formControlName="reason" rows="3" placeholder="Document why this namespace sync is being applied."></textarea>
+            </label>
+
+            <div class="button-row">
+              <button type="button" class="secondary-button" (click)="setStage('review')">Return to Review</button>
+              <button type="button" class="danger-button" (click)="applyYaml()" [disabled]="!canApply()">
+                {{ applying() ? 'Applying...' : 'Apply Preview' }}
+              </button>
+            </div>
+          </section>
+        }
       } @else {
-        <div class="state-card">Generate a preview to inspect the exact creates, updates, and removals before apply.</div>
+        <div class="state-card">Generate a preview to inspect creates, updates, removals, and destructive risk analysis before apply.</div>
       }
 
       @if (applyState(); as apply) {
-        <div class="state-card success">
-          <strong>{{ apply.message }}</strong>
-          <p>{{ apply.appliedChanges.length }} changes applied across namespace {{ apply.tenant }}/{{ apply.namespace }}.</p>
-        </div>
+        <section class="review-card success">
+          <div class="review-header">
+            <div>
+              <p class="eyebrow">Apply Result</p>
+              <h3>{{ apply.message }}</h3>
+            </div>
+          </div>
+
+          <div class="review-metrics">
+            <span class="metric create">{{ apply.appliedCount }} applied</span>
+            <span class="metric blocked">{{ apply.skippedCount }} skipped</span>
+            <span class="metric remove">{{ apply.failedCount }} failed</span>
+          </div>
+
+          <div class="apply-result-list">
+            @for (result of apply.applyResults; track result.action + result.resourceType + result.resourceName + result.status) {
+              <div class="apply-result-item" [ngClass]="result.status.toLowerCase()">
+                <strong>{{ result.resourceName }}</strong>
+                <span>{{ result.status }} · {{ result.action }} {{ result.resourceType }}</span>
+                <p>{{ result.message }}</p>
+              </div>
+            }
+          </div>
+
+          <div class="button-row">
+            <button type="button" class="secondary-button" (click)="loadCurrentYaml(true)">Reload Current Namespace</button>
+            <a class="secondary-link" [routerLink]="['/environments', environmentId(), 'topics']" [queryParams]="backQueryParams()">Return to Workspace</a>
+          </div>
+        </section>
       }
     </article>
   </section>
