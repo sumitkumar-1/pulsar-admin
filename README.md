@@ -84,6 +84,24 @@ In `rest` mode:
 - the current live integration supports auth mode `none` and token-based environments using a raw token, `token:...`, or `env://VAR_NAME`
 - basic auth can be stored for future work, but live peek still requires `none` or `token`
 
+## Compatibility matrix
+
+The table below reflects the versions and modes we currently validate in this repository.
+
+| Area | Version / Mode | Status | Notes |
+| --- | --- | --- | --- |
+| Backend Java runtime | Java 17 | Supported | Required for Spring Boot services in this repo. |
+| Pulsar Java client in API | 3.3.5 | Supported | Backend dependency is pinned to `org.apache.pulsar:pulsar-client:3.3.5`. |
+| Local Docker Pulsar image | 4.1.1 | Supported (local dev) | Default image in `docker-compose.yml` for local standalone. |
+| Gateway mode | `rest` | Supported | Live admin + publish/consume paths. |
+| Gateway mode | `mock` | Supported | Safe local/demo mode. |
+| Auth mode (live test messaging) | `none` | Supported | Works for local standalone by default. |
+| Auth mode (live test messaging) | `token` | Supported | Token formats: raw token, `token:...`, or `env://VAR_NAME`. |
+| Auth mode (live test messaging) | `basic` | Supported | Uses Pulsar client `AuthenticationBasic` for publish/consume. |
+| Pulsar broker compatibility | Other versions | Not yet verified | We expect many versions to work, but only listed combinations are currently tested. |
+
+If you want broader confidence, add CI matrix runs across multiple Pulsar container versions and execute publish/consume smoke tests per version.
+
 ### 5. One-command local dev
 
 ```bash

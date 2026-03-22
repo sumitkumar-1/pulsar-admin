@@ -24,6 +24,22 @@ public class ApiExceptionHandler {
     return build(HttpStatus.BAD_REQUEST, exception, request);
   }
 
+  @ExceptionHandler(Throwable.class)
+  public ResponseEntity<ApiErrorResponse> handleUnexpected(
+      Throwable exception,
+      HttpServletRequest request) {
+    String message = exception.getMessage() == null || exception.getMessage().isBlank()
+        ? "Unexpected server error."
+        : exception.getMessage();
+    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .body(new ApiErrorResponse(
+            Instant.now(),
+            HttpStatus.INTERNAL_SERVER_ERROR.value(),
+            HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(),
+            message,
+            request.getRequestURI()));
+  }
+
   private ResponseEntity<ApiErrorResponse> build(
       HttpStatus status,
       RuntimeException exception,

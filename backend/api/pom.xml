@@ -33,7 +33,7 @@
     <dependency>
       <groupId>org.apache.pulsar</groupId>
       <artifactId>pulsar-client</artifactId>
-      <version>4.1.2</version>
+      <version>3.3.5</version>
     </dependency>
     <dependency>
       <groupId>org.postgresql</groupId>

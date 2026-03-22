@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyString;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.mockito.Mockito.mock;
@@ -16,19 +19,30 @@ import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
 import com.pulsaradmin.shared.model.EnvironmentStatus;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
+import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
-import org.apache.pulsar.client.api.AuthenticationFactory;
 import java.time.Instant;
+import java.util.Map;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.Reader;
 import org.apache.pulsar.client.api.ReaderBuilder;
+import org.apache.pulsar.client.api.SubscriptionInitialPosition;
+import org.apache.pulsar.client.api.SubscriptionType;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -400,6 +414,96 @@ class RestPulsarAdminGatewayTest {
     assertThat(response.messages().get(1).schemaVersion()).isEqualTo("unknown");
 
     verify(reader).close();
+  }
+
+  @Test
+  void shouldPublishMessageThroughPulsarClient() throws Exception {
+    PulsarClient client = mock(PulsarClient.class);
+    @SuppressWarnings("unchecked")
+    ProducerBuilder<byte[]> producerBuilder = mock(ProducerBuilder.class);
+    @SuppressWarnings("unchecked")
+    Producer<byte[]> producer = mock(Producer.class);
+    @SuppressWarnings("unchecked")
+    TypedMessageBuilder<byte[]> messageBuilder = mock(TypedMessageBuilder.class);
+    MessageId messageId = mock(MessageId.class);
+
+    when(client.newProducer()).thenReturn(producerBuilder);
+    when(producerBuilder.topic("persistent://acme/orders/payment-events")).thenReturn(producerBuilder);
+    when(producerBuilder.create()).thenReturn(producer);
+    when(producer.newMessage()).thenReturn(messageBuilder);
+    when(messageBuilder.value(any(byte[].class))).thenReturn(messageBuilder);
+    when(messageBuilder.key("payment-1")).thenReturn(messageBuilder);
+    when(messageBuilder.properties(Map.of("traceId", "abc-123"))).thenReturn(messageBuilder);
+    when(messageBuilder.sendAsync()).thenReturn(CompletableFuture.completedFuture(messageId));
+    when(messageId.toString()).thenReturn("ledger:91:2048");
+
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(
+        RestClient.builder().build(),
+        new ObjectMapper(),
+        environment -> client);
+
+    var response = gateway.publishMessage(environment(), new PublishMessageRequest(
+        "persistent://acme/orders/payment-events",
+        "payment-1",
+        Map.of("traceId", "abc-123"),
+        "RAW",
+        "{\"event\":\"test\"}",
+        "Operator publish test"));
+
+    assertThat(response.messageId()).isEqualTo("ledger:91:2048");
+    assertThat(response.message()).contains("Published a test message");
+    verify(producer).close();
+  }
+
+  @Test
+  void shouldConsumeMessagesThroughPulsarClient() throws Exception {
+    PulsarClient client = mock(PulsarClient.class);
+    @SuppressWarnings("unchecked")
+    ConsumerBuilder<byte[]> consumerBuilder = mock(ConsumerBuilder.class);
+    @SuppressWarnings("unchecked")
+    Consumer<byte[]> consumer = mock(Consumer.class);
+    @SuppressWarnings("unchecked")
+    Message<byte[]> message = mock(Message.class);
+    MessageId messageId = mock(MessageId.class);
+
+    when(client.newConsumer()).thenReturn(consumerBuilder);
+    when(consumerBuilder.topic("persistent://acme/orders/payment-events")).thenReturn(consumerBuilder);
+    when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
+    when(consumerBuilder.subscriptionType(any(SubscriptionType.class))).thenReturn(consumerBuilder);
+    when(consumerBuilder.subscriptionInitialPosition(any(SubscriptionInitialPosition.class))).thenReturn(consumerBuilder);
+    when(consumerBuilder.subscribe()).thenReturn(consumer);
+
+    @SuppressWarnings("unchecked")
+    Message<byte[]> noMessage = (Message<byte[]>) null;
+    when(consumer.receive(anyInt(), any(TimeUnit.class))).thenReturn(message, noMessage);
+    when(message.getMessageId()).thenReturn(messageId);
+    when(messageId.toString()).thenReturn("ledger:91:2048");
+    when(message.hasKey()).thenReturn(true);
+    when(message.getKey()).thenReturn("payment-1");
+    when(message.getPublishTime()).thenReturn(1_742_240_000_000L);
+    when(message.getEventTime()).thenReturn(0L);
+    when(message.getProperties()).thenReturn(Map.of("traceId", "abc-123"));
+    when(message.getProducerName()).thenReturn("payments-producer-1");
+    when(message.getData()).thenReturn("{\"event\":\"test\"}".getBytes());
+
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(
+        RestClient.builder().build(),
+        new ObjectMapper(),
+        environment -> client);
+
+    var response = gateway.consumeMessages(environment(), new ConsumeMessagesRequest(
+        "persistent://acme/orders/payment-events",
+        "payment-sub",
+        false,
+        2,
+        1,
+        "Operator consume test"));
+
+    assertThat(response.receivedCount()).isEqualTo(1);
+    assertThat(response.messages()).hasSize(1);
+    assertThat(response.messages().get(0).key()).isEqualTo("payment-1");
+    verify(consumer).acknowledge(message);
+    verify(consumer).close();
   }
 
   @Test

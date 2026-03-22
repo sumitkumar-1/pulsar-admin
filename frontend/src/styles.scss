@@ -128,6 +128,10 @@ select {
   padding: 1.4rem;
 }
 
+.workflow-dialog.test-messages-dialog {
+  width: min(1240px, 100%);
+}
+
 .workflow-header {
   display: flex;
   justify-content: space-between;
@@ -547,6 +551,10 @@ dd {
 }
 
 .test-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 1rem;
   margin-top: 1rem;
 }
 
@@ -643,6 +651,16 @@ dd {
   .subscription-list li {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@media (max-width: 1160px) {
+  .workflow-dialog.test-messages-dialog {
+    width: min(960px, 100%);
+  }
+
+  .test-grid {
+    grid-template-columns: 1fr;
   }
 }
 

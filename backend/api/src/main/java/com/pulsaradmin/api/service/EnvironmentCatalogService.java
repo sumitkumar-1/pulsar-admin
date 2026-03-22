@@ -1011,7 +1011,8 @@ public class EnvironmentCatalogService {
   private SchemaValidation validatePublishSchema(TopicDetails topic, PublishMessageRequest request) {
     List<String> warnings = new ArrayList<>();
     String schemaMode = request.schemaMode() == null ? "RAW" : request.schemaMode().trim().toUpperCase();
-    String schemaType = topic.schema().type() == null ? "NONE" : topic.schema().type().trim().toUpperCase();
+    SchemaSummary schema = safeSchema(topic);
+    String schemaType = schema.type() == null ? "NONE" : schema.type().trim().toUpperCase();
 
     if ("JSON".equals(schemaMode)) {
       try {
@@ -1021,7 +1022,7 @@ public class EnvironmentCatalogService {
       }
     }
 
-    if (!topic.schema().present()) {
+    if (!schema.present()) {
       if ("JSON".equals(schemaMode)) {
         warnings.add("This topic does not expose schema metadata. JSON mode will still publish a bounded test message, but compatibility cannot be verified.");
       }
@@ -1031,13 +1032,13 @@ public class EnvironmentCatalogService {
     if (schemaType.contains("JSON") && !"JSON".equals(schemaMode)) {
       warnings.add("This topic advertises a JSON schema. RAW publish mode may bypass the expected payload shape.");
     } else if (!schemaType.contains("JSON") && "JSON".equals(schemaMode)) {
-      warnings.add("This topic advertises schema type " + topic.schema().type() + ". JSON mode may not match the live schema encoding.");
+      warnings.add("This topic advertises schema type " + schema.type() + ". JSON mode may not match the live schema encoding.");
     }
 
-    if (topic.schema().compatibility() != null
-        && !topic.schema().compatibility().isBlank()
-        && !"NONE".equalsIgnoreCase(topic.schema().compatibility())) {
-      warnings.add("Schema compatibility is " + topic.schema().compatibility() + ". Validate your payload before publishing to production-like environments.");
+    if (schema.compatibility() != null
+        && !schema.compatibility().isBlank()
+        && !"NONE".equalsIgnoreCase(schema.compatibility())) {
+      warnings.add("Schema compatibility is " + schema.compatibility() + ". Validate your payload before publishing to production-like environments.");
     }
 
     return new SchemaValidation(warnings);
@@ -1056,10 +1057,11 @@ public class EnvironmentCatalogService {
 
   private List<String> buildPeekWarnings(TopicDetails topic) {
     List<String> warnings = new ArrayList<>();
-    if (!topic.schema().present()) {
+    SchemaSummary schema = safeSchema(topic);
+    if (!schema.present()) {
       warnings.add("Schema metadata is unavailable for this topic, so payload compatibility cannot be verified.");
     } else {
-      warnings.add("Payloads on this topic are governed by schema type " + topic.schema().type() + ".");
+      warnings.add("Payloads on this topic are governed by schema type " + schema.type() + ".");
     }
     if (topic.partitioned()) {
       warnings.add("Partitioned topics may return messages from only a subset of partitions during bounded reads.");
@@ -1322,7 +1324,7 @@ public class EnvironmentCatalogService {
       throughputOut += topic.stats().throughputOut();
       storageSize += topic.stats().storageSize();
       subscriptionsSet.addAll(topic.subscriptions());
-      schemaPresent = schemaPresent || topic.schema().present();
+      schemaPresent = schemaPresent || safeSchema(topic).present();
       health = moreSevereHealth(health, topic.health());
 
       for (var partitionSummary : topic.partitionSummaries()) {
@@ -1368,9 +1370,9 @@ public class EnvironmentCatalogService {
             throughputOut,
             storageSize),
         new SchemaSummary(
-            preferredTopic.schema().type(),
-            preferredTopic.schema().version(),
-            preferredTopic.schema().compatibility(),
+            safeSchema(preferredTopic).type(),
+            safeSchema(preferredTopic).version(),
+            safeSchema(preferredTopic).compatibility(),
             schemaPresent),
         preferredTopic.ownerTeam(),
         preferredTopic.notes(),
@@ -1512,14 +1514,21 @@ public class EnvironmentCatalogService {
         subscriptions.isEmpty() ? TopicHealth.INACTIVE : topic.health(),
         stats,
         new SchemaSummary(
-            topic.schema().type(),
-            topic.schema().version(),
-            topic.schema().compatibility(),
-            topic.schema().present()),
+            safeSchema(topic).type(),
+            safeSchema(topic).version(),
+            safeSchema(topic).compatibility(),
+            safeSchema(topic).present()),
         topic.ownerTeam(),
         topic.notes(),
         topic.partitionSummaries(),
         subscriptions);
+  }
+
+  private SchemaSummary safeSchema(TopicDetails topic) {
+    if (topic.schema() != null) {
+      return topic.schema();
+    }
+    return new SchemaSummary("NONE", "-", "N/A", false);
   }
 
   private TopicDetails findTopicAfterRefresh(

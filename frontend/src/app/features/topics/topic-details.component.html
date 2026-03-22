@@ -344,7 +344,7 @@
 @if (details(); as topic) {
   @if (activeWorkflow()) {
     <div class="workflow-shell" (click)="closeWorkflow()">
-      <section class="workflow-dialog" (click)="$event.stopPropagation()">
+      <section class="workflow-dialog" [class.test-messages-dialog]="activeWorkflow() === 'test-messages'" (click)="$event.stopPropagation()">
         <div class="workflow-header">
           <div>
             <p class="eyebrow">Operator Workflow</p>

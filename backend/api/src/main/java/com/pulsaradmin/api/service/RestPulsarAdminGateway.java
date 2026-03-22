@@ -49,6 +49,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.HashSet;
@@ -510,8 +511,11 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
             "Published a test message through the Pulsar client.",
             List.of());
       }
-    } catch (Exception exception) {
-      throw new BadRequestException("Unable to publish a test message through the Pulsar client: " + exception.getMessage());
+    } catch (Throwable throwable) {
+      String detail = throwable.getMessage() == null || throwable.getMessage().isBlank()
+          ? throwable.getClass().getSimpleName()
+          : throwable.getMessage();
+      throw new BadRequestException("Unable to publish a test message through the Pulsar client: " + detail);
     }
   }
 
@@ -567,8 +571,11 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
             messages,
             List.of());
       }
-    } catch (Exception exception) {
-      throw new BadRequestException("Unable to consume test messages through the Pulsar client: " + exception.getMessage());
+    } catch (Throwable throwable) {
+      String detail = throwable.getMessage() == null || throwable.getMessage().isBlank()
+          ? throwable.getClass().getSimpleName()
+          : throwable.getMessage();
+      throw new BadRequestException("Unable to consume test messages through the Pulsar client: " + detail);
     }
   }
 
@@ -1531,18 +1538,55 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
 
     String authMode = environment.authMode() == null ? "" : environment.authMode().trim().toLowerCase();
     if ("token".equals(authMode)) {
-      String token = EnvironmentCredentials.resolve(environment)
-          .authorizationHeader()
-          .replaceFirst("(?i)^Bearer\\s+", "")
-          .trim();
+      String token = resolveBearerToken(environment);
       builder.authentication(AuthenticationFactory.token(token));
     } else if ("basic".equals(authMode)) {
-      throw new BadRequestException("Live peek currently supports auth modes none and token.");
+      String[] credentials = resolveBasicCredentials(environment);
+      builder.authentication(AuthenticationFactory.create(
+          "org.apache.pulsar.client.impl.auth.AuthenticationBasic",
+          Map.of(
+              "userId", credentials[0],
+              "password", credentials[1])));
     } else if ("mtls".equals(authMode)) {
       throw new BadRequestException("mTLS environments are not yet supported by the live gateway.");
     }
 
     return builder.build();
+  }
+
+  private static String resolveBearerToken(EnvironmentDetails environment) {
+    String authHeader = EnvironmentCredentials.resolve(environment).authorizationHeader();
+    if (authHeader == null || authHeader.isBlank()) {
+      throw new BadRequestException("Token credentials could not be resolved.");
+    }
+    return authHeader.replaceFirst("(?i)^Bearer\\s+", "").trim();
+  }
+
+  private static String[] resolveBasicCredentials(EnvironmentDetails environment) {
+    String authHeader = EnvironmentCredentials.resolve(environment).authorizationHeader();
+    if (authHeader == null || authHeader.isBlank()) {
+      throw new BadRequestException("Basic credentials could not be resolved.");
+    }
+    if (!authHeader.regionMatches(true, 0, "Basic ", 0, "Basic ".length())) {
+      throw new BadRequestException("Basic credentials must be provided in username:password format.");
+    }
+
+    String encodedCredentials = authHeader.substring("Basic ".length()).trim();
+    String decodedCredentials;
+    try {
+      decodedCredentials = new String(Base64.getDecoder().decode(encodedCredentials), StandardCharsets.UTF_8);
+    } catch (IllegalArgumentException exception) {
+      throw new BadRequestException("Basic credentials could not be decoded from the configured reference.");
+    }
+
+    int separatorIndex = decodedCredentials.indexOf(':');
+    if (separatorIndex <= 0 || separatorIndex == decodedCredentials.length() - 1) {
+      throw new BadRequestException("Basic credentials must be provided in username:password format.");
+    }
+
+    String username = decodedCredentials.substring(0, separatorIndex);
+    String password = decodedCredentials.substring(separatorIndex + 1);
+    return new String[] {username, password};
   }
 
   private List<String> resolveTargetTopics(PulsarClient client, String topicName)
