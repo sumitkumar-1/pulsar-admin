@@ -1015,11 +1015,15 @@
 
               <form class="reset-form detail-card" [formGroup]="consumeForm" (ngSubmit)="submitConsumeMessages()">
                 <p class="eyebrow">Consume / Read Test Messages</p>
-                <label class="checkbox-line">
-                  <input formControlName="ephemeral" type="checkbox" />
-                  <span>Use ephemeral preview flow</span>
+                <label>
+                  <span>Subscription Mode</span>
+                  <select formControlName="subscriptionMode">
+                    <option value="AUTO_EPHEMERAL">Auto-create temporary subscription</option>
+                    <option value="REUSE_EXISTING" [disabled]="topic.subscriptions.length === 0">Reuse existing subscription</option>
+                    <option value="CREATE_NAMED">Create or use named subscription</option>
+                  </select>
                 </label>
-                @if (!consumeForm.controls.ephemeral.value) {
+                @if (consumeForm.controls.subscriptionMode.value === 'REUSE_EXISTING') {
                   <label>
                     <span>Subscription</span>
                     <select formControlName="subscriptionName">
@@ -1027,6 +1031,17 @@
                         <option [value]="subscription">{{ subscription }}</option>
                       }
                     </select>
+                  </label>
+                  @if (topic.subscriptions.length === 0) {
+                    <div class="placeholder-panel full-width">
+                      <p>No existing subscriptions are available for this topic yet. Switch to temporary or named subscription mode.</p>
+                    </div>
+                  }
+                }
+                @if (consumeForm.controls.subscriptionMode.value === 'CREATE_NAMED') {
+                  <label>
+                    <span>Subscription Name</span>
+                    <input formControlName="namedSubscriptionName" type="text" placeholder="for example payment-debug-subscription" />
                   </label>
                 }
                 <label>

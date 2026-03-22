@@ -37,6 +37,8 @@ import {
   UnloadTopicResponse
 } from '../../core/models/api.models';
 
+type ConsumeSubscriptionMode = 'AUTO_EPHEMERAL' | 'REUSE_EXISTING' | 'CREATE_NAMED';
+
 @Component({
   selector: 'app-topic-details',
   standalone: true,
@@ -161,8 +163,9 @@ export class TopicDetailsComponent {
   });
 
   readonly consumeForm = this.formBuilder.nonNullable.group({
-    ephemeral: [true],
+    subscriptionMode: ['AUTO_EPHEMERAL' as ConsumeSubscriptionMode, [Validators.required]],
     subscriptionName: [''],
+    namedSubscriptionName: ['', [Validators.pattern(/[A-Za-z0-9._-]+/)]],
     maxMessages: [5, [Validators.required, Validators.min(1), Validators.max(50)]],
     waitTimeSeconds: [5, [Validators.required, Validators.min(1), Validators.max(30)]],
     reason: ['', [Validators.required, Validators.maxLength(240)]]
@@ -244,8 +247,9 @@ export class TopicDetailsComponent {
           this.topicPoliciesForm.patchValue({ reason: '' });
           this.publishForm.patchValue({ reason: '' });
           this.consumeForm.patchValue({
-            ephemeral: true,
+            subscriptionMode: 'AUTO_EPHEMERAL',
             subscriptionName: firstSubscription,
+            namedSubscriptionName: '',
             maxMessages: 5,
             waitTimeSeconds: 5,
             reason: ''
@@ -262,6 +266,11 @@ export class TopicDetailsComponent {
     this.replayForm.controls.destinationTopicName.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((value) => this.loadReplayDestinationPreview(value));
+
+    this.consumeForm.controls.subscriptionMode.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.syncConsumeSubscriptionValidators());
+    this.syncConsumeSubscriptionValidators();
   }
 
   healthClass(status: string): string {
@@ -426,10 +435,13 @@ export class TopicDetailsComponent {
       this.publishForm.patchValue({ reason: '' });
       if (topic) {
         this.consumeForm.patchValue({
+          subscriptionMode: this.consumeForm.controls.subscriptionMode.value || 'AUTO_EPHEMERAL',
           subscriptionName: this.consumeForm.controls.subscriptionName.value || topic.subscriptions[0] || '',
+          namedSubscriptionName: this.consumeForm.controls.namedSubscriptionName.value || '',
           reason: ''
         });
       }
+      this.syncConsumeSubscriptionValidators();
     }
 
     if (workflow === 'replay') {
@@ -981,15 +993,12 @@ export class TopicDetailsComponent {
       return;
     }
 
-    const form = this.consumeForm.getRawValue();
-    const request: ConsumeMessagesRequest = {
-      topicName: topic.fullName,
-      subscriptionName: form.ephemeral ? null : (form.subscriptionName.trim() || null),
-      ephemeral: form.ephemeral,
-      maxMessages: Number(form.maxMessages),
-      waitTimeSeconds: Number(form.waitTimeSeconds),
-      reason: form.reason
-    };
+    const request = this.buildConsumeRequest(topic.fullName, this.consumeForm.controls.reason.value.trim());
+    if (!request) {
+      this.consumeForm.markAllAsTouched();
+      this.consumeError.set('Choose a consume subscription mode and provide the required subscription details.');
+      return;
+    }
 
     this.consumeSaving.set(true);
     this.consumeError.set(null);
@@ -1210,9 +1219,13 @@ export class TopicDetailsComponent {
     if (!topic) {
       return 'Topic details are still loading.';
     }
-    return form.ephemeral
-      ? `This will read up to ${form.maxMessages} messages from ${topic.topic} using an ephemeral test flow over ${form.waitTimeSeconds} seconds.`
-      : `This will consume up to ${form.maxMessages} messages from ${topic.topic} using subscription ${form.subscriptionName || 'the selected subscription'} over ${form.waitTimeSeconds} seconds.`;
+    if (form.subscriptionMode === 'AUTO_EPHEMERAL') {
+      return `This will read up to ${form.maxMessages} messages from ${topic.topic} by auto-creating a temporary test subscription over ${form.waitTimeSeconds} seconds.`;
+    }
+    if (form.subscriptionMode === 'CREATE_NAMED') {
+      return `This will consume up to ${form.maxMessages} messages from ${topic.topic} using named subscription ${form.namedSubscriptionName || 'the provided subscription'} over ${form.waitTimeSeconds} seconds.`;
+    }
+    return `This will consume up to ${form.maxMessages} messages from ${topic.topic} using existing subscription ${form.subscriptionName || 'the selected subscription'} over ${form.waitTimeSeconds} seconds.`;
   }
 
   replayCanRefresh(): boolean {
@@ -1387,15 +1400,29 @@ export class TopicDetailsComponent {
           waitTimeSeconds: 5,
           reason: 'Export bounded sampled messages for debugging'
         }
-      : {
-          topicName: topic.fullName,
-          source,
-          subscriptionName: this.consumeForm.controls.ephemeral.value ? null : (this.consumeForm.controls.subscriptionName.value || null),
-          ephemeral: this.consumeForm.controls.ephemeral.value,
-          maxMessages: Number(this.consumeForm.controls.maxMessages.value),
-          waitTimeSeconds: Number(this.consumeForm.controls.waitTimeSeconds.value),
-          reason: this.consumeForm.controls.reason.value.trim() || 'Export bounded consumed messages for debugging'
-        };
+      : (() => {
+          const reason = this.consumeForm.controls.reason.value.trim() || 'Export bounded consumed messages for debugging';
+          const consumeRequest = this.buildConsumeRequest(topic.fullName, reason);
+          if (!consumeRequest) {
+            this.consumeForm.markAllAsTouched();
+            this.exportError.set('Choose a consume subscription mode and provide the required subscription details before export.');
+            return null;
+          }
+          return {
+            topicName: consumeRequest.topicName,
+            source,
+            subscriptionName: consumeRequest.subscriptionName,
+            ephemeral: consumeRequest.ephemeral,
+            maxMessages: consumeRequest.maxMessages,
+            waitTimeSeconds: consumeRequest.waitTimeSeconds,
+            reason: consumeRequest.reason
+          };
+        })();
+
+    if (!request) {
+      this.exportSaving.set(false);
+      return;
+    }
 
     this.api.exportMessages(this.environmentId(), request)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -1423,6 +1450,72 @@ export class TopicDetailsComponent {
         }
         return accumulator;
       }, {});
+  }
+
+  private syncConsumeSubscriptionValidators() {
+    const mode = this.consumeForm.controls.subscriptionMode.value;
+    const subscriptionNameControl = this.consumeForm.controls.subscriptionName;
+    const namedSubscriptionNameControl = this.consumeForm.controls.namedSubscriptionName;
+
+    if (mode === 'REUSE_EXISTING') {
+      subscriptionNameControl.setValidators([Validators.required]);
+    } else {
+      subscriptionNameControl.clearValidators();
+    }
+    subscriptionNameControl.updateValueAndValidity({ emitEvent: false });
+
+    if (mode === 'CREATE_NAMED') {
+      namedSubscriptionNameControl.setValidators([Validators.required, Validators.pattern(/[A-Za-z0-9._-]+/)]);
+    } else {
+      namedSubscriptionNameControl.setValidators([Validators.pattern(/[A-Za-z0-9._-]+/)]);
+    }
+    namedSubscriptionNameControl.updateValueAndValidity({ emitEvent: false });
+  }
+
+  private buildConsumeRequest(topicName: string, reason: string): ConsumeMessagesRequest | null {
+    const form = this.consumeForm.getRawValue();
+    const trimmedReason = reason.trim();
+    const maxMessages = Number(form.maxMessages);
+    const waitTimeSeconds = Number(form.waitTimeSeconds);
+
+    if (form.subscriptionMode === 'AUTO_EPHEMERAL') {
+      return {
+        topicName,
+        subscriptionName: null,
+        ephemeral: true,
+        maxMessages,
+        waitTimeSeconds,
+        reason: trimmedReason
+      };
+    }
+
+    if (form.subscriptionMode === 'REUSE_EXISTING') {
+      const selectedSubscription = form.subscriptionName.trim();
+      if (!selectedSubscription) {
+        return null;
+      }
+      return {
+        topicName,
+        subscriptionName: selectedSubscription,
+        ephemeral: false,
+        maxMessages,
+        waitTimeSeconds,
+        reason: trimmedReason
+      };
+    }
+
+    const namedSubscription = form.namedSubscriptionName.trim();
+    if (!namedSubscription) {
+      return null;
+    }
+    return {
+      topicName,
+      subscriptionName: namedSubscription,
+      ephemeral: false,
+      maxMessages,
+      waitTimeSeconds,
+      reason: trimmedReason
+    };
   }
 
   parseFilterProperties(value: string): Record<string, string> {
