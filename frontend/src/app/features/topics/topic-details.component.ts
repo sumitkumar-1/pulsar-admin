@@ -58,6 +58,7 @@ export class TopicDetailsComponent {
   readonly environmentId = signal('');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
+  readonly actionFeedback = signal<{ kind: 'success' | 'error'; message: string } | null>(null);
   readonly activeTab = signal<'overview' | 'subscriptions' | 'partitions' | 'schema' | 'operations'>('overview');
   readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription' | 'delete-subscription' | null>(null);
   readonly peekState = signal<PeekMessagesResponse | null>(null);
@@ -143,7 +144,7 @@ export class TopicDetailsComponent {
   readonly schemaForm = this.formBuilder.nonNullable.group({
     schemaType: ['JSON', [Validators.required]],
     compatibility: ['FULL'],
-    definition: ['{\n  "type": "object",\n  "title": "TopicEvent",\n  "properties": {\n    "id": { "type": "string" }\n  }\n}', [Validators.required, Validators.maxLength(40000)]],
+    definition: ['{\n  "type": "record",\n  "name": "TopicEvent",\n  "namespace": "com.pulsaradmin",\n  "fields": [\n    { "name": "id", "type": "string" }\n  ]\n}', [Validators.required, Validators.maxLength(40000)]],
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
@@ -276,6 +277,7 @@ export class TopicDetailsComponent {
   }
 
   openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription') {
+    this.actionFeedback.set(null);
     this.activeWorkflow.set(workflow);
 
     if (workflow === 'peek') {
@@ -498,6 +500,7 @@ export class TopicDetailsComponent {
   }
 
   openDeleteSubscriptionWorkflow(subscriptionName: string) {
+    this.actionFeedback.set(null);
     this.activeWorkflow.set('delete-subscription');
     this.subscriptionError.set(null);
     this.subscriptionResult.set(null);
@@ -545,7 +548,7 @@ export class TopicDetailsComponent {
         },
         error: (error: { error?: { message?: string } }) => {
           this.schemaSaving.set(false);
-          this.schemaError.set(error.error?.message ?? 'Unable to save schema details.');
+          this.schemaError.set(this.decorateSchemaError(error.error?.message ?? 'Unable to save schema details.'));
         }
       });
   }
@@ -931,6 +934,14 @@ export class TopicDetailsComponent {
     }
 
     const form = this.publishForm.getRawValue();
+    if ((form.schemaMode || 'RAW').toUpperCase() === 'JSON') {
+      try {
+        JSON.parse(form.payload);
+      } catch {
+        this.publishError.set('JSON mode requires a valid JSON payload before the publish request can be sent.');
+        return;
+      }
+    }
     const request: PublishMessageRequest = {
       topicName: topic.fullName,
       key: form.key.trim() || null,
@@ -1028,8 +1039,14 @@ export class TopicDetailsComponent {
       .subscribe({
         next: (response) => {
           this.subscriptionSaving.set(false);
-          this.subscriptionResult.set(response);
           this.applyUpdatedTopic(response.topicDetails);
+          this.actionFeedback.set({ kind: 'success', message: response.message });
+          this.createSubscriptionForm.patchValue({
+            subscriptionName: '',
+            initialPosition: 'LATEST',
+            reason: ''
+          });
+          this.closeWorkflow();
         },
         error: (error: { error?: { message?: string } }) => {
           this.subscriptionSaving.set(false);
@@ -1061,9 +1078,11 @@ export class TopicDetailsComponent {
       .subscribe({
         next: (response) => {
           this.subscriptionSaving.set(false);
-          this.subscriptionResult.set(response);
           this.applyUpdatedTopic(response.topicDetails);
-          this.subscriptionPendingDelete.set(response.subscriptionName);
+          this.actionFeedback.set({ kind: 'success', message: response.message });
+          this.subscriptionPendingDelete.set(null);
+          this.deleteSubscriptionForm.patchValue({ reason: '' });
+          this.closeWorkflow();
         },
         error: (error: { error?: { message?: string } }) => {
           this.subscriptionSaving.set(false);
@@ -1130,7 +1149,7 @@ export class TopicDetailsComponent {
     if (topic.partitioned) {
       return `Pulsar does not allow terminating partitioned topics such as ${topic.topic}. Use partition-aware workflows instead.`;
     }
-    return `This will terminate ${topic.topic} so producers stop appending after the current retained tail. Use it only when the topic should become append-complete.`;
+    return `This will mark ${topic.topic} append-complete so producers stop writing after the current retained tail. It does not delete the topic or its retained data.`;
   }
 
   topicPolicyPreview(): string {
@@ -1163,6 +1182,9 @@ export class TopicDetailsComponent {
       warnings.push(`Current schema type is ${current.type} with compatibility ${current.compatibility}.`);
     } else {
       warnings.push('This topic does not currently expose a registered schema.');
+    }
+    if (form.schemaType.trim().toUpperCase() === 'JSON' || form.schemaType.trim().toUpperCase() === 'AVRO') {
+      warnings.push('Pulsar expects a record-style schema definition here. Generic JSON Schema documents are rejected by the live admin API.');
     }
     if (form.schemaType.trim().toUpperCase() !== (current?.type || 'NONE').toUpperCase()) {
       warnings.push('Changing schema type can break producers, consumers, and replay/copy workflows if payload encoding no longer matches.');
@@ -1298,6 +1320,13 @@ export class TopicDetailsComponent {
     }
 
     return warnings;
+  }
+
+  private decorateSchemaError(message: string): string {
+    if (message.includes('Invalid schema definition data for JSON schema')) {
+      return `${message} Use a Pulsar-compatible record definition such as an Avro-style record instead of generic JSON Schema.`;
+    }
+    return message;
   }
 
   replayWarnings(): string[] {

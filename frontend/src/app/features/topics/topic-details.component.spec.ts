@@ -561,7 +561,9 @@ describe('TopicDetailsComponent', () => {
       initialPosition: 'EARLIEST',
       reason: 'Create review subscription'
     });
-    expect(fixture.nativeElement.textContent).toContain('payment-review');
+    expect(component.activeWorkflow()).toBeNull();
+    expect(component.actionFeedback()?.message).toContain('Created subscription payment-review');
+    expect(fixture.nativeElement.textContent).toContain('Created subscription payment-review');
   });
 
   it('deletes a subscription and updates the topic details', async () => {
@@ -678,6 +680,8 @@ describe('TopicDetailsComponent', () => {
       'persistent://acme/orders/payment-events',
       'payment-alerts'
     );
+    expect(component.activeWorkflow()).toBeNull();
+    expect(component.actionFeedback()?.message).toContain('Deleted subscription payment-alerts');
     expect(fixture.nativeElement.textContent).toContain('Deleted subscription payment-alerts');
   });
 

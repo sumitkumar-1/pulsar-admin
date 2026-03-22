@@ -76,7 +76,7 @@ export class TenantYamlSyncComponent {
     tenant: ['', [Validators.required]],
     namespace: ['', [Validators.required]],
     yaml: ['', [Validators.required, Validators.minLength(20)]],
-    reason: ['', [Validators.maxLength(240)]]
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
   readonly stageCards = [
@@ -117,15 +117,6 @@ export class TenantYamlSyncComponent {
   readonly missingConfirmations = computed(() => {
     const confirmed = new Set(this.confirmedDangerousKeys());
     return (this.previewState()?.requiredConfirmations ?? []).filter((key) => !confirmed.has(key));
-  });
-
-  readonly canApply = computed(() => {
-    const preview = this.previewState();
-    return !!preview?.previewId
-      && preview.valid
-      && this.missingConfirmations().length === 0
-      && this.yamlForm.controls.reason.valid
-      && !this.applying();
   });
 
   constructor() {
@@ -327,20 +318,20 @@ export class TenantYamlSyncComponent {
       this.stage.set('confirm');
       return;
     }
-    if (this.yamlForm.controls.reason.invalid) {
+    const reason = this.normalizedReason();
+    if (!reason || reason.length > 240) {
       this.yamlForm.controls.reason.markAsTouched();
       this.stage.set('confirm');
       return;
     }
 
-    const form = this.yamlForm.getRawValue();
     this.applying.set(true);
     this.error.set(null);
     this.applyState.set(null);
 
     this.api.applyTenantYaml(this.environmentId(), {
       previewId: preview.previewId,
-      reason: form.reason,
+      reason,
       confirmedChangeKeys: this.confirmedDangerousKeys()
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (response) => {
@@ -375,6 +366,36 @@ export class TenantYamlSyncComponent {
 
   setStage(stage: YamlStage) {
     this.stage.set(stage);
+  }
+
+  canApply() {
+    const preview = this.previewState();
+    return !!preview?.previewId
+      && preview.valid
+      && this.missingConfirmations().length === 0
+      && this.hasReason()
+      && !this.reasonTooLong()
+      && !this.applying();
+  }
+
+  applyBlockedReason() {
+    const preview = this.previewState();
+    if (!preview?.previewId) {
+      return 'Generate a preview before applying namespace YAML changes.';
+    }
+    if (!preview.valid) {
+      return 'Resolve the blocked preview issues before apply is available.';
+    }
+    if (this.missingConfirmations().length > 0) {
+      return 'Confirm every dangerous removal before applying this preview.';
+    }
+    if (this.reasonTooLong()) {
+      return 'Keep the change reason within 240 characters to enable apply.';
+    }
+    if (!this.hasReason()) {
+      return 'Add a change reason to enable apply.';
+    }
+    return null;
   }
 
   actionIcon(change: TenantYamlDiffEntry) {
@@ -438,6 +459,18 @@ export class TenantYamlSyncComponent {
     this.previewState.set(null);
     this.applyState.set(null);
     this.confirmedDangerousKeys.set([]);
+  }
+
+  private hasReason() {
+    return this.normalizedReason().length > 0;
+  }
+
+  private reasonTooLong() {
+    return this.normalizedReason().length > 240;
+  }
+
+  private normalizedReason() {
+    return this.yamlForm.controls.reason.value.trim();
   }
 
   private scopeOrYamlInvalid() {

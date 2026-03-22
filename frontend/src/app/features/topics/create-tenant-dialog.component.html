@@ -29,7 +29,7 @@
         <label>
           <span>Allowed Clusters</span>
           <input formControlName="allowedClusters" type="text" [placeholder]="defaultClusterLabel || 'cluster-prod'" />
-          <small>Optional comma-separated clusters. Leave blank to use {{ defaultClusterLabel || 'the current environment cluster' }}.</small>
+          <small>Optional comma-separated clusters. Leave blank to auto-discover the live cluster set from Pulsar.</small>
         </label>
 
         @if (mode === 'edit') {
@@ -45,7 +45,7 @@
             This will {{ mode === 'create' ? 'create tenant' : 'update tenant' }}
             <strong>{{ form.get('tenant')?.value || 'tenant-name' }}</strong>
             and allow it on
-            <strong>{{ form.get('allowedClusters')?.value || defaultClusterLabel || 'the active cluster' }}</strong>.
+            <strong>{{ form.get('allowedClusters')?.value || 'the discovered live cluster set' }}</strong>.
           </p>
         </section>
 

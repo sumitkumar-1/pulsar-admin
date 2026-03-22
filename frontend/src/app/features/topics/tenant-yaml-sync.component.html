@@ -255,15 +255,28 @@
             </div>
             <p>Apply uses the exact stored preview so the reviewed changes and the executed changes stay aligned.</p>
 
-            <label class="reason-field">
-              <span>Change reason</span>
-              <textarea formControlName="reason" rows="3" placeholder="Document why this namespace sync is being applied."></textarea>
-            </label>
+            <div [formGroup]="yamlForm">
+              <label class="reason-field">
+                <span>Change reason</span>
+                <textarea formControlName="reason" rows="3" placeholder="Document why this namespace sync is being applied."></textarea>
+              </label>
+            </div>
 
-            <div class="button-row">
-              <button type="button" class="secondary-button" (click)="setStage('review')">Return to Review</button>
-              <button type="button" class="danger-button" (click)="applyYaml()" [disabled]="!canApply()">
-                {{ applying() ? 'Applying...' : 'Apply Preview' }}
+            @if (applyBlockedReason(); as blockedReason) {
+              <div class="state-card compact-card apply-help">
+                {{ blockedReason }}
+              </div>
+            }
+
+            <div class="apply-actions">
+              <button
+                type="button"
+                class="danger-button apply-button"
+                (click)="applyYaml()"
+                [disabled]="!canApply()"
+                [attr.aria-disabled]="!canApply()"
+                [title]="applyBlockedReason() || 'Apply the reviewed namespace changes'">
+                <span class="apply-button-label">{{ applying() ? 'Applying Changes...' : 'Apply Changes' }}</span>
               </button>
             </div>
           </section>

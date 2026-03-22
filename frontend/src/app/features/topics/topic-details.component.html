@@ -45,6 +45,12 @@
       </div>
     </section>
 
+    @if (actionFeedback(); as feedback) {
+      <div class="state-card" [ngClass]="feedback.kind">
+        {{ feedback.message }}
+      </div>
+    }
+
     <section class="workspace-shell">
       <nav class="topic-tabs" aria-label="Topic workspace tabs">
         <button type="button" [class.active]="activeTab() === 'overview'" (click)="setActiveTab('overview')">Overview</button>
@@ -370,7 +376,7 @@
             } @else if (activeWorkflow() === 'terminate') {
               <h3>Terminate topic</h3>
               <p class="workflow-copy">
-                Mark the topic as append-complete so producers stop publishing after the current retained tail.
+                Mark the topic append-complete so producers stop publishing after the current retained tail. This keeps the topic and retained data in place, unlike delete.
               </p>
             } @else if (activeWorkflow() === 'policies') {
               <h3>Topic policies</h3>
@@ -400,7 +406,7 @@
             } @else if (activeWorkflow() === 'delete-topic') {
               <h3>Delete topic</h3>
               <p class="workflow-copy">
-                Permanently remove this topic through a guided destructive flow. Use this only after confirming the namespace no longer needs the retained history.
+                Permanently remove this topic resource and its retained history through a guided destructive flow, subject to Pulsar deletion rules. Use this only when the namespace no longer needs the topic data.
               </p>
             } @else if (activeWorkflow() === 'delete-subscription') {
               <h3>Delete subscription</h3>

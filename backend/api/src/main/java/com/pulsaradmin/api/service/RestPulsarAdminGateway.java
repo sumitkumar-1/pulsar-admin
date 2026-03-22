@@ -217,9 +217,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   public void createTenant(EnvironmentDetails environment, CreateTenantRequest request) {
     String tenantName = request.tenant().trim();
     List<String> adminRoles = sanitizeStringList(request.adminRoles());
-    List<String> allowedClusters = sanitizeStringList(request.allowedClusters()).isEmpty()
-        ? List.of(environment.clusterLabel())
-        : sanitizeStringList(request.allowedClusters());
+    List<String> allowedClusters = resolveAllowedClusters(environment, request.allowedClusters());
 
     try {
       putJson(
@@ -265,9 +263,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   public TenantDetails updateTenant(EnvironmentDetails environment, TenantUpdateRequest request) {
     String tenantName = request.tenant().trim();
     List<String> adminRoles = sanitizeStringList(request.adminRoles());
-    List<String> allowedClusters = sanitizeStringList(request.allowedClusters()).isEmpty()
-        ? List.of(environment.clusterLabel())
-        : sanitizeStringList(request.allowedClusters());
+    List<String> allowedClusters = resolveAllowedClusters(environment, request.allowedClusters());
 
     try {
       putJson(
@@ -607,7 +603,13 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
               + "/" + topicName.topic()
               + "/subscription/" + request.subscriptionName()
               + "/skip/" + request.messageCount()
-              + "/skipMessages");
+              + "/skipMessages",
+          "/admin/v2/" + topicName.domain()
+              + "/" + topicName.tenant()
+              + "/" + topicName.namespace()
+              + "/" + topicName.topic()
+              + "/subscription/" + request.subscriptionName()
+              + "/skip/" + request.messageCount());
 
       return new SkipMessagesResponse(
           environment.id(),
@@ -810,9 +812,10 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
 
   @Override
   public SchemaDetails getSchemaDetails(EnvironmentDetails environment, String topicName) {
-    TopicDetails topic = toTopicDetails(environment, topicName, PulsarTopicName.parse(topicName).tenant(), PulsarTopicName.parse(topicName).namespace());
-    JsonNode schemaNode = safeGetJson(environment, schemaPath(PulsarTopicName.parse(topicName)));
-    return toSchemaDetails(environment.id(), topic.fullName(), schemaNode);
+    PulsarTopicName parsedTopic = PulsarTopicName.parse(topicName);
+    TopicDetails topic = toTopicDetails(environment, topicName, parsedTopic.tenant(), parsedTopic.namespace());
+    JsonNode schemaNode = safeGetJson(environment, schemaPath(parsedTopic));
+    return toSchemaDetails(environment.id(), topic.fullName(), schemaNode, readSchemaCompatibility(environment, parsedTopic));
   }
 
   @Override
@@ -822,15 +825,24 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     try {
       body = objectMapper.writeValueAsString(Map.of(
           "type", request.schemaType().trim().toUpperCase(),
-          "schema", request.definition(),
-          "compatibilityStrategy",
-          request.compatibility() == null || request.compatibility().isBlank()
-              ? "FULL"
-              : request.compatibility().trim().toUpperCase()));
+          "schema", request.definition()));
       postJson(environment, schemaPath(topic), body);
-      return toSchemaDetails(environment.id(), topic.canonicalFullName(), getJson(environment, schemaPath(topic)));
+      if (request.compatibility() != null && !request.compatibility().isBlank()) {
+        putJson(
+            environment,
+            schemaCompatibilityPath(topic),
+            objectMapper.writeValueAsString(request.compatibility().trim().toUpperCase()));
+      }
+      return toSchemaDetails(
+          environment.id(),
+          topic.canonicalFullName(),
+          getJson(environment, schemaPath(topic)),
+          readSchemaCompatibility(environment, topic));
     } catch (IOException | RestClientException exception) {
-      throw new BadRequestException("Unable to save schema via Pulsar admin REST API: " + exception.getMessage());
+      throw new BadRequestException(
+          "Unable to save schema via Pulsar admin REST API: "
+              + exception.getMessage()
+              + ". For JSON and AVRO schemas, provide a Pulsar-compatible record definition instead of generic JSON Schema.");
     }
   }
 
@@ -920,12 +932,30 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   private void postWithoutBody(EnvironmentDetails environment, String path) {
-    var request = restClient.post()
-        .uri(normalizeAdminUrl(environment.adminUrl()) + path);
+    postWithoutBody(environment, path, new String[0]);
+  }
 
-    applyAuthHeaders(request, environment);
+  private void postWithoutBody(EnvironmentDetails environment, String path, String... fallbackPaths) {
+    RestClientException firstFailure = null;
+    for (String candidatePath : candidatePaths(path, fallbackPaths)) {
+      try {
+        var request = restClient.post()
+            .uri(normalizeAdminUrl(environment.adminUrl()) + candidatePath);
 
-    request.retrieve().toBodilessEntity();
+        applyAuthHeaders(request, environment);
+
+        request.retrieve().toBodilessEntity();
+        return;
+      } catch (RestClientException exception) {
+        if (firstFailure == null) {
+          firstFailure = exception;
+        }
+      }
+    }
+
+    if (firstFailure != null) {
+      throw firstFailure;
+    }
   }
 
   private JsonNode postForJson(EnvironmentDetails environment, String path, String body) throws IOException {
@@ -1181,7 +1211,11 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return Map.of("raw", configs.trim());
   }
 
-  private SchemaDetails toSchemaDetails(String environmentId, String topicName, JsonNode schemaNode) {
+  private SchemaDetails toSchemaDetails(
+      String environmentId,
+      String topicName,
+      JsonNode schemaNode,
+      String compatibilityOverride) {
     SchemaSummary summary = toSchemaSummary(schemaNode);
     JsonNode dataNode = schemaNode.path("data");
     String definition = dataNode.isTextual()
@@ -1194,7 +1228,9 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         summary.present(),
         summary.type(),
         summary.version(),
-        summary.compatibility(),
+        compatibilityOverride == null || compatibilityOverride.isBlank()
+            ? summary.compatibility()
+            : compatibilityOverride,
         definition == null ? "" : definition,
         true,
         summary.present()
@@ -1697,7 +1733,13 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
             + "/" + topicName.namespace()
             + "/" + topicName.topic()
             + "/subscription/" + subscriptionName
-            + "/skip_all/skipAllMessages");
+            + "/skip_all/skipAllMessages",
+        "/admin/v2/" + topicName.domain()
+            + "/" + topicName.tenant()
+            + "/" + topicName.namespace()
+            + "/" + topicName.topic()
+            + "/subscription/" + subscriptionName
+            + "/skip_all");
 
     return new ResetCursorResponse(
         environment.id(),
@@ -1707,6 +1749,53 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         null,
         "Cursor moved to the latest position by clearing backlog via Pulsar admin REST API for subscription "
             + subscriptionName + ".");
+  }
+
+  private List<String> resolveAllowedClusters(EnvironmentDetails environment, List<String> requestedClusters) {
+    List<String> allowedClusters = sanitizeStringList(requestedClusters);
+    if (!allowedClusters.isEmpty()) {
+      return allowedClusters;
+    }
+
+    try {
+      List<String> discoveredClusters = sanitizeStringList(readStringArray(getJson(environment, "/admin/v2/clusters")));
+      if (discoveredClusters.isEmpty()) {
+        throw new BadRequestException(
+            "Unable to discover any Pulsar clusters from /admin/v2/clusters. Specify Allowed Clusters explicitly or verify the admin endpoint.");
+      }
+      return discoveredClusters;
+    } catch (IOException | RestClientException exception) {
+      throw new BadRequestException(
+          "Unable to discover Pulsar clusters via /admin/v2/clusters: " + exception.getMessage());
+    }
+  }
+
+  private String readSchemaCompatibility(EnvironmentDetails environment, PulsarTopicName topicName) {
+    JsonNode compatibilityNode = safeGetJson(environment, schemaCompatibilityPath(topicName));
+    if (compatibilityNode.isTextual() && !compatibilityNode.asText().isBlank()) {
+      return compatibilityNode.asText();
+    }
+    String compatibility = firstText(compatibilityNode, "compatibilityStrategy", "compatibility");
+    return compatibility == null || compatibility.isBlank() ? null : compatibility;
+  }
+
+  private String schemaCompatibilityPath(PulsarTopicName topicName) {
+    return "/admin/v2/" + topicName.domain()
+        + "/" + topicName.tenant()
+        + "/" + topicName.namespace()
+        + "/" + topicName.topic()
+        + "/schemaCompatibilityStrategy";
+  }
+
+  private List<String> candidatePaths(String primaryPath, String... fallbackPaths) {
+    List<String> paths = new ArrayList<>();
+    paths.add(primaryPath);
+    for (String fallbackPath : fallbackPaths) {
+      if (fallbackPath != null && !fallbackPath.isBlank()) {
+        paths.add(fallbackPath);
+      }
+    }
+    return paths;
   }
 
   @FunctionalInterface

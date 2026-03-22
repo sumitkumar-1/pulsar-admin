@@ -1,6 +1,6 @@
 # Pulsar Admin Console
 
-Initial implementation of the Pulsar Admin UI kickoff plan.
+Operator-focused Pulsar admin console with mock and live modes, guided workflows, and browser-level verification for local development.
 
 ## What is included
 
@@ -9,20 +9,28 @@ Initial implementation of the Pulsar Admin UI kickoff plan.
   - environment switcher
   - topic explorer
   - topic details view
-- Spring Boot API with mock-first Pulsar admin endpoints
+- Spring Boot API with live-first routing and explicit mock override
 - Spring Boot worker that processes queued replay and copy jobs
 - PostgreSQL schema bootstrap for `environments`, `jobs`, and `job_events`
+- Local Pulsar standalone support for live verification
 - Configurable Pulsar gateway mode:
   - `rest` for real admin REST connection and metadata sync
   - `mock` for demos, debugging, and safe local exploration
+- Browser-level E2E suites for mock and local live verification
 
 ## Local development
 
-### 1. Start PostgreSQL
+### 1. Start local infrastructure
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres pulsar
 ```
+
+This starts:
+
+- PostgreSQL on `localhost:5432`
+- Pulsar broker on `pulsar://localhost:6650`
+- Pulsar admin REST on `http://localhost:8081`
 
 ### 2. Start the backend API
 
@@ -47,16 +55,16 @@ Replay and copy jobs are now queued by the API and completed by the worker.
 
 ### Gateway mode
 
-By default the API stays in the safe mock-backed mode:
-
-```bash
-APP_PULSAR_GATEWAY_MODE=mock
-```
-
-To use real Pulsar data by default for normal requests:
+By default the API now runs live-first:
 
 ```bash
 APP_PULSAR_GATEWAY_MODE=rest
+```
+
+To force safe demo mode by default:
+
+```bash
+APP_PULSAR_GATEWAY_MODE=mock
 ```
 
 You can also override the mode per browser session by adding `?mode=mock` to the UI URL. That keeps the app in mock mode while you navigate, which is useful for demos and local debugging without changing server config. Without that flag, requests use the server's configured default mode.
@@ -75,6 +83,35 @@ In `rest` mode:
 - `Reset Cursor` and `Skip Messages` use Pulsar admin REST endpoints
 - the current live integration supports auth mode `none` and token-based environments using a raw token, `token:...`, or `env://VAR_NAME`
 - basic auth can be stored for future work, but live peek still requires `none` or `token`
+
+### 5. One-command local dev
+
+```bash
+./scripts/dev.sh
+```
+
+That command starts:
+
+- Postgres
+- Pulsar standalone
+- backend API
+- worker
+- Angular dev server
+
+If `./scripts/dev.sh` fails on the Pulsar container step, check whether these ports are already in use:
+
+- `6650`
+- `8081`
+
+This usually means another local Pulsar container or broker is already running.
+
+## Local live environment values
+
+For a local real environment, use:
+
+- `brokerUrl`: `pulsar://localhost:6650`
+- `adminUrl`: `http://localhost:8081`
+- `authMode`: `none`
 
 ### 4. Start the frontend
 
@@ -122,4 +159,25 @@ The next planned expansion is the admin surface that makes this a fuller one-sto
 
 Security, RBAC, approvals, and deeper governance are intentionally deferred until the broader admin surface is in place.
 
-See [docs/admin-operations.md](/Users/skumar/experimental/pulsar-admin/docs/admin-operations.md) for the recommended rollout.
+## Verification
+
+Unit/component/controller checks:
+
+```bash
+cd backend
+mvn -Dmaven.repo.local=/Users/skumar/experimental/pulsar-admin/.m2 -pl api -am test
+
+cd /Users/skumar/experimental/pulsar-admin/frontend
+npm test -- --watch=false --browsers=ChromeHeadless
+```
+
+Browser E2E:
+
+```bash
+cd /Users/skumar/experimental/pulsar-admin/frontend
+npm run e2e:install
+npm run e2e:mock
+npm run e2e:live
+```
+
+See [docs/e2e-verification.md](/Users/skumar/experimental/pulsar-admin/docs/e2e-verification.md) and [docs/admin-operations.md](/Users/skumar/experimental/pulsar-admin/docs/admin-operations.md) for the support matrix and local workflow notes.

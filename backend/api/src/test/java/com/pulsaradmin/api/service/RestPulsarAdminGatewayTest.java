@@ -2,9 +2,11 @@ package com.pulsaradmin.api.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,12 +23,14 @@ import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import org.apache.pulsar.client.api.AuthenticationFactory;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Reader;
 import org.apache.pulsar.client.api.ReaderBuilder;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -498,6 +502,74 @@ class RestPulsarAdminGatewayTest {
 
     gateway.deleteSubscription(environment(), "persistent://acme/orders/payment-events", "payment-review");
 
+    server.verify();
+  }
+
+  @Test
+  void shouldDiscoverLiveClustersWhenCreatingTenantWithoutAllowedClusters() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/clusters"))
+        .andRespond(withSuccess("""
+            ["standalone"]
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/tenants/smtp"))
+        .andExpect(content().json("""
+            {
+              "adminRoles": [],
+              "allowedClusters": ["standalone"]
+            }
+            """))
+        .andRespond(withSuccess());
+
+    gateway.createTenant(environment(), new CreateTenantRequest("smtp", List.of(), List.of()));
+
+    server.verify();
+  }
+
+  @Test
+  void shouldFallbackToStandaloneSkipAllPathWhenLatestCursorEndpointDiffers() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/subscription/payment-review/skip_all/skipAllMessages"))
+        .andRespond(withStatus(HttpStatus.NOT_FOUND));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/subscription/payment-review/skip_all"))
+        .andRespond(withSuccess());
+
+    var response = gateway.resetCursor(environment(), new com.pulsaradmin.shared.model.ResetCursorRequest(
+        "persistent://acme/orders/payment-events",
+        "payment-review",
+        "LATEST",
+        null,
+        "Move to the latest position"));
+
+    assertThat(response.target()).isEqualTo("LATEST");
+    assertThat(response.message()).contains("latest position");
+    server.verify();
+  }
+
+  @Test
+  void shouldFallbackToStandaloneSkipPathWhenSkipMessagesEndpointDiffers() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/subscription/payment-review/skip/1/skipMessages"))
+        .andRespond(withStatus(HttpStatus.NOT_FOUND));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/subscription/payment-review/skip/1"))
+        .andRespond(withSuccess());
+
+    var response = gateway.skipMessages(environment(), new com.pulsaradmin.shared.model.SkipMessagesRequest(
+        "persistent://acme/orders/payment-events",
+        "payment-review",
+        1,
+        "Skip one poison message"));
+
+    assertThat(response.skippedMessages()).isEqualTo(1);
     server.verify();
   }
 

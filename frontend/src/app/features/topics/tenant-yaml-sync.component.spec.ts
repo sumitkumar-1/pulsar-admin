@@ -190,4 +190,58 @@ describe('TenantYamlSyncComponent', () => {
       confirmedChangeKeys: ['remove-topic:persistent://acme/orders/order-events']
     });
   });
+
+  it('updates the apply help text once a change reason is entered', async () => {
+    const safePreviewResponse = {
+      ...previewResponse,
+      dangerousRemovals: 0,
+      blockedChanges: 0,
+      requiredConfirmations: [],
+      changes: []
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [TenantYamlSyncComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ tenant: 'acme', namespace: 'orders' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getCurrentNamespaceYaml: jasmine.createSpy('getCurrentNamespaceYaml').and.returnValue(of(currentYamlResponse)),
+            validateTenantYaml: jasmine.createSpy('validateTenantYaml'),
+            previewTenantYaml: jasmine.createSpy('previewTenantYaml').and.returnValue(of(safePreviewResponse)),
+            applyTenantYaml: jasmine.createSpy('applyTenantYaml').and.returnValue(of(applyResponse))
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TenantYamlSyncComponent);
+    fixture.detectChanges();
+
+    fixture.componentInstance.previewYaml();
+    fixture.componentInstance.setStage('confirm');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.applyBlockedReason()).toBe('Add a change reason to enable apply.');
+    expect(fixture.componentInstance.canApply()).toBeFalse();
+
+    const reasonField = fixture.nativeElement.querySelector('textarea[formControlName="reason"]') as HTMLTextAreaElement | null;
+    expect(reasonField).withContext('expected apply reason textarea to be rendered').not.toBeNull();
+
+    reasonField!.value = 'testing';
+    reasonField!.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.yamlForm.controls.reason.value).toBe('testing');
+    expect(fixture.componentInstance.applyBlockedReason()).toBeNull();
+    expect(fixture.componentInstance.canApply()).toBeTrue();
+  });
 });
