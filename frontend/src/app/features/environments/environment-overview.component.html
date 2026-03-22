@@ -1,16 +1,10 @@
-<section class="hero-card">
-  <p class="eyebrow">Environment Management</p>
-  <h2>Register, test, sync, and manage Pulsar environments without leaving the console.</h2>
-  <p class="hero-copy">
-    Add new environments with the connection details you need, verify connectivity, and automatically bootstrap
-    the metadata required for browsing topics right away.
-  </p>
-</section>
-
-<section class="page-toolbar">
+<section class="ops-header">
   <div>
-    <p class="eyebrow">Overview</p>
-    <h3>Connected environments</h3>
+    <p class="eyebrow">Environment Management</p>
+    <h2>Connected environments</h2>
+    <p class="hero-copy">
+      Register Pulsar environments, verify connectivity, and refresh metadata without leaving the console.
+    </p>
   </div>
   @if (hasEnvironments()) {
     <button class="primary-button" type="button" (click)="openCreateDialog()">Add Environment</button>
@@ -31,39 +25,45 @@
       <article class="empty-card">
         <p class="eyebrow">No environments yet</p>
         <h3>Start by connecting your first Pulsar environment.</h3>
-        <p>Use the Add Environment button to register broker and admin connection details, then test and sync it.</p>
+        <p>Register broker and admin endpoints, then test and sync once to unlock the topic explorer.</p>
         <button class="primary-button" type="button" (click)="openCreateDialog()">Add Environment</button>
       </article>
     } @else {
       @for (environment of environments; track environment.id) {
         <article class="environment-card">
           <a class="card-link" [routerLink]="['/environments', environment.id, 'topics']" [queryParams]="modeQueryParams()">
-            <div class="card-topline">
-              <span class="status-badge" [ngClass]="statusClass(environment.status)">
-                {{ environment.status.toLowerCase() }}
-              </span>
-              <span>{{ environment.region }}</span>
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-topline">
+                  <span class="status-badge" [ngClass]="statusClass(environment.status)">
+                    {{ environment.status.toLowerCase() }}
+                  </span>
+                  <span>{{ environment.region }}</span>
+                </div>
+                <h3>{{ environment.name }}</h3>
+                <p>{{ environment.summary }}</p>
+              </div>
+              <span class="card-id">{{ environment.id }}</span>
             </div>
-            <h3>{{ environment.name }}</h3>
-            <p>{{ environment.summary }}</p>
-            <dl>
+
+            <div class="card-meta-strip">
               <div>
-                <dt>Cluster</dt>
-                <dd>{{ environment.clusterLabel }}</dd>
+                <span>Cluster</span>
+                <strong>{{ environment.clusterLabel }}</strong>
               </div>
               <div>
-                <dt>Sync</dt>
-                <dd>{{ environment.syncStatus }}</dd>
+                <span>Sync</span>
+                <strong>{{ environment.syncStatus }}</strong>
               </div>
               <div>
-                <dt>Last synced</dt>
-                <dd>{{ environment.lastSyncedAt ? (environment.lastSyncedAt | date: 'medium') : 'Not yet' }}</dd>
+                <span>Last synced</span>
+                <strong>{{ environment.lastSyncedAt ? (environment.lastSyncedAt | date: 'medium') : 'Not yet' }}</strong>
               </div>
               <div>
-                <dt>Last test</dt>
-                <dd>{{ environment.lastTestStatus }}</dd>
+                <span>Last test</span>
+                <strong>{{ environment.lastTestStatus }}</strong>
               </div>
-            </dl>
+            </div>
           </a>
 
           <div class="card-actions">

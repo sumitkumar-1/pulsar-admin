@@ -22,7 +22,8 @@
   <div class="panel-header">
     <div>
       <p class="eyebrow">Explore Catalog</p>
-      <h3>Pick a tenant and namespace first, then work inside that namespace as your active Pulsar workspace.</h3>
+      <h3>Work from one namespace at a time.</h3>
+      <p class="panel-copy">Choose a tenant and namespace, then switch between topics, namespace controls, and platform coverage without crowding one screen.</p>
     </div>
     <div class="toolbar-stack">
       <div class="action-row">
@@ -60,7 +61,7 @@
   } @else if (namespaceItems().length === 0) {
     <div class="state-card">No tenant and namespace combinations match the current filters.</div>
   } @else {
-      <div class="summary-row">
+    <div class="summary-row compact-summary">
       <span>{{ catalogSummary()?.tenants?.length || 0 }} tenants</span>
       <span>{{ catalogSummary()?.namespaces?.length || 0 }} namespaces</span>
       <span>{{ totalTopicCount() | number }} topics tracked</span>
@@ -90,13 +91,9 @@
                 <span class="namespace-link">{{ namespaceItem.tenant }}/{{ namespaceItem.namespace }}</span>
                 <span>{{ namespaceItem.topicCount }} topics</span>
               </div>
-              <p>
-                @if (searchControl.value.trim()) {
-                  {{ namespaceItem.matchingTopicCount }} topics match the current search.
-                } @else {
-                  Use this namespace as the active workspace for topic actions, policies, and YAML sync.
-                }
-              </p>
+              @if (searchControl.value.trim()) {
+                <p>{{ namespaceItem.matchingTopicCount }} topics match the current search.</p>
+              }
             </button>
           }
         </div>
@@ -133,165 +130,204 @@
             <span>{{ namespaceSummary.topicCount | number }} topics tracked</span>
             <span>{{ (topicPage()?.total ?? 0) | number }} topics loaded</span>
           </div>
+          <nav class="namespace-tabs" aria-label="Namespace workspace tabs">
+            <button type="button" [class.active]="activeTab() === 'topics'" (click)="setActiveTab('topics')">Topics</button>
+            <button type="button" [class.active]="activeTab() === 'namespace'" (click)="setActiveTab('namespace')">Namespace</button>
+            <button type="button" [class.active]="activeTab() === 'platform'" (click)="setActiveTab('platform')">Platform</button>
+          </nav>
 
-          <div class="namespace-header">
-            <div>
-              <p class="eyebrow">Topics</p>
-              <h4>Focused topic workspace</h4>
-            </div>
-            <button class="create-button secondary" type="button" (click)="openCreateTopicDialog()">
-              Add Topic In {{ namespaceSummary.namespace }}
-            </button>
-          </div>
-
-          @if (selectedTopics().length === 0) {
-            <div class="state-card">
-              No topics are in this namespace yet. Create one to start publishing or testing workflows here.
-            </div>
-          } @else {
-            <div class="topic-grid">
-              @for (topic of selectedTopics(); track topic.fullName) {
-                <button type="button" class="topic-card" (click)="openTopic(topic)">
-                  <div class="topic-topline">
-                    <span class="health-pill" [ngClass]="healthClass(topic.health)">
-                      {{ topic.health.toLowerCase() }}
-                    </span>
-                    <span>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Non-partitioned' }}</span>
-                  </div>
-
-                  <div>
-                    <h5>{{ topic.topic }}</h5>
-                    <p class="topic-name">{{ topic.fullName }}</p>
-                  </div>
-
-                  <p class="summary">{{ topic.summary }}</p>
-
-                  <div class="metrics">
-                    <div>
-                      <span>Backlog</span>
-                      <strong>{{ topic.stats.backlog | number }}</strong>
-                    </div>
-                    <div>
-                      <span>Consumers</span>
-                      <strong>{{ topic.stats.consumers }}</strong>
-                    </div>
-                    <div>
-                      <span>Publish/s</span>
-                      <strong>{{ topic.stats.publishRateIn }}</strong>
-                    </div>
-                    <div>
-                      <span>Schema</span>
-                      <strong>{{ topic.schemaPresent ? 'Present' : 'None' }}</strong>
-                    </div>
-                  </div>
+          @if (activeTab() === 'topics') {
+            <div class="workspace-section">
+              <div class="namespace-header compact-header">
+                <div>
+                  <p class="eyebrow">Topics</p>
+                  <h4>Focused topic workspace</h4>
+                </div>
+                <button class="create-button secondary" type="button" (click)="openCreateTopicDialog()">
+                  Add Topic
                 </button>
+              </div>
+
+              @if (selectedTopics().length === 0) {
+                <div class="state-card compact-state">
+                  No topics are in this namespace yet. Create one to start publishing or testing workflows here.
+                </div>
+              } @else {
+                <div class="topic-grid">
+                  @for (topic of selectedTopics(); track topic.fullName) {
+                    <button type="button" class="topic-card" (click)="openTopic(topic)">
+                      <div class="topic-topline">
+                        <span class="health-pill" [ngClass]="healthClass(topic.health)">
+                          {{ topic.health.toLowerCase() }}
+                        </span>
+                        <span>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Non-partitioned' }}</span>
+                      </div>
+
+                      <div>
+                        <h5>{{ topic.topic }}</h5>
+                        <p class="topic-name">{{ topic.fullName }}</p>
+                      </div>
+
+                      <p class="summary">{{ topic.summary }}</p>
+
+                      <div class="metrics">
+                        <div>
+                          <span>Backlog</span>
+                          <strong>{{ topic.stats.backlog | number }}</strong>
+                        </div>
+                        <div>
+                          <span>Consumers</span>
+                          <strong>{{ topic.stats.consumers }}</strong>
+                        </div>
+                        <div>
+                          <span>Publish/s</span>
+                          <strong>{{ topic.stats.publishRateIn }}</strong>
+                        </div>
+                        <div>
+                          <span>Schema</span>
+                          <strong>{{ topic.schemaPresent ? 'Present' : 'None' }}</strong>
+                        </div>
+                      </div>
+                    </button>
+                  }
+                </div>
               }
             </div>
           }
+
+          @if (activeTab() === 'namespace') {
+            <div class="workspace-section">
+              <div class="namespace-header compact-header">
+                <div>
+                  <p class="eyebrow">Namespace Controls</p>
+                  <h4>Tenant and namespace administration</h4>
+                </div>
+              </div>
+
+              <div class="namespace-actions-grid">
+                <button class="ghost" type="button" (click)="openEditTenantDialog()" [disabled]="!selectedTenant()">
+                  Tenant Settings
+                </button>
+                <button class="ghost danger-text" type="button" (click)="openDeleteTenantDialog()" [disabled]="!selectedTenant()">
+                  Delete Tenant
+                </button>
+                <button class="ghost" type="button" (click)="openNamespace(selectedTenant(), selectedNamespace())" [disabled]="!selectedTenant() || !selectedNamespace()">
+                  Namespace Details
+                </button>
+                <button class="ghost" type="button" (click)="openNamespaceYaml()" [disabled]="!selectedTenant() || !selectedNamespace()">
+                  Namespace YAML
+                </button>
+              </div>
+
+              <div class="state-card compact-state namespace-note">
+                Use this workspace for tenant controls, namespace policies, and declarative YAML sync without mixing those actions into the topic list.
+              </div>
+            </div>
+          }
+
+          @if (activeTab() === 'platform') {
+            <div class="workspace-section">
+              <div class="namespace-header compact-header">
+                <div>
+                  <p class="eyebrow">Platform Coverage</p>
+                  <h4>Functions, sources, sinks, and connectors</h4>
+                  <p class="summary">Platform artifacts live here when you need them, without crowding the topic workspace.</p>
+                </div>
+                <div class="action-row">
+                  <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('FUNCTION')">Add Function</button>
+                  <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('SOURCE')">Add Source</button>
+                  <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('SINK')">Add Sink</button>
+                </div>
+              </div>
+
+              <div class="platform-grid compact-platform-grid">
+                <article class="detail-card platform-summary-card">
+                  <p class="eyebrow">Functions</p>
+                  <h4>{{ visibleFunctions().length }}</h4>
+                  @if (visibleFunctions().length === 0) {
+                    <p class="summary">No functions in this namespace.</p>
+                  } @else {
+                    <ul class="artifact-list">
+                      @for (item of visibleFunctions(); track item.name + ':' + item.tenant + ':' + item.namespace) {
+                        <li>
+                          <div>
+                            <strong>{{ item.name }}</strong>
+                            <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
+                          </div>
+                          <div class="artifact-actions">
+                            <button type="button" class="ghost" (click)="openEditPlatformArtifact('FUNCTION', item.name, item.tenant, item.namespace)">Edit</button>
+                            <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('FUNCTION', item.name, item.tenant, item.namespace)">Delete</button>
+                          </div>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </article>
+
+                <article class="detail-card platform-summary-card">
+                  <p class="eyebrow">Sources</p>
+                  <h4>{{ visibleSources().length }}</h4>
+                  @if (visibleSources().length === 0) {
+                    <p class="summary">No sources in this namespace.</p>
+                  } @else {
+                    <ul class="artifact-list">
+                      @for (item of visibleSources(); track item.name + ':' + item.tenant + ':' + item.namespace) {
+                        <li>
+                          <div>
+                            <strong>{{ item.name }}</strong>
+                            <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
+                          </div>
+                          <div class="artifact-actions">
+                            <button type="button" class="ghost" (click)="openEditPlatformArtifact('SOURCE', item.name, item.tenant, item.namespace)">Edit</button>
+                            <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('SOURCE', item.name, item.tenant, item.namespace)">Delete</button>
+                          </div>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </article>
+
+                <article class="detail-card platform-summary-card">
+                  <p class="eyebrow">Sinks</p>
+                  <h4>{{ visibleSinks().length }}</h4>
+                  @if (visibleSinks().length === 0) {
+                    <p class="summary">No sinks in this namespace.</p>
+                  } @else {
+                    <ul class="artifact-list">
+                      @for (item of visibleSinks(); track item.name + ':' + item.tenant + ':' + item.namespace) {
+                        <li>
+                          <div>
+                            <strong>{{ item.name }}</strong>
+                            <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
+                          </div>
+                          <div class="artifact-actions">
+                            <button type="button" class="ghost" (click)="openEditPlatformArtifact('SINK', item.name, item.tenant, item.namespace)">Edit</button>
+                            <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('SINK', item.name, item.tenant, item.namespace)">Delete</button>
+                          </div>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </article>
+
+                <article class="detail-card platform-summary-card">
+                  <p class="eyebrow">Connectors</p>
+                  <h4>{{ visibleConnectors().length }}</h4>
+                  @if (visibleConnectors().length === 0) {
+                    <p class="summary">No connectors were returned by the current cluster.</p>
+                  } @else {
+                    <ul class="artifact-list">
+                      @for (item of visibleConnectors(); track item.name) {
+                        <li><strong>{{ item.name }}</strong><span>{{ item.status }}</span></li>
+                      }
+                    </ul>
+                  }
+                </article>
+              </div>
+            </div>
+          }
         } @else {
-          <div class="state-card">Select a namespace to load its topic workspace.</div>
-        }
-
-        @if (platformSummary(); as platform) {
-          <div class="platform-panel">
-            <div class="namespace-header">
-              <div>
-                <p class="eyebrow">Platform Coverage</p>
-                <h4>Functions, sources, sinks, and connectors</h4>
-                <p class="summary">The selected namespace is the active workspace for guided platform deployments and updates.</p>
-              </div>
-              <div class="action-row">
-                <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('FUNCTION')">Add Function</button>
-                <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('SOURCE')">Add Source</button>
-                <button class="create-button secondary" type="button" (click)="openCreatePlatformArtifact('SINK')">Add Sink</button>
-              </div>
-            </div>
-
-            <div class="platform-grid">
-              <article class="detail-card">
-                <p class="eyebrow">Functions</p>
-                <h4>{{ visibleFunctions().length }}</h4>
-                @if (visibleFunctions().length === 0) {
-                  <p class="summary">No functions are registered for the selected namespace.</p>
-                } @else {
-                  <ul class="artifact-list">
-                    @for (item of visibleFunctions(); track item.name + ':' + item.tenant + ':' + item.namespace) {
-                      <li>
-                        <div>
-                          <strong>{{ item.name }}</strong>
-                          <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
-                        </div>
-                        <div class="artifact-actions">
-                          <button type="button" class="ghost" (click)="openEditPlatformArtifact('FUNCTION', item.name, item.tenant, item.namespace)">Edit</button>
-                          <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('FUNCTION', item.name, item.tenant, item.namespace)">Delete</button>
-                        </div>
-                      </li>
-                    }
-                  </ul>
-                }
-              </article>
-
-              <article class="detail-card">
-                <p class="eyebrow">Sources</p>
-                <h4>{{ visibleSources().length }}</h4>
-                @if (visibleSources().length === 0) {
-                  <p class="summary">No sources are registered for the selected namespace.</p>
-                } @else {
-                  <ul class="artifact-list">
-                    @for (item of visibleSources(); track item.name + ':' + item.tenant + ':' + item.namespace) {
-                      <li>
-                        <div>
-                          <strong>{{ item.name }}</strong>
-                          <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
-                        </div>
-                        <div class="artifact-actions">
-                          <button type="button" class="ghost" (click)="openEditPlatformArtifact('SOURCE', item.name, item.tenant, item.namespace)">Edit</button>
-                          <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('SOURCE', item.name, item.tenant, item.namespace)">Delete</button>
-                        </div>
-                      </li>
-                    }
-                  </ul>
-                }
-              </article>
-
-              <article class="detail-card">
-                <p class="eyebrow">Sinks</p>
-                <h4>{{ visibleSinks().length }}</h4>
-                @if (visibleSinks().length === 0) {
-                  <p class="summary">No sinks are registered for the selected namespace.</p>
-                } @else {
-                  <ul class="artifact-list">
-                    @for (item of visibleSinks(); track item.name + ':' + item.tenant + ':' + item.namespace) {
-                      <li>
-                        <div>
-                          <strong>{{ item.name }}</strong>
-                          <span>{{ item.tenant }}/{{ item.namespace }} · {{ item.status }}</span>
-                        </div>
-                        <div class="artifact-actions">
-                          <button type="button" class="ghost" (click)="openEditPlatformArtifact('SINK', item.name, item.tenant, item.namespace)">Edit</button>
-                          <button type="button" class="ghost danger-text" (click)="openDeletePlatformArtifact('SINK', item.name, item.tenant, item.namespace)">Delete</button>
-                        </div>
-                      </li>
-                    }
-                  </ul>
-                }
-              </article>
-
-              <article class="detail-card">
-                <p class="eyebrow">Connectors</p>
-                <h4>{{ visibleConnectors().length }}</h4>
-                @if (visibleConnectors().length === 0) {
-                  <p class="summary">No connectors were returned by the current cluster.</p>
-                } @else {
-                  <ul class="artifact-list">
-                    @for (item of visibleConnectors(); track item.name) {
-                      <li><strong>{{ item.name }}</strong><span>{{ item.status }}</span></li>
-                    }
-                  </ul>
-                }
-              </article>
-            </div>
-          </div>
+          <div class="state-card">Select a namespace to load its workspace.</div>
         }
       </section>
     </div>

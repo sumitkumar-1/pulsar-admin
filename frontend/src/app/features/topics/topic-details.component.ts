@@ -58,6 +58,7 @@ export class TopicDetailsComponent {
   readonly environmentId = signal('');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
+  readonly activeTab = signal<'overview' | 'subscriptions' | 'partitions' | 'schema' | 'operations'>('overview');
   readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription' | 'delete-subscription' | null>(null);
   readonly peekState = signal<PeekMessagesResponse | null>(null);
   readonly peekLoading = signal(false);
@@ -264,6 +265,10 @@ export class TopicDetailsComponent {
 
   healthClass(status: string): string {
     return status.toLowerCase();
+  }
+
+  setActiveTab(tab: 'overview' | 'subscriptions' | 'partitions' | 'schema' | 'operations') {
+    this.activeTab.set(tab);
   }
 
   canTerminateTopic(): boolean {

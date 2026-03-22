@@ -91,6 +91,9 @@ describe('TopicExplorerComponent', () => {
     expect(compiled.textContent).toContain('1 active workspaces');
     expect(compiled.textContent).toContain('Selected Namespace');
     expect(compiled.textContent).toContain('acme/orders');
+    expect(compiled.textContent).toContain('Topics');
+    expect(compiled.textContent).toContain('Namespace');
+    expect(compiled.textContent).toContain('Platform');
     expect(compiled.textContent).toContain('payment-events');
     expect(compiled.textContent).toContain('Backlog-heavy topic');
   });

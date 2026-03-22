@@ -325,6 +325,15 @@ export interface NamespacePoliciesResponse {
   namespaceDetails: NamespaceDetails;
 }
 
+export interface NamespaceYamlCurrentResponse {
+  environmentId: string;
+  tenant: string;
+  namespace: string;
+  yaml: string;
+  message: string;
+  generatedAt: string;
+}
+
 export interface NamespaceDeleteRequest {
   tenant: string;
   namespace: string;

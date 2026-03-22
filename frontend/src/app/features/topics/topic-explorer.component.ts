@@ -114,6 +114,7 @@ export class TopicExplorerComponent {
   readonly topicPage = signal<TopicPage | null>(null);
   readonly selectedTenant = signal('');
   readonly selectedNamespace = signal('');
+  readonly activeTab = signal<'topics' | 'namespace' | 'platform'>('topics');
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
   readonly tenantDialogOpen = signal(false);
@@ -316,6 +317,10 @@ export class TopicExplorerComponent {
 
   healthClass(status: string): string {
     return status.toLowerCase();
+  }
+
+  setActiveTab(tab: 'topics' | 'namespace' | 'platform') {
+    this.activeTab.set(tab);
   }
 
   openCreateTopicDialog() {

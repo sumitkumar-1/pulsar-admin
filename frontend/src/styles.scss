@@ -352,6 +352,47 @@ select {
   gap: 1rem;
 }
 
+.workspace-shell,
+.workspace-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.workspace-shell {
+  margin-top: 1rem;
+}
+
+.workspace-panel {
+  gap: 1.25rem;
+}
+
+.topic-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 1.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.topic-tabs button {
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(248, 250, 252, 0.95);
+  color: #334155;
+  cursor: pointer;
+}
+
+.topic-tabs button.active {
+  border-color: rgba(14, 116, 144, 0.18);
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(236, 253, 245, 0.92));
+  color: #0f172a;
+  box-shadow: 0 10px 22px rgba(14, 116, 144, 0.12);
+}
+
 .action-bar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 1rem 0;
@@ -471,6 +512,14 @@ dd {
   background: rgba(241, 245, 249, 0.9);
 }
 
+.compact-list {
+  gap: 0.65rem;
+}
+
+.compact-list li {
+  padding: 0.45rem 0.75rem;
+}
+
 .inline-danger {
   padding: 0.55rem 0.8rem;
   color: #b91c1c;
@@ -480,6 +529,12 @@ dd {
 
 .partition-list {
   margin-top: 1rem;
+}
+
+.dense-partitions {
+  max-height: 36rem;
+  overflow: auto;
+  padding-right: 0.35rem;
 }
 
 .partition-row strong {

@@ -45,184 +45,292 @@
       </div>
     </section>
 
-    <section class="action-bar">
-      <div class="action-group">
-        <p class="eyebrow">Inspect</p>
-        <div class="action-group-buttons">
-          <button type="button" (click)="openWorkflow('peek')">Peek Messages</button>
-          <button type="button" (click)="openWorkflow('test-messages')">Test Messages</button>
-        </div>
-      </div>
+    <section class="workspace-shell">
+      <nav class="topic-tabs" aria-label="Topic workspace tabs">
+        <button type="button" [class.active]="activeTab() === 'overview'" (click)="setActiveTab('overview')">Overview</button>
+        <button type="button" [class.active]="activeTab() === 'subscriptions'" (click)="setActiveTab('subscriptions')">Subscriptions</button>
+        <button type="button" [class.active]="activeTab() === 'partitions'" (click)="setActiveTab('partitions')">Partitions</button>
+        <button type="button" [class.active]="activeTab() === 'schema'" (click)="setActiveTab('schema')">Schema</button>
+        <button type="button" [class.active]="activeTab() === 'operations'" (click)="setActiveTab('operations')">Operations</button>
+      </nav>
 
-      <div class="action-group">
-        <p class="eyebrow">Subscriptions</p>
-        <div class="action-group-buttons">
-          <button type="button" (click)="openWorkflow('reset')">Reset Cursor</button>
-          <button type="button" (click)="openWorkflow('skip')">Skip Messages</button>
-          <button type="button" (click)="openWorkflow('dlq')">DLQ / Retry</button>
-          <button type="button" (click)="openWorkflow('create-subscription')">Add Subscription</button>
-        </div>
-      </div>
+      @if (activeTab() === 'overview') {
+        <section class="workspace-panel">
+          <section class="stats-grid">
+            <article class="stat-card">
+              <span>Backlog</span>
+              <strong>{{ topic.stats.backlog | number }}</strong>
+            </article>
+            <article class="stat-card">
+              <span>Producers</span>
+              <strong>{{ topic.stats.producers }}</strong>
+            </article>
+            <article class="stat-card">
+              <span>Consumers</span>
+              <strong>{{ topic.stats.consumers }}</strong>
+            </article>
+            <article class="stat-card">
+              <span>Subscriptions</span>
+              <strong>{{ topic.stats.subscriptions }}</strong>
+            </article>
+            <article class="stat-card">
+              <span>Publish / sec</span>
+              <strong>{{ topic.stats.publishRateIn }}</strong>
+            </article>
+            <article class="stat-card">
+              <span>Dispatch / sec</span>
+              <strong>{{ topic.stats.dispatchRateOut }}</strong>
+            </article>
+          </section>
 
-      <div class="action-group">
-        <p class="eyebrow">Admin</p>
-        <div class="action-group-buttons">
-          <button type="button" (click)="openWorkflow('schema')">Schema Admin</button>
-          <button type="button" (click)="openWorkflow('policies')">Topic Policies</button>
-          <button type="button" (click)="openWorkflow('unload')">Unload Topic</button>
-          <button type="button" (click)="openWorkflow('replay')">Replay / Copy</button>
-          <button type="button" (click)="openWorkflow('terminate')" [disabled]="!canTerminateTopic()">Terminate Topic</button>
-          <button type="button" class="danger-button ghost-danger" (click)="openWorkflow('delete-topic')">Delete Topic</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="stats-grid">
-      <article class="stat-card">
-        <span>Backlog</span>
-        <strong>{{ topic.stats.backlog | number }}</strong>
-      </article>
-      <article class="stat-card">
-        <span>Producers</span>
-        <strong>{{ topic.stats.producers }}</strong>
-      </article>
-      <article class="stat-card">
-        <span>Consumers</span>
-        <strong>{{ topic.stats.consumers }}</strong>
-      </article>
-      <article class="stat-card">
-        <span>Subscriptions</span>
-        <strong>{{ topic.stats.subscriptions }}</strong>
-      </article>
-      <article class="stat-card">
-        <span>Publish / sec</span>
-        <strong>{{ topic.stats.publishRateIn }}</strong>
-      </article>
-      <article class="stat-card">
-        <span>Dispatch / sec</span>
-        <strong>{{ topic.stats.dispatchRateOut }}</strong>
-      </article>
-    </section>
-
-    <section class="content-grid">
-      <div class="primary-column">
-        <article class="detail-card subscription-card">
-          <div class="card-header-row">
-            <div>
-              <p class="eyebrow">Subscriptions</p>
-              <h3>{{ topic.subscriptions.length }} active subscriptions</h3>
-            </div>
-            <button type="button" class="secondary-action" (click)="openWorkflow('create-subscription')">
-              Add Subscription
-            </button>
-          </div>
-
-          @if (topic.subscriptions.length === 0) {
-            <p class="summary">No subscriptions are configured yet. Add one at earliest or latest to start consumption safely.</p>
-          } @else {
-            <ul class="subscription-list">
-              @for (subscription of topic.subscriptions; track subscription) {
-                <li>
-                  <span>{{ subscription }}</span>
-                  <button type="button" class="inline-danger" (click)="openDeleteSubscriptionWorkflow(subscription)">
-                    Delete
-                  </button>
-                </li>
-              }
-            </ul>
-          }
-        </article>
-
-        <article class="detail-card partition-card">
-          <div class="card-header-row">
-            <div>
-              <p class="eyebrow">Partition Overview</p>
-              <h3>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Single topic view' }}</h3>
-            </div>
-            @if (topic.partitioned) {
-              <span class="inline-stat-pill">{{ topic.partitionSummaries.length }} partition summaries loaded</span>
-            }
-          </div>
-
-          @if (topic.partitionSummaries.length === 0) {
-            <p class="summary">This topic is not partitioned, so the aggregate topic stats are the primary signal.</p>
-          } @else {
-            <div class="partition-list">
-              @for (partition of topic.partitionSummaries; track partition.partitionName) {
-                <div class="partition-row">
+          <section class="content-grid">
+            <div class="primary-column">
+              <article class="detail-card">
+                <div class="card-header-row">
                   <div>
-                    <strong>{{ partition.partitionName }}</strong>
-                    <p>Backlog {{ partition.backlog | number }} · Consumers {{ partition.consumers }}</p>
+                    <p class="eyebrow">Subscriptions</p>
+                    <h3>{{ topic.subscriptions.length }} active subscriptions</h3>
                   </div>
-                  <span class="health-pill" [ngClass]="healthClass(partition.health)">
-                    {{ partition.health.toLowerCase() }}
-                  </span>
+                  <button type="button" class="secondary-action" (click)="setActiveTab('subscriptions')">
+                    Open subscriptions
+                  </button>
                 </div>
+
+                @if (topic.subscriptions.length === 0) {
+                  <p class="summary">No subscriptions are configured yet. Add one at earliest or latest to start consumption safely.</p>
+                } @else {
+                  <ul class="pill-list compact-list">
+                    @for (subscription of topic.subscriptions; track subscription) {
+                      <li>{{ subscription }}</li>
+                    }
+                  </ul>
+                }
+              </article>
+
+              <article class="detail-card">
+                <p class="eyebrow">Traffic Snapshot</p>
+                <h3>Current topic posture</h3>
+                <dl>
+                  <div>
+                    <dt>Health</dt>
+                    <dd>{{ topic.health }}</dd>
+                  </div>
+                  <div>
+                    <dt>Storage</dt>
+                    <dd>{{ topic.stats.storageSize | number }}</dd>
+                  </div>
+                  <div>
+                    <dt>Throughput In</dt>
+                    <dd>{{ topic.stats.throughputIn | number }}</dd>
+                  </div>
+                  <div>
+                    <dt>Throughput Out</dt>
+                    <dd>{{ topic.stats.throughputOut | number }}</dd>
+                  </div>
+                </dl>
+              </article>
+            </div>
+
+            <div class="secondary-column">
+              <article class="detail-card">
+                <div class="card-header-row">
+                  <div>
+                    <p class="eyebrow">Schema Summary</p>
+                    <h3>{{ topic.schema.present ? topic.schema.type : 'No schema' }}</h3>
+                  </div>
+                  <button type="button" class="secondary-action" (click)="setActiveTab('schema')">
+                    Open schema
+                  </button>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Version</dt>
+                    <dd>{{ topic.schema.version }}</dd>
+                  </div>
+                  <div>
+                    <dt>Compatibility</dt>
+                    <dd>{{ topic.schema.compatibility }}</dd>
+                  </div>
+                  <div>
+                    <dt>Owner</dt>
+                    <dd>{{ topic.ownerTeam }}</dd>
+                  </div>
+                </dl>
+              </article>
+
+              <article class="detail-card">
+                <p class="eyebrow">Operator Notes</p>
+                <h3>Recommended flow</h3>
+                <p class="summary">
+                  Review state first, then jump into subscriptions, partitions, schema, or operations as needed. Partition-heavy topics stay easier to scan when actions stay in their own workspace tab.
+                </p>
+              </article>
+            </div>
+          </section>
+        </section>
+      }
+
+      @if (activeTab() === 'subscriptions') {
+        <section class="workspace-panel">
+          <article class="detail-card subscription-card">
+            <div class="card-header-row">
+              <div>
+                <p class="eyebrow">Subscriptions</p>
+                <h3>{{ topic.subscriptions.length }} active subscriptions</h3>
+              </div>
+              <div class="action-row">
+                <button type="button" class="secondary-action" (click)="openWorkflow('create-subscription')">
+                  Add Subscription
+                </button>
+                <button type="button" class="secondary-action" (click)="openWorkflow('reset')">
+                  Reset Cursor
+                </button>
+                <button type="button" class="secondary-action" (click)="openWorkflow('skip')">
+                  Skip Messages
+                </button>
+              </div>
+            </div>
+
+            @if (topic.subscriptions.length === 0) {
+              <p class="summary">No subscriptions are configured yet. Add one at earliest or latest to start consumption safely.</p>
+            } @else {
+              <ul class="subscription-list">
+                @for (subscription of topic.subscriptions; track subscription) {
+                  <li>
+                    <span>{{ subscription }}</span>
+                    <div class="action-row">
+                      <button type="button" class="secondary-action" (click)="openWorkflow('reset')">Reset</button>
+                      <button type="button" class="secondary-action" (click)="openWorkflow('skip')">Skip</button>
+                      <button type="button" class="inline-danger" (click)="openDeleteSubscriptionWorkflow(subscription)">
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                }
+              </ul>
+            }
+          </article>
+        </section>
+      }
+
+      @if (activeTab() === 'partitions') {
+        <section class="workspace-panel">
+          <article class="detail-card partition-card">
+            <div class="card-header-row">
+              <div>
+                <p class="eyebrow">Partition Overview</p>
+                <h3>{{ topic.partitioned ? topic.partitions + ' partitions' : 'Single topic view' }}</h3>
+              </div>
+              @if (topic.partitioned) {
+                <span class="inline-stat-pill">{{ topic.partitionSummaries.length }} partition summaries loaded</span>
               }
             </div>
-          }
-        </article>
-      </div>
 
-      <div class="secondary-column">
-        <article class="detail-card">
-          <div class="card-header-row">
-            <div>
-              <p class="eyebrow">Schema Summary</p>
-              <h3>{{ topic.schema.present ? topic.schema.type : 'No schema' }}</h3>
-            </div>
-            <button type="button" class="secondary-action" (click)="openWorkflow('schema')">
-              Manage Schema
-            </button>
-          </div>
-          <dl>
-            <div>
-              <dt>Version</dt>
-              <dd>{{ topic.schema.version }}</dd>
-            </div>
-            <div>
-              <dt>Compatibility</dt>
-              <dd>{{ topic.schema.compatibility }}</dd>
-            </div>
-            <div>
-              <dt>Owner</dt>
-              <dd>{{ topic.ownerTeam }}</dd>
-            </div>
-          </dl>
-        </article>
+            @if (topic.partitionSummaries.length === 0) {
+              <p class="summary">This topic is not partitioned, so the aggregate topic stats are the primary signal.</p>
+            } @else {
+              <div class="partition-list dense-partitions">
+                @for (partition of topic.partitionSummaries; track partition.partitionName) {
+                  <div class="partition-row">
+                    <div>
+                      <strong>{{ partition.partitionName }}</strong>
+                      <p>
+                        Backlog {{ partition.backlog | number }}
+                        · Consumers {{ partition.consumers }}
+                        · Publish/s {{ partition.publishRateIn }}
+                        · Dispatch/s {{ partition.dispatchRateOut }}
+                      </p>
+                    </div>
+                    <span class="health-pill" [ngClass]="healthClass(partition.health)">
+                      {{ partition.health.toLowerCase() }}
+                    </span>
+                  </div>
+                }
+              </div>
+            }
+          </article>
+        </section>
+      }
 
-        <article class="detail-card">
-          <p class="eyebrow">Traffic Snapshot</p>
-          <h3>Current topic posture</h3>
-          <dl>
-            <div>
-              <dt>Health</dt>
-              <dd>{{ topic.health }}</dd>
+      @if (activeTab() === 'schema') {
+        <section class="workspace-panel">
+          <section class="content-grid">
+            <div class="primary-column">
+              <article class="detail-card">
+                <div class="card-header-row">
+                  <div>
+                    <p class="eyebrow">Schema Summary</p>
+                    <h3>{{ topic.schema.present ? topic.schema.type : 'No schema' }}</h3>
+                  </div>
+                  <button type="button" class="secondary-action" (click)="openWorkflow('schema')">
+                    Manage Schema
+                  </button>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Version</dt>
+                    <dd>{{ topic.schema.version }}</dd>
+                  </div>
+                  <div>
+                    <dt>Compatibility</dt>
+                    <dd>{{ topic.schema.compatibility }}</dd>
+                  </div>
+                  <div>
+                    <dt>Present</dt>
+                    <dd>{{ topic.schema.present ? 'Yes' : 'No' }}</dd>
+                  </div>
+                </dl>
+              </article>
             </div>
-            <div>
-              <dt>Producers</dt>
-              <dd>{{ topic.stats.producers }}</dd>
-            </div>
-            <div>
-              <dt>Consumers</dt>
-              <dd>{{ topic.stats.consumers }}</dd>
-            </div>
-            <div>
-              <dt>Subscriptions</dt>
-              <dd>{{ topic.stats.subscriptions }}</dd>
-            </div>
-          </dl>
-        </article>
 
-        <article class="detail-card">
-          <p class="eyebrow">Operator Notes</p>
-          <h3>Recommended flow</h3>
-          <p class="summary">
-            Inspect first, then run subscription or admin actions from the toolbar. For partitioned topics, use
-            partition-aware operations and verify the effect from the partition panel.
-          </p>
-        </article>
-      </div>
+            <div class="secondary-column">
+              <article class="detail-card">
+                <p class="eyebrow">Schema Guidance</p>
+                <h3>Compatibility matters</h3>
+                <p class="summary">
+                  Publish, replay, and retry flows use this schema signal to warn about likely compatibility risks before operators apply changes.
+                </p>
+              </article>
+            </div>
+          </section>
+        </section>
+      }
+
+      @if (activeTab() === 'operations') {
+        <section class="workspace-panel">
+          <section class="action-bar">
+            <div class="action-group">
+              <p class="eyebrow">Inspect</p>
+              <div class="action-group-buttons">
+                <button type="button" (click)="openWorkflow('peek')">Peek Messages</button>
+                <button type="button" (click)="openWorkflow('test-messages')">Test Messages</button>
+              </div>
+            </div>
+
+            <div class="action-group">
+              <p class="eyebrow">Subscription</p>
+              <div class="action-group-buttons">
+                <button type="button" (click)="openWorkflow('reset')">Reset Cursor</button>
+                <button type="button" (click)="openWorkflow('skip')">Skip Messages</button>
+                <button type="button" (click)="openWorkflow('dlq')">DLQ / Retry</button>
+                <button type="button" (click)="openWorkflow('create-subscription')">Add Subscription</button>
+              </div>
+            </div>
+
+            <div class="action-group">
+              <p class="eyebrow">Admin</p>
+              <div class="action-group-buttons">
+                <button type="button" (click)="openWorkflow('schema')">Schema Admin</button>
+                <button type="button" (click)="openWorkflow('policies')">Topic Policies</button>
+                <button type="button" (click)="openWorkflow('unload')">Unload Topic</button>
+                <button type="button" (click)="openWorkflow('replay')">Replay / Copy</button>
+                <button type="button" (click)="openWorkflow('terminate')" [disabled]="!canTerminateTopic()">Terminate Topic</button>
+                <button type="button" class="danger-button ghost-danger" (click)="openWorkflow('delete-topic')">Delete Topic</button>
+              </div>
+            </div>
+          </section>
+        </section>
+      }
     </section>
   }
 }

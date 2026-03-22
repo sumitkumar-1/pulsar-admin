@@ -16,6 +16,7 @@ import com.pulsaradmin.shared.model.NamespaceDeleteRequest;
 import com.pulsaradmin.shared.model.NamespaceMutationResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.NamespaceYamlCurrentResponse;
 import com.pulsaradmin.shared.model.PagedResult;
 import com.pulsaradmin.shared.model.PeekMessagesResponse;
 import com.pulsaradmin.shared.model.PlatformArtifactDeleteRequest;
@@ -203,6 +204,13 @@ public class PulsarCatalogService {
 
   public TenantYamlApplyResponse applyYaml(String environmentId, TenantYamlApplyRequest request) {
     return tenantYamlSyncService.apply(environmentId, request);
+  }
+
+  public NamespaceYamlCurrentResponse getCurrentNamespaceYaml(
+      String environmentId,
+      String tenant,
+      String namespace) {
+    return tenantYamlSyncService.currentYaml(environmentId, tenant, namespace);
   }
 
   public PlatformSummary getPlatformSummary(String environmentId) {

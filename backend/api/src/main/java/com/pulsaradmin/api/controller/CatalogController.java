@@ -10,6 +10,7 @@ import com.pulsaradmin.shared.model.NamespaceDeleteRequest;
 import com.pulsaradmin.shared.model.NamespaceMutationResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesResponse;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.NamespaceYamlCurrentResponse;
 import com.pulsaradmin.shared.model.PlatformArtifactDeleteRequest;
 import com.pulsaradmin.shared.model.PlatformArtifactDetails;
 import com.pulsaradmin.shared.model.PlatformArtifactMutationRequest;
@@ -108,6 +109,14 @@ public class CatalogController {
       @PathVariable("envId") String envId,
       @Valid @RequestBody TenantYamlPreviewRequest request) {
     return pulsarCatalogService.validateYamlPreview(envId, request);
+  }
+
+  @GetMapping("/namespaces/yaml/current")
+  public NamespaceYamlCurrentResponse getCurrentNamespaceYaml(
+      @PathVariable("envId") String envId,
+      @RequestParam("tenant") String tenant,
+      @RequestParam("namespace") String namespace) {
+    return pulsarCatalogService.getCurrentNamespaceYaml(envId, tenant, namespace);
   }
 
   @PostMapping("/namespaces/yaml/preview")

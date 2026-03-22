@@ -6,6 +6,70 @@ import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { TopicDetailsComponent } from './topic-details.component';
 
 describe('TopicDetailsComponent', () => {
+  it('renders the tabbed workspace and defaults to overview', async () => {
+    await TestBed.configureTestingModule({
+      imports: [TopicDetailsComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ topic: 'persistent://acme/orders/payment-events' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getTopicDetails: () => of({
+              fullName: 'persistent://acme/orders/payment-events',
+              tenant: 'acme',
+              namespace: 'orders',
+              topic: 'payment-events',
+              partitioned: true,
+              partitions: 12,
+              health: 'CRITICAL',
+              stats: {
+                backlog: 18720,
+                producers: 5,
+                subscriptions: 2,
+                consumers: 3,
+                publishRateIn: 190.5,
+                dispatchRateOut: 48.3,
+                throughputIn: 6200,
+                throughputOut: 2100,
+                storageSize: 5880120
+              },
+              schema: {
+                type: 'JSON',
+                version: '9',
+                compatibility: 'BACKWARD',
+                present: true
+              },
+              ownerTeam: 'Payments',
+              notes: 'Backlog-heavy topic.',
+              partitionSummaries: [],
+              subscriptions: ['payment-settlement', 'payment-alerts']
+            }),
+            peekMessages: jasmine.createSpy('peekMessages'),
+            resetCursor: jasmine.createSpy('resetCursor'),
+            skipMessages: jasmine.createSpy('skipMessages'),
+            unloadTopic: jasmine.createSpy('unloadTopic'),
+            createReplayCopyJob: jasmine.createSpy('createReplayCopyJob'),
+            getReplayCopyJob: jasmine.createSpy('getReplayCopyJob')
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicDetailsComponent);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Overview');
+    expect(fixture.nativeElement.textContent).toContain('Subscriptions');
+    expect(fixture.nativeElement.textContent).toContain('Operator Notes');
+  });
+
   it('loads backend peek messages when the peek workflow opens', async () => {
     const peekMessages = jasmine.createSpy('peekMessages').and.returnValue(of({
       environmentId: 'prod',

@@ -24,6 +24,7 @@ import {
   NamespaceMutationResponse,
   NamespacePoliciesResponse,
   NamespacePoliciesUpdateRequest,
+  NamespaceYamlCurrentResponse,
   PeekMessagesResponse,
   PlatformArtifactDeleteRequest,
   PlatformArtifactDetails,
@@ -466,6 +467,21 @@ export class PulsarApiService {
       `${this.baseUrl}/environments/${environmentId}/namespaces/yaml/validate`,
       request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  getCurrentNamespaceYaml(
+    environmentId: string,
+    tenant: string,
+    namespace: string
+  ): Observable<NamespaceYamlCurrentResponse> {
+    return this.http.get<NamespaceYamlCurrentResponse>(
+      `${this.baseUrl}/environments/${environmentId}/namespaces/yaml/current`,
+      {
+        params: this.demoMode.appendHttpParams(
+          new HttpParams().set('tenant', tenant).set('namespace', namespace)
+        )
+      }
     );
   }
 

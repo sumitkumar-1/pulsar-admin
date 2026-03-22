@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -5,12 +6,16 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { combineLatest } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
-import { TenantYamlApplyResponse, TenantYamlPreviewResponse } from '../../core/models/api.models';
+import {
+  NamespaceYamlCurrentResponse,
+  TenantYamlApplyResponse,
+  TenantYamlPreviewResponse
+} from '../../core/models/api.models';
 
 @Component({
   selector: 'app-tenant-yaml-sync',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [DatePipe, ReactiveFormsModule, RouterLink],
   templateUrl: './tenant-yaml-sync.component.html',
   styleUrl: './tenant-yaml-sync.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -26,9 +31,11 @@ export class TenantYamlSyncComponent {
   readonly tenant = signal('');
   readonly namespace = signal('');
   readonly loading = signal(true);
+  readonly loadingCurrentYaml = signal(false);
   readonly validationState = signal<TenantYamlPreviewResponse | null>(null);
   readonly previewState = signal<TenantYamlPreviewResponse | null>(null);
   readonly applyState = signal<TenantYamlApplyResponse | null>(null);
+  readonly currentYamlState = signal<NamespaceYamlCurrentResponse | null>(null);
   readonly error = signal<string | null>(null);
   readonly validating = signal(false);
   readonly previewing = signal(false);
@@ -54,11 +61,101 @@ export class TenantYamlSyncComponent {
         this.yamlForm.patchValue({
           tenant,
           namespace,
-          yaml: this.sampleYaml(tenant, namespace),
+          yaml: '',
           reason: ''
         });
-        this.loading.set(false);
+        this.validationState.set(null);
+        this.previewState.set(null);
+        this.applyState.set(null);
+        this.loadCurrentYaml(true);
       });
+  }
+
+  loadCurrentYaml(forceEditorReset = false) {
+    const environmentId = this.environmentId();
+    const tenant = this.tenant();
+    const namespace = this.namespace();
+
+    if (!environmentId || !tenant || !namespace) {
+      this.currentYamlState.set(null);
+      this.loading.set(false);
+      return;
+    }
+
+    this.loadingCurrentYaml.set(true);
+    this.error.set(null);
+
+    this.api.getCurrentNamespaceYaml(environmentId, tenant, namespace)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.currentYamlState.set(response);
+          if (forceEditorReset || !this.yamlForm.controls.yaml.value.trim()) {
+            this.yamlForm.patchValue({
+              tenant: response.tenant,
+              namespace: response.namespace,
+              yaml: response.yaml,
+              reason: this.yamlForm.controls.reason.value
+            });
+          }
+          this.loadingCurrentYaml.set(false);
+          this.loading.set(false);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.error.set(error.error?.message ?? 'Unable to load the current namespace YAML.');
+          this.loadingCurrentYaml.set(false);
+          this.loading.set(false);
+        }
+      });
+  }
+
+  resetToCurrentYaml() {
+    const current = this.currentYamlState();
+    if (!current) {
+      this.loadCurrentYaml(true);
+      return;
+    }
+
+    this.yamlForm.patchValue({
+      tenant: current.tenant,
+      namespace: current.namespace,
+      yaml: current.yaml
+    });
+    this.validationState.set(null);
+    this.previewState.set(null);
+    this.applyState.set(null);
+    this.error.set(null);
+  }
+
+  onYamlFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const fileName = file.name.toLowerCase();
+    if (!fileName.endsWith('.yaml') && !fileName.endsWith('.yml')) {
+      this.error.set('Upload a .yaml or .yml file.');
+      input.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.yamlForm.patchValue({ yaml: String(reader.result ?? '') });
+      this.validationState.set(null);
+      this.previewState.set(null);
+      this.applyState.set(null);
+      this.error.set(null);
+      input.value = '';
+    };
+    reader.onerror = () => {
+      this.error.set('Unable to read the selected YAML file.');
+      input.value = '';
+    };
+    reader.readAsText(file);
   }
 
   validateYaml() {
@@ -152,29 +249,5 @@ export class TenantYamlSyncComponent {
       tenant: this.tenant(),
       namespace: this.namespace()
     });
-  }
-
-  private sampleYaml(tenant: string, namespace: string): string {
-    return `tenant: ${tenant || 'acme'}
-namespace: ${namespace || 'orders'}
-policies:
-  retentionTimeInMinutes: 10080
-  retentionSizeInMb: 4096
-  messageTtlInSeconds: 86400
-  deduplicationEnabled: true
-topics:
-  - name: order-events
-    domain: persistent
-    partitions: 0
-    notes: Order lifecycle event stream
-    policies:
-      retentionTimeInMinutes: 10080
-      retentionSizeInMb: 2048
-      ttlInSeconds: 86400
-      compactionThresholdInBytes: 104857600
-      maxProducers: 16
-      maxConsumers: 48
-      maxSubscriptions: 24
-`;
   }
 }

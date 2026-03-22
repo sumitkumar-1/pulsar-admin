@@ -3,36 +3,60 @@
 @if (loading()) {
   <div class="state-card">Loading namespace YAML sync...</div>
 } @else {
-  <section class="hero-card">
+  <section class="yaml-hero">
     <div>
-      <p class="eyebrow">Namespace YAML Sync</p>
+      <p class="eyebrow">Namespace YAML Authoring</p>
       <h2>{{ tenant() || 'Selected Tenant' }}/{{ namespace() || 'Selected Namespace' }}</h2>
-      <p>Preview namespace-scoped creates, updates, and removals before applying them to the active environment.</p>
+      <p class="yaml-hero-copy">
+        Start from the live namespace state, adjust the YAML for your intended namespace changes, then preview and apply safely.
+      </p>
     </div>
-    <div class="mode-pill">{{ modeQueryParams().mode === 'mock' ? 'Mock Mode' : 'Live Mode' }}</div>
+    <div class="yaml-hero-meta">
+      <span class="mode-pill">{{ modeQueryParams().mode === 'mock' ? 'Mock Mode' : 'Live Mode' }}</span>
+      @if (currentYamlState(); as current) {
+        <span class="yaml-meta-pill">Generated {{ current.generatedAt | date: 'medium' }}</span>
+      }
+    </div>
   </section>
 
-  <section class="sync-grid">
-    <article class="editor-card">
+  <section class="yaml-grid">
+    <article class="yaml-editor-card">
       <form [formGroup]="yamlForm">
-        <label>
-          <span>Tenant</span>
-          <input formControlName="tenant" type="text" />
+        <div class="yaml-toolbar">
+          <div class="yaml-scope">
+            <label>
+              <span>Tenant</span>
+              <input formControlName="tenant" type="text" readonly />
+            </label>
+
+            <label>
+              <span>Namespace</span>
+              <input formControlName="namespace" type="text" readonly />
+            </label>
+          </div>
+
+          <div class="yaml-toolbar-actions">
+            <button type="button" class="secondary-button" (click)="loadCurrentYaml(true)" [disabled]="loadingCurrentYaml()">
+              {{ loadingCurrentYaml() ? 'Reloading...' : 'Reload Current Namespace' }}
+            </button>
+            <label class="upload-button">
+              <input type="file" accept=".yaml,.yml" (change)="onYamlFileSelected($event)" />
+              Upload YAML File
+            </label>
+            <button type="button" class="secondary-button" (click)="resetToCurrentYaml()">
+              Reset To Current
+            </button>
+          </div>
+        </div>
+
+        <label class="yaml-editor-field">
+          <span>Editable Namespace YAML</span>
+          <textarea formControlName="yaml" rows="28"></textarea>
         </label>
 
-        <label>
-          <span>Namespace</span>
-          <input formControlName="namespace" type="text" />
-        </label>
-
-        <label>
-          <span>YAML</span>
-          <textarea formControlName="yaml" rows="24"></textarea>
-        </label>
-
-        <label>
+        <label class="reason-field">
           <span>Apply Reason</span>
-          <textarea formControlName="reason" rows="3" placeholder="Why are we applying these tenant changes?"></textarea>
+          <textarea formControlName="reason" rows="3" placeholder="Why are we applying these namespace changes?"></textarea>
         </label>
 
         <div class="button-row">
@@ -49,9 +73,16 @@
       </form>
     </article>
 
-    <article class="results-card">
+    <article class="yaml-results-card">
       @if (error()) {
         <div class="state-card error">{{ error() }}</div>
+      }
+
+      @if (currentYamlState(); as current) {
+        <div class="state-card">
+          <strong>{{ current.message }}</strong>
+          <p>Scope: {{ current.tenant }}/{{ current.namespace }}</p>
+        </div>
       }
 
       @if (validationState(); as validation) {

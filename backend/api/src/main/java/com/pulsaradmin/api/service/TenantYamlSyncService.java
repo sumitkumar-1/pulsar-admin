@@ -4,8 +4,10 @@ import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.shared.model.CatalogSummary;
 import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
+import com.pulsaradmin.shared.model.NamespaceDetails;
 import com.pulsaradmin.shared.model.NamespacePolicies;
 import com.pulsaradmin.shared.model.NamespacePoliciesUpdateRequest;
+import com.pulsaradmin.shared.model.NamespaceYamlCurrentResponse;
 import com.pulsaradmin.shared.model.TenantYamlApplyRequest;
 import com.pulsaradmin.shared.model.TenantYamlApplyResponse;
 import com.pulsaradmin.shared.model.TenantYamlDiffEntry;
@@ -13,7 +15,9 @@ import com.pulsaradmin.shared.model.TenantYamlPreviewRequest;
 import com.pulsaradmin.shared.model.TenantYamlPreviewResponse;
 import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicPolicies;
+import com.pulsaradmin.shared.model.TopicPoliciesResponse;
 import com.pulsaradmin.shared.model.TopicPoliciesUpdateRequest;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -94,6 +98,23 @@ public class TenantYamlSyncService {
         "Applied the previewed YAML changes for namespace " + preview.tenant() + "/" + preview.namespace() + ".",
         preview.changes(),
         catalogSummary);
+  }
+
+  public NamespaceYamlCurrentResponse currentYaml(String environmentId, String tenant, String namespace) {
+    if (tenant == null || tenant.isBlank() || namespace == null || namespace.isBlank()) {
+      throw new BadRequestException("A tenant and namespace are required to generate namespace YAML.");
+    }
+
+    NamespaceDetails namespaceDetails = environmentCatalogService.getNamespaceDetails(environmentId, tenant, namespace);
+    String yamlText = renderCurrentYaml(environmentId, tenant, namespace, namespaceDetails);
+
+    return new NamespaceYamlCurrentResponse(
+        environmentId,
+        tenant,
+        namespace,
+        yamlText,
+        "Loaded the current namespace state into editable YAML.",
+        Instant.now());
   }
 
   private void applyDesiredState(
@@ -177,6 +198,77 @@ public class TenantYamlSyncService {
             "Topic is present in the selected namespace but absent from the desired YAML state.")));
 
     return changes;
+  }
+
+  private String renderCurrentYaml(
+      String environmentId,
+      String tenant,
+      String namespace,
+      NamespaceDetails namespaceDetails) {
+    StringBuilder builder = new StringBuilder();
+    builder.append("tenant: ").append(tenant).append('\n');
+    builder.append("namespace: ").append(namespace).append('\n');
+    builder.append("policies:\n");
+    appendNamespacePolicies(builder, namespaceDetails.policies());
+    builder.append("topics:\n");
+
+    List<TopicDetails> sortedTopics = namespaceDetails.topics().stream()
+        .sorted((left, right) -> left.topic().compareTo(right.topic()))
+        .map(topic -> environmentCatalogService.getTopicDetails(environmentId, topic.fullName()))
+        .toList();
+
+    for (TopicDetails topic : sortedTopics) {
+      TopicPoliciesResponse topicPolicies = environmentCatalogService.getTopicPolicies(environmentId, topic.fullName());
+      builder.append("  - name: ").append(topic.topic()).append('\n');
+      builder.append("    domain: ").append(topic.fullName().startsWith("non-persistent://") ? "non-persistent" : "persistent").append('\n');
+      builder.append("    partitions: ").append(Math.max(topic.partitions(), 0)).append('\n');
+      if (topic.notes() != null && !topic.notes().isBlank()) {
+        builder.append("    notes: ").append(yamlScalar(topic.notes())).append('\n');
+      }
+      builder.append("    policies:\n");
+      appendTopicPolicies(builder, topicPolicies.policies(), "      ");
+    }
+
+    return builder.toString();
+  }
+
+  private void appendNamespacePolicies(StringBuilder builder, NamespacePolicies policies) {
+    appendNamespacePolicy(builder, "retentionTimeInMinutes", policies.retentionTimeInMinutes());
+    appendNamespacePolicy(builder, "retentionSizeInMb", policies.retentionSizeInMb());
+    appendNamespacePolicy(builder, "messageTtlInSeconds", policies.messageTtlInSeconds());
+    appendNamespacePolicy(builder, "deduplicationEnabled", policies.deduplicationEnabled());
+    appendNamespacePolicy(builder, "backlogQuotaLimitInBytes", policies.backlogQuotaLimitInBytes());
+    appendNamespacePolicy(builder, "backlogQuotaLimitTimeInSeconds", policies.backlogQuotaLimitTimeInSeconds());
+    appendNamespacePolicy(builder, "dispatchRatePerTopicInMsg", policies.dispatchRatePerTopicInMsg());
+    appendNamespacePolicy(builder, "dispatchRatePerTopicInByte", policies.dispatchRatePerTopicInByte());
+    appendNamespacePolicy(builder, "publishRateInMsg", policies.publishRateInMsg());
+    appendNamespacePolicy(builder, "publishRateInByte", policies.publishRateInByte());
+  }
+
+  private void appendTopicPolicies(StringBuilder builder, TopicPolicies policies, String indent) {
+    appendTopicPolicy(builder, indent, "retentionTimeInMinutes", policies.retentionTimeInMinutes());
+    appendTopicPolicy(builder, indent, "retentionSizeInMb", policies.retentionSizeInMb());
+    appendTopicPolicy(builder, indent, "ttlInSeconds", policies.ttlInSeconds());
+    appendTopicPolicy(builder, indent, "compactionThresholdInBytes", policies.compactionThresholdInBytes());
+    appendTopicPolicy(builder, indent, "maxProducers", policies.maxProducers());
+    appendTopicPolicy(builder, indent, "maxConsumers", policies.maxConsumers());
+    appendTopicPolicy(builder, indent, "maxSubscriptions", policies.maxSubscriptions());
+  }
+
+  private void appendNamespacePolicy(StringBuilder builder, String key, Object value) {
+    builder.append("  ").append(key).append(": ").append(value == null ? "null" : value).append('\n');
+  }
+
+  private void appendTopicPolicy(StringBuilder builder, String indent, String key, Object value) {
+    builder.append(indent).append(key).append(": ").append(value == null ? "null" : value).append('\n');
+  }
+
+  private String yamlScalar(String value) {
+    if (value == null) {
+      return "\"\"";
+    }
+    String sanitized = value.replace("\"", "\\\"");
+    return '"' + sanitized + '"';
   }
 
   @SuppressWarnings("unchecked")
