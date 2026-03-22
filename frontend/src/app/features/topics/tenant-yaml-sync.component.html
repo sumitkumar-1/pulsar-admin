@@ -22,7 +22,7 @@
   <section class="yaml-grid">
     <article class="yaml-editor-card">
       <form [formGroup]="yamlForm">
-        <div class="yaml-toolbar">
+        <div class="yaml-meta-strip">
           <div class="yaml-scope">
             <label>
               <span>Tenant</span>
@@ -34,17 +34,25 @@
               <input formControlName="namespace" type="text" readonly />
             </label>
           </div>
+          @if (currentYamlState(); as current) {
+            <div class="yaml-generated-note">
+              <strong>{{ current.message }}</strong>
+              <span>Generated {{ current.generatedAt | date: 'medium' }}</span>
+            </div>
+          }
+        </div>
 
+        <div class="yaml-toolbar">
           <div class="yaml-toolbar-actions">
             <button type="button" class="secondary-button" (click)="loadCurrentYaml(true)" [disabled]="loadingCurrentYaml()">
-              {{ loadingCurrentYaml() ? 'Reloading...' : 'Reload Current Namespace' }}
+              {{ loadingCurrentYaml() ? 'Reloading...' : 'Reload Current' }}
             </button>
             <label class="upload-button">
               <input type="file" accept=".yaml,.yml" (change)="onYamlFileSelected($event)" />
-              Upload YAML File
+              Upload YAML
             </label>
             <button type="button" class="secondary-button" (click)="resetToCurrentYaml()">
-              Reset To Current
+              Reset
             </button>
           </div>
         </div>
@@ -76,13 +84,6 @@
     <article class="yaml-results-card">
       @if (error()) {
         <div class="state-card error">{{ error() }}</div>
-      }
-
-      @if (currentYamlState(); as current) {
-        <div class="state-card">
-          <strong>{{ current.message }}</strong>
-          <p>Scope: {{ current.tenant }}/{{ current.namespace }}</p>
-        </div>
       }
 
       @if (validationState(); as validation) {

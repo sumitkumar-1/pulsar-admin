@@ -6,6 +6,48 @@ import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { TopicExplorerComponent } from './topic-explorer.component';
 
 describe('TopicExplorerComponent', () => {
+  it('shows the namespace list first when no namespace is selected', async () => {
+    await TestBed.configureTestingModule({
+      imports: [TopicExplorerComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ page: '0', pageSize: '25' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironmentHealth: () => of({
+              environmentId: 'prod',
+              status: 'HEALTHY',
+              brokerUrl: 'broker',
+              adminUrl: 'admin',
+              pulsarVersion: '4.0.2',
+              message: 'healthy'
+            }),
+            getCatalogSummary: () => of({
+              environmentId: 'prod',
+              tenants: [{ name: 'acme', namespaceCount: 1, topicCount: 1 }],
+              namespaces: [{ tenant: 'acme', namespace: 'orders', topicCount: 1 }]
+            }),
+            getTopics: () => of({ items: [], page: 0, pageSize: 25, total: 0 })
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicExplorerComponent);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Pick a tenant and namespace to begin.');
+    expect(compiled.textContent).not.toContain('Selected Namespace');
+  });
+
   it('renders a namespace-first workspace and selected topic results', async () => {
     const api = {
       getEnvironmentHealth: () => of({
@@ -312,5 +354,58 @@ describe('TopicExplorerComponent', () => {
     });
     expect(component.namespaceDialogOpen()).toBeFalse();
     expect(component.actionFeedback()?.kind).toBe('success');
+  });
+
+  it('opens tenant deletion in a modal dialog shell', async () => {
+    await TestBed.configureTestingModule({
+      imports: [TopicExplorerComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({
+              tenant: 'acme',
+              namespace: 'orders',
+              page: '0',
+              pageSize: '25'
+            }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironmentHealth: () => of({
+              environmentId: 'prod',
+              status: 'HEALTHY',
+              brokerUrl: 'broker',
+              adminUrl: 'admin',
+              pulsarVersion: '4.0.2',
+              message: 'healthy'
+            }),
+            getCatalogSummary: () => of({
+              environmentId: 'prod',
+              tenants: [{ name: 'acme', namespaceCount: 1, topicCount: 0 }],
+              namespaces: [{ tenant: 'acme', namespace: 'orders', topicCount: 0 }]
+            }),
+            getTopics: () => of({ items: [], page: 0, pageSize: 25, total: 0 })
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicExplorerComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.setActiveTab('namespace');
+    component.openDeleteTenantDialog();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.dialog-backdrop')).not.toBeNull();
+    expect(compiled.querySelector('.dialog-shell')).not.toBeNull();
+    expect(compiled.textContent).toContain('Delete acme');
   });
 });

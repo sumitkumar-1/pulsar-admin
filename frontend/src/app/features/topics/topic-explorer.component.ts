@@ -265,12 +265,18 @@ export class TopicExplorerComponent {
       const tenant = this.selectedTenant();
       const namespace = this.selectedNamespace();
 
-      if (!namespaces.length || (tenant && namespace)) {
+      if (!tenant && !namespace) {
         return;
       }
 
-      const firstNamespace = namespaces[0];
-      void this.selectNamespace(firstNamespace.tenant, firstNamespace.namespace);
+      const selectedExists = namespaces.some((item) => item.tenant === tenant && item.namespace === namespace);
+      if (selectedExists) {
+        return;
+      }
+
+      const nextNamespace = namespaces[0];
+      this.selectedTenant.set(nextNamespace?.tenant ?? '');
+      this.selectedNamespace.set(nextNamespace?.namespace ?? '');
     });
   }
 
@@ -808,6 +814,7 @@ export class TopicExplorerComponent {
   }
 
   async selectNamespace(tenant: string, namespace: string) {
+    this.activeTab.set('topics');
     await this.router.navigate([], {
       relativeTo: this.route,
       queryParams: this.demoMode.queryParams({

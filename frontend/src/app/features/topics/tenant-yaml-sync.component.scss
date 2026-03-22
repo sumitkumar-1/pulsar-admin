@@ -35,7 +35,7 @@
 .yaml-grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  grid-template-columns: 1fr;
 }
 
 form,
@@ -50,6 +50,7 @@ form,
 }
 
 .yaml-hero-meta,
+.yaml-meta-strip,
 .yaml-scope,
 label {
   display: grid;
@@ -61,9 +62,23 @@ label {
   align-content: start;
 }
 
+.yaml-meta-strip {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+}
+
 .yaml-scope {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   flex: 1;
+}
+
+.yaml-generated-note {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: end;
+  text-align: right;
+  color: #475569;
 }
 
 input,
@@ -121,10 +136,37 @@ button,
   display: none;
 }
 
+.yaml-toolbar {
+  align-items: center;
+}
+
+.yaml-toolbar-actions,
+.button-row {
+  flex-wrap: wrap;
+}
+
 .yaml-editor-field textarea {
   min-height: 36rem;
   font-family: "SFMono-Regular", "JetBrains Mono", monospace;
   line-height: 1.45;
+}
+
+.yaml-results-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.yaml-results-card .state-card {
+  margin-bottom: 0;
+  text-align: left;
+}
+
+.button-row {
+  justify-content: flex-start;
+}
+
+.button-row .danger-button {
+  margin-left: auto;
 }
 
 .diff-entry {
@@ -188,13 +230,19 @@ button,
 }
 
 @media (max-width: 1080px) {
-  .yaml-grid {
+  .yaml-meta-strip {
     grid-template-columns: 1fr;
+  }
+
+  .yaml-generated-note {
+    justify-items: start;
+    text-align: left;
   }
 }
 
 @media (max-width: 860px) {
   .yaml-hero,
+  .yaml-meta-strip,
   .yaml-toolbar,
   .button-row,
   .diff-entry {

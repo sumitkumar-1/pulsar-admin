@@ -1,4 +1,4 @@
-.hero-card,
+.snapshot-strip,
 .panel,
 .topic-card {
   border-radius: 1.5rem;
@@ -7,35 +7,47 @@
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
 }
 
-.hero-card {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.6rem;
-  margin-bottom: 1.2rem;
-}
-
-.hero-card h2,
+.snapshot-strip h2,
 .panel-header h3,
 .namespace-header h4,
 .topic-card h5 {
   margin: 0;
 }
 
-.hero-card p,
+.snapshot-strip p,
 .panel-header p,
 .panel-copy {
   color: #475569;
 }
 
-.hero-card dl,
+.snapshot-strip,
+.snapshot-metrics,
 .metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.snapshot-strip {
+  grid-template-columns: minmax(0, 1.3fr) auto;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+  align-items: center;
+}
+
+.snapshot-copy h2 {
+  font-size: 1.35rem;
+}
+
+.snapshot-copy p:last-child {
+  margin: 0.35rem 0 0;
+}
+
+.snapshot-metrics {
+  grid-template-columns: repeat(2, minmax(10rem, 1fr));
   gap: 0.75rem;
 }
 
-.hero-card dt,
+.snapshot-metrics dt,
 .metrics span,
 .summary-row,
 .topic-topline,
@@ -57,8 +69,12 @@
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  align-items: end;
+  align-items: start;
   margin-bottom: 1rem;
+}
+
+.panel-intro {
+  max-width: 40rem;
 }
 
 .toolbar-stack {
@@ -148,6 +164,12 @@
   border-bottom: 1px solid rgba(148, 163, 184, 0.16);
 }
 
+.selector-copy {
+  margin: 0.45rem 0 0;
+  color: #64748b;
+  font-size: 0.94rem;
+}
+
 .tenant-header span,
 .namespace-summary-row,
 .namespace-workspace-card p,
@@ -181,6 +203,23 @@
 .namespace-workspace-card p {
   margin: 0.45rem 0 0;
   font-size: 0.92rem;
+}
+
+.workspace-placeholder {
+  display: grid;
+  gap: 0.6rem;
+  min-height: 18rem;
+  align-content: center;
+  justify-items: start;
+  border-radius: 1.35rem;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  background: rgba(248, 250, 252, 0.76);
+  padding: 1.6rem;
+}
+
+.workspace-placeholder h4,
+.workspace-placeholder p {
+  margin: 0;
 }
 
 .tenant-actions .ghost,
@@ -242,6 +281,13 @@
 .workspace-section {
   display: grid;
   gap: 1rem;
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: flex-end;
 }
 
 .compact-state {
@@ -335,8 +381,91 @@
   gap: 0.9rem;
 }
 
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(6px);
+  z-index: 20;
+}
+
+.dialog-shell {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  z-index: 21;
+}
+
+.dialog-card {
+  width: min(42rem, 100%);
+  border-radius: 1.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.16);
+  padding: 1.5rem;
+}
+
+.dialog-header,
+.dialog-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.dialog-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.dialog-form label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.dialog-form input,
+.dialog-form select,
+.dialog-form textarea,
+.dialog-actions button,
+.ghost-icon {
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 0.85rem 1rem;
+  font: inherit;
+}
+
+.dialog-form textarea {
+  resize: vertical;
+}
+
+.preview-card {
+  border-radius: 1.25rem;
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.65), rgba(255, 247, 237, 0.85));
+  padding: 1rem 1.1rem;
+  color: #334155;
+}
+
+.danger-preview {
+  background: linear-gradient(135deg, rgba(254, 242, 242, 0.92), rgba(255, 247, 237, 0.9));
+}
+
+.ghost-icon,
+.dialog-actions .ghost {
+  background: transparent;
+  color: #0f172a;
+}
+
+.dialog-actions button:not(.ghost) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
 @media (max-width: 900px) {
-  .hero-card,
+  .snapshot-strip,
   .panel-header,
   .namespace-header,
   .tenant-header,
@@ -352,6 +481,10 @@
   }
 
   .compact-platform-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .snapshot-metrics {
     grid-template-columns: 1fr;
   }
 
