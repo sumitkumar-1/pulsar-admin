@@ -1,5 +1,6 @@
 package com.pulsaradmin.api.controller;
 
+import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.api.service.PulsarCatalogService;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
@@ -11,7 +12,9 @@ import com.pulsaradmin.shared.model.ExportMessagesRequest;
 import com.pulsaradmin.shared.model.ExportMessagesResponse;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
+import com.pulsaradmin.shared.model.ReplayCopyJobEventResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
+import com.pulsaradmin.shared.model.ReplayCopySearchExportResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
@@ -33,7 +36,14 @@ import com.pulsaradmin.shared.model.TopicPoliciesUpdateRequest;
 import com.pulsaradmin.shared.model.TopicPoliciesUpdateResponse;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,7 +51,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/environments/{envId}/topics")
@@ -191,11 +203,19 @@ public class TopicController {
     return pulsarCatalogService.unloadTopic(envId, request);
   }
 
-  @PostMapping("/replay-copy")
+  @PostMapping(value = "/replay-copy", consumes = MediaType.APPLICATION_JSON_VALUE)
   public ReplayCopyJobStatusResponse createReplayCopyJob(
       @PathVariable("envId") String envId,
       @Valid @RequestBody ReplayCopyJobRequest request) {
     return pulsarCatalogService.createReplayCopyJob(envId, request);
+  }
+
+  @PostMapping(value = "/replay-copy", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public ReplayCopyJobStatusResponse createReplayCopyJobMultipart(
+      @PathVariable("envId") String envId,
+      @Valid @RequestPart("request") ReplayCopyJobRequest request,
+      @RequestPart(name = "idsFile", required = false) MultipartFile idsFile) {
+    return pulsarCatalogService.createReplayCopyJob(envId, request, parseFilterIds(idsFile));
   }
 
   @GetMapping("/jobs/{jobId}")
@@ -203,5 +223,58 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @PathVariable("jobId") String jobId) {
     return pulsarCatalogService.getReplayCopyJob(envId, jobId);
+  }
+
+  @GetMapping("/jobs/{jobId}/events")
+  public List<ReplayCopyJobEventResponse> getReplayCopyJobEvents(
+      @PathVariable("envId") String envId,
+      @PathVariable("jobId") String jobId) {
+    return pulsarCatalogService.getReplayCopyJobEvents(envId, jobId);
+  }
+
+  @GetMapping("/jobs/{jobId}/search-export")
+  public ReplayCopySearchExportResponse getReplayCopyJobSearchExport(
+      @PathVariable("envId") String envId,
+      @PathVariable("jobId") String jobId) {
+    return pulsarCatalogService.getReplayCopyJobSearchExport(envId, jobId);
+  }
+
+  private List<String> parseFilterIds(MultipartFile idsFile) {
+    if (idsFile == null || idsFile.isEmpty()) {
+      return List.of();
+    }
+    String filename = idsFile.getOriginalFilename();
+    String contentType = idsFile.getContentType();
+    boolean looksLikeCsv = (filename != null && filename.toLowerCase().endsWith(".csv"))
+        || (contentType != null && contentType.toLowerCase().contains("csv"));
+    if (!looksLikeCsv) {
+      throw new BadRequestException("idsFile must be a CSV file.");
+    }
+
+    List<String> values = new ArrayList<>();
+    try (BufferedReader reader = new BufferedReader(new InputStreamReader(idsFile.getInputStream(), StandardCharsets.UTF_8))) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        String trimmed = line.trim();
+        if (trimmed.isEmpty()) {
+          continue;
+        }
+        String firstColumn = trimmed.split(",", 2)[0].trim();
+        if (firstColumn.startsWith("\"") && firstColumn.endsWith("\"") && firstColumn.length() >= 2) {
+          firstColumn = firstColumn.substring(1, firstColumn.length() - 1).trim();
+        }
+        if (firstColumn.equalsIgnoreCase("id")
+            || firstColumn.equalsIgnoreCase("feedId")
+            || firstColumn.equalsIgnoreCase("objectId")) {
+          continue;
+        }
+        if (!firstColumn.isBlank()) {
+          values.add(firstColumn);
+        }
+      }
+    } catch (IOException exception) {
+      throw new BadRequestException("Unable to parse IDs file: " + exception.getMessage());
+    }
+    return values;
   }
 }

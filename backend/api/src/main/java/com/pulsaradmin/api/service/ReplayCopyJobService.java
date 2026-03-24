@@ -6,13 +6,15 @@ import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
 import com.pulsaradmin.shared.job.JobRecord;
 import com.pulsaradmin.shared.job.JobStatus;
 import com.pulsaradmin.shared.job.JobType;
-import com.pulsaradmin.shared.model.SchemaSummary;
+import com.pulsaradmin.shared.model.ReplayCopyJobEventResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
+import com.pulsaradmin.shared.model.ReplayCopySearchExportResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
+import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.TopicDetails;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -26,6 +28,8 @@ public class ReplayCopyJobService {
   private final EnvironmentSnapshotRepository snapshotRepository;
   private final JobRepository jobRepository;
   private final JobEventRepository jobEventRepository;
+  private final ReplayCopyJobFilterRepository replayCopyJobFilterRepository;
+  private final ReplayCopyJobSearchResultRepository replayCopyJobSearchResultRepository;
   private final PulsarAdminGateway pulsarAdminGateway;
   private final GatewayModeResolver gatewayModeResolver;
   private final MockEnvironmentStore mockEnvironmentStore;
@@ -36,6 +40,8 @@ public class ReplayCopyJobService {
       EnvironmentSnapshotRepository snapshotRepository,
       JobRepository jobRepository,
       JobEventRepository jobEventRepository,
+      ReplayCopyJobFilterRepository replayCopyJobFilterRepository,
+      ReplayCopyJobSearchResultRepository replayCopyJobSearchResultRepository,
       PulsarAdminGateway pulsarAdminGateway,
       GatewayModeResolver gatewayModeResolver,
       MockEnvironmentStore mockEnvironmentStore) {
@@ -43,23 +49,47 @@ public class ReplayCopyJobService {
     this.snapshotRepository = snapshotRepository;
     this.jobRepository = jobRepository;
     this.jobEventRepository = jobEventRepository;
+    this.replayCopyJobFilterRepository = replayCopyJobFilterRepository;
+    this.replayCopyJobSearchResultRepository = replayCopyJobSearchResultRepository;
     this.pulsarAdminGateway = pulsarAdminGateway;
     this.gatewayModeResolver = gatewayModeResolver;
     this.mockEnvironmentStore = mockEnvironmentStore;
   }
 
   public ReplayCopyJobStatusResponse createJob(String environmentId, ReplayCopyJobRequest request) {
+    return createJob(environmentId, request, List.of());
+  }
+
+  public ReplayCopyJobStatusResponse createJob(
+      String environmentId,
+      ReplayCopyJobRequest request,
+      Collection<String> filterValues) {
     validateRequest(request);
     EnvironmentRecord environment = requireEnvironment(environmentId);
     TopicDetails sourceTopic = requireTopic(environmentId, request.topicName());
     requireSubscription(sourceTopic, request.subscriptionName());
-    List<String> warnings = validateSchemaCompatibility(environmentId, sourceTopic, request.destinationTopicName());
+    String operationMode = normalizeOperationMode(request);
+    JobType jobType = toJobType(operationMode);
+    String normalizedDestinationTopic = normalizeDestinationTopic(jobType, request.destinationTopicName());
+    List<String> warnings = validateSchemaCompatibility(environmentId, sourceTopic, normalizedDestinationTopic, jobType, operationMode);
+    List<String> normalizedFilterValues = normalizeFilterValues(filterValues);
+    String normalizedMatchField = blankToNull(request.matchField());
+    boolean autoReplicateSchema = request.autoReplicateSchema() == null || request.autoReplicateSchema();
 
-    JobType jobType = normalizeJobType(request.operation());
+    if (!normalizedFilterValues.isEmpty() && normalizedMatchField == null) {
+      throw new BadRequestException("matchField is required when a filter IDs file is provided.");
+    }
     Instant now = Instant.now();
     String jobId = "job-" + UUID.randomUUID().toString().substring(0, 8);
 
     if (isMockMode()) {
+      int scanned = Math.min(request.messageLimit(), Math.max(1, normalizedFilterValues.isEmpty() ? 48 : normalizedFilterValues.size()));
+      int matched = normalizedFilterValues.isEmpty()
+          ? Math.min(scanned, 24)
+          : Math.min(scanned, normalizedFilterValues.size());
+      int nacked = Math.max(0, scanned - matched);
+      int moved = jobType == JobType.COPY ? matched : 0;
+      int searchMatched = jobType == JobType.SEARCH ? matched : 0;
       ReplayCopyJobStatusResponse mockResponse = new ReplayCopyJobStatusResponse(
           jobId,
           jobType,
@@ -67,15 +97,34 @@ public class ReplayCopyJobService {
           JobStatus.COMPLETED,
           request.topicName(),
           request.subscriptionName(),
-          request.destinationTopicName(),
+          normalizedDestinationTopic,
           request.messageLimit(),
           request.messagesPerSecond(),
           blankToNull(request.messageKey()),
           sanitizePropertyFilters(request.propertyFilters()),
           blankToNull(request.filterText()),
-          Math.min(request.messageLimit(), 24),
-          Math.min(request.messageLimit(), 24),
-          "Mock replay/copy job completed immediately for demo mode.",
+          normalizedMatchField,
+          autoReplicateSchema,
+          scanned,
+          matched,
+          nacked,
+          matched,
+          nacked,
+          moved,
+          0,
+          moved,
+          searchMatched,
+          jobType == JobType.SEARCH ? "search-export-" + jobId : null,
+          jobType == JobType.SEARCH,
+          jobType == JobType.SEARCH ? "search-results-" + jobId + ".json" : null,
+          Math.min(100, (int) Math.round((scanned * 100.0) / Math.max(1, request.messageLimit()))),
+          request.messagesPerSecond(),
+          0L,
+          now,
+          now,
+          "mock-message-" + Math.max(1, scanned),
+          null,
+          "Mock " + operationMode.toLowerCase().replace('_', '-') + " job completed immediately for demo mode.",
           warnings,
           now,
           now);
@@ -86,16 +135,37 @@ public class ReplayCopyJobService {
     Map<String, Object> parameters = new LinkedHashMap<>();
     parameters.put("topicName", request.topicName());
     parameters.put("subscriptionName", request.subscriptionName());
-    parameters.put("destinationTopicName", request.destinationTopicName());
+    parameters.put("destinationTopicName", normalizedDestinationTopic);
     parameters.put("messageLimit", request.messageLimit());
     parameters.put("messagesPerSecond", request.messagesPerSecond());
     parameters.put("messageKey", blankToNull(request.messageKey()));
     parameters.put("propertyFilters", sanitizePropertyFilters(request.propertyFilters()));
     parameters.put("filterText", blankToNull(request.filterText()));
+    parameters.put("matchField", normalizedMatchField);
+    parameters.put("autoReplicateSchema", autoReplicateSchema);
+    parameters.put("operationMode", operationMode);
+    parameters.put("filterCount", normalizedFilterValues.size());
     parameters.put("reason", request.reason());
     parameters.put("statusMessage", "Queued for worker pickup.");
+    parameters.put("scannedMessages", 0);
     parameters.put("matchedMessages", 0);
+    parameters.put("nonMatchedMessages", 0);
+    parameters.put("ackedMessages", 0);
+    parameters.put("nackedMessages", 0);
+    parameters.put("movedMessages", 0);
+    parameters.put("failedMessages", 0);
     parameters.put("publishedMessages", 0);
+    parameters.put("searchMatchedMessages", 0);
+    parameters.put("searchExportId", null);
+    parameters.put("searchExportReady", false);
+    parameters.put("searchExportFileName", null);
+    parameters.put("progressPercent", 0);
+    parameters.put("messagesPerSecondActual", 0d);
+    parameters.put("estimatedRemainingSeconds", 0L);
+    parameters.put("startedAt", null);
+    parameters.put("completedAt", null);
+    parameters.put("lastMessageId", null);
+    parameters.put("lastError", null);
     parameters.put("warnings", warnings);
 
     JobRecord queued = new JobRecord(
@@ -107,14 +177,16 @@ public class ReplayCopyJobService {
         now,
         now);
     jobRepository.insert(queued);
-    jobEventRepository.insert(
-        queued.id(),
-        "QUEUED",
-        Map.of(
-            "jobType", jobType.name(),
-            "topicName", request.topicName(),
-            "destinationTopicName", request.destinationTopicName(),
-            "messageLimit", request.messageLimit()));
+    Map<String, Object> queueDetails = new LinkedHashMap<>();
+    queueDetails.put("jobType", jobType.name());
+    queueDetails.put("operationMode", operationMode);
+    queueDetails.put("topicName", request.topicName());
+    queueDetails.put("destinationTopicName", normalizedDestinationTopic);
+    queueDetails.put("messageLimit", request.messageLimit());
+    queueDetails.put("filterCount", normalizedFilterValues.size());
+    queueDetails.put("matchField", normalizedMatchField);
+    jobEventRepository.insert(queued.id(), "QUEUED", queueDetails);
+    replayCopyJobFilterRepository.insertValues(queued.id(), normalizedFilterValues);
 
     return toResponse(queued);
   }
@@ -140,6 +212,82 @@ public class ReplayCopyJobService {
     return toResponse(job);
   }
 
+  public List<ReplayCopyJobEventResponse> getJobEvents(String environmentId, String jobId) {
+    requireEnvironment(environmentId);
+    if (isMockMode()) {
+      ReplayCopyJobStatusResponse job = mockJobs.get(jobId);
+      if (job == null || !job.environmentId().equals(environmentId)) {
+        throw new NotFoundException("Unknown job: " + jobId);
+      }
+      return List.of(
+          new ReplayCopyJobEventResponse(1L, jobId, "QUEUED", Map.of("statusMessage", "Queued in mock mode."), job.createdAt()),
+          new ReplayCopyJobEventResponse(2L, jobId, "COMPLETED", Map.of("statusMessage", job.statusMessage()), job.updatedAt()));
+    }
+
+    JobRecord job = jobRepository.findById(jobId)
+        .orElseThrow(() -> new NotFoundException("Unknown job: " + jobId));
+    if (!job.environmentId().equals(environmentId)) {
+      throw new NotFoundException("Unknown job: " + jobId);
+    }
+    return jobEventRepository.findByJobId(jobId);
+  }
+
+  public ReplayCopySearchExportResponse getSearchExport(String environmentId, String jobId) {
+    requireEnvironment(environmentId);
+    if (isMockMode()) {
+      ReplayCopyJobStatusResponse job = mockJobs.get(jobId);
+      if (job == null || !job.environmentId().equals(environmentId)) {
+        throw new NotFoundException("Unknown job: " + jobId);
+      }
+      if (job.jobType() != JobType.SEARCH) {
+        throw new BadRequestException("Search export is only available for SEARCH jobs.");
+      }
+      return new ReplayCopySearchExportResponse(
+          environmentId,
+          jobId,
+          job.topicName(),
+          job.searchMatchedMessages(),
+          job.searchExportFileName() == null ? "search-results-" + jobId + ".json" : job.searchExportFileName(),
+          "application/json",
+          "[]",
+          Instant.now(),
+          "Search results export is ready.");
+    }
+
+    JobRecord job = jobRepository.findById(jobId)
+        .orElseThrow(() -> new NotFoundException("Unknown job: " + jobId));
+    if (!job.environmentId().equals(environmentId)) {
+      throw new NotFoundException("Unknown job: " + jobId);
+    }
+    if (job.type() != JobType.SEARCH) {
+      throw new BadRequestException("Search export is only available for SEARCH jobs.");
+    }
+
+    Map<String, Object> parameters = job.parameters();
+    boolean ready = booleanValue(parameters.get("searchExportReady"));
+    if (!ready) {
+      throw new BadRequestException("Search export is not ready yet for job: " + jobId);
+    }
+
+    List<ReplayCopyJobSearchResultRepository.ReplayCopySearchResultRecord> matches =
+        replayCopyJobSearchResultRepository.findByJobId(jobId);
+    String fileName = stringValue(parameters.get("searchExportFileName"));
+    if (fileName == null || fileName.isBlank()) {
+      fileName = "search-results-" + jobId + ".json";
+    }
+    String content = buildSearchExportJson(matches);
+    return new ReplayCopySearchExportResponse(
+        environmentId,
+        jobId,
+        stringValue(parameters.get("topicName")),
+        matches.size(),
+        fileName,
+        "application/json",
+        content,
+        Instant.now(),
+        "Search results export is ready.");
+  }
+
   private TopicDetails requireTopic(String environmentId, String topicName) {
     EnvironmentSnapshotRecord snapshot = isMockMode()
         ? mockEnvironmentStore.storeSnapshot(
@@ -163,25 +311,52 @@ public class ReplayCopyJobService {
   }
 
   private void validateRequest(ReplayCopyJobRequest request) {
-    if (request.messageLimit() < 1 || request.messageLimit() > 5000) {
-      throw new BadRequestException("Message limit must be between 1 and 5000.");
+    if (request.messageLimit() < 1 || request.messageLimit() > 1_000_000) {
+      throw new BadRequestException("Message limit must be between 1 and 1000000.");
     }
 
-    if (request.messagesPerSecond() < 1 || request.messagesPerSecond() > 1000) {
-      throw new BadRequestException("Rate limit must be between 1 and 1000 messages per second.");
+    if (request.messagesPerSecond() < 1 || request.messagesPerSecond() > 5000) {
+      throw new BadRequestException("Rate limit must be between 1 and 5000 messages per second.");
     }
 
-    if (request.topicName().equals(request.destinationTopicName())) {
+    String operationMode = normalizeOperationMode(request);
+    if ("ACK_AND_MOVE".equals(operationMode)
+        && request.topicName() != null
+        && request.destinationTopicName() != null
+        && request.topicName().equals(request.destinationTopicName())) {
       throw new BadRequestException("Destination topic must be different from the source topic.");
     }
   }
 
-  private JobType normalizeJobType(String operation) {
-    String normalized = operation == null ? "" : operation.trim().toUpperCase();
-    return switch (normalized) {
-      case "COPY" -> JobType.COPY;
-      case "REPLAY" -> JobType.REPLAY;
+  private String normalizeOperationMode(ReplayCopyJobRequest request) {
+    String explicit = blankToNull(request.operationMode());
+    if (explicit != null) {
+      String normalized = explicit.toUpperCase();
+      if (!normalized.equals("ACK_ONLY")
+          && !normalized.equals("ACK_AND_MOVE")
+          && !normalized.equals("SEARCH_ONLY")) {
+        throw new BadRequestException("operationMode must be ACK_ONLY, ACK_AND_MOVE, or SEARCH_ONLY.");
+      }
+      return normalized;
+    }
+
+    String legacy = blankToNull(request.operation());
+    if (legacy == null) {
+      throw new BadRequestException("Either operationMode or operation is required.");
+    }
+    return switch (legacy.toUpperCase()) {
+      case "REPLAY" -> "ACK_ONLY";
+      case "COPY" -> "ACK_AND_MOVE";
       default -> throw new BadRequestException("Operation must be REPLAY or COPY.");
+    };
+  }
+
+  private JobType toJobType(String operationMode) {
+    return switch (operationMode) {
+      case "ACK_ONLY" -> JobType.REPLAY;
+      case "ACK_AND_MOVE" -> JobType.COPY;
+      case "SEARCH_ONLY" -> JobType.SEARCH;
+      default -> throw new BadRequestException("Unsupported operation mode: " + operationMode);
     };
   }
 
@@ -200,8 +375,27 @@ public class ReplayCopyJobService {
         stringValue(parameters.get("messageKey")),
         stringMapValue(parameters.get("propertyFilters")),
         stringValue(parameters.get("filterText")),
+        stringValue(parameters.get("matchField")),
+        booleanValue(parameters.get("autoReplicateSchema")),
+        intValue(parameters.get("scannedMessages")),
         intValue(parameters.get("matchedMessages")),
+        intValue(parameters.get("nonMatchedMessages")),
+        intValue(parameters.get("ackedMessages")),
+        intValue(parameters.get("nackedMessages")),
+        intValue(parameters.get("movedMessages")),
+        intValue(parameters.get("failedMessages")),
         intValue(parameters.get("publishedMessages")),
+        intValue(parameters.get("searchMatchedMessages")),
+        stringValue(parameters.get("searchExportId")),
+        booleanValue(parameters.get("searchExportReady")),
+        stringValue(parameters.get("searchExportFileName")),
+        intValue(parameters.get("progressPercent")),
+        doubleValue(parameters.get("messagesPerSecondActual")),
+        longValue(parameters.get("estimatedRemainingSeconds")),
+        instantValue(parameters.get("startedAt")),
+        instantValue(parameters.get("completedAt")),
+        stringValue(parameters.get("lastMessageId")),
+        stringValue(parameters.get("lastError")),
         stringValue(parameters.get("statusMessage")),
         stringListValue(parameters.get("warnings")),
         job.createdAt(),
@@ -224,6 +418,50 @@ public class ReplayCopyJobService {
 
   private String blankToNull(String value) {
     return value == null || value.isBlank() ? null : value.trim();
+  }
+
+  private boolean booleanValue(Object value) {
+    if (value instanceof Boolean bool) {
+      return bool;
+    }
+    if (value == null) {
+      return false;
+    }
+    return Boolean.parseBoolean(value.toString());
+  }
+
+  private double doubleValue(Object value) {
+    if (value instanceof Number number) {
+      return number.doubleValue();
+    }
+    if (value == null) {
+      return 0d;
+    }
+    return Double.parseDouble(value.toString());
+  }
+
+  private long longValue(Object value) {
+    if (value instanceof Number number) {
+      return number.longValue();
+    }
+    if (value == null) {
+      return 0L;
+    }
+    return Long.parseLong(value.toString());
+  }
+
+  private Instant instantValue(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Instant instant) {
+      return instant;
+    }
+    String text = value.toString();
+    if (text.isBlank() || "null".equalsIgnoreCase(text)) {
+      return null;
+    }
+    return Instant.parse(text);
   }
 
   @SuppressWarnings("unchecked")
@@ -256,7 +494,21 @@ public class ReplayCopyJobService {
     return normalized;
   }
 
-  private List<String> validateSchemaCompatibility(String environmentId, TopicDetails sourceTopic, String destinationTopicName) {
+  private List<String> validateSchemaCompatibility(
+      String environmentId,
+      TopicDetails sourceTopic,
+      String destinationTopicName,
+      JobType jobType,
+      String operationMode) {
+    if (jobType == JobType.SEARCH) {
+      return List.of("Search mode scans and collects matched messages only. It does not ACK, NACK, or publish.");
+    }
+    if (jobType != JobType.COPY) {
+      return List.of("Replay mode will ACK matched messages and NACK non-matches without publishing to a destination topic.");
+    }
+    if (destinationTopicName == null || destinationTopicName.isBlank()) {
+      throw new BadRequestException("Destination topic name is required for COPY operation.");
+    }
     TopicDetails destinationTopic = findTopic(environmentId, destinationTopicName);
     if (destinationTopic == null) {
       return List.of("Destination topic is not present in the current synced snapshot, so schema compatibility could not be verified.");
@@ -283,6 +535,28 @@ public class ReplayCopyJobService {
     }
 
     return List.of("Schema types match between source and destination topics.");
+  }
+
+  private String normalizeDestinationTopic(JobType jobType, String destinationTopicName) {
+    if (jobType == JobType.COPY) {
+      String normalized = blankToNull(destinationTopicName);
+      if (normalized == null) {
+        throw new BadRequestException("Destination topic name is required for COPY operation.");
+      }
+      return normalized;
+    }
+    return blankToNull(destinationTopicName);
+  }
+
+  private List<String> normalizeFilterValues(Collection<String> filterValues) {
+    if (filterValues == null || filterValues.isEmpty()) {
+      return List.of();
+    }
+    return filterValues.stream()
+        .map(this::blankToNull)
+        .filter(value -> value != null)
+        .distinct()
+        .toList();
   }
 
   private TopicDetails findTopic(String environmentId, String topicName) {
@@ -312,5 +586,55 @@ public class ReplayCopyJobService {
 
   private boolean isMockMode() {
     return "mock".equals(gatewayModeResolver.resolveMode());
+  }
+
+  private String buildSearchExportJson(
+      List<ReplayCopyJobSearchResultRepository.ReplayCopySearchResultRecord> matches) {
+    StringBuilder builder = new StringBuilder();
+    builder.append("[");
+    for (int index = 0; index < matches.size(); index++) {
+      ReplayCopyJobSearchResultRepository.ReplayCopySearchResultRecord record = matches.get(index);
+      if (index > 0) {
+        builder.append(",");
+      }
+      builder.append("{");
+      builder.append("\"id\":").append(record.id()).append(",");
+      builder.append("\"messageId\":").append(toJsonString(record.messageId())).append(",");
+      builder.append("\"messageKey\":").append(toJsonString(record.messageKey())).append(",");
+      builder.append("\"matchedFieldValue\":").append(toJsonString(record.matchedFieldValue())).append(",");
+      builder.append("\"properties\":").append(toJsonMap(record.properties())).append(",");
+      builder.append("\"payload\":").append(toJsonString(record.payload()));
+      builder.append("}");
+    }
+    builder.append("]");
+    return builder.toString();
+  }
+
+  private String toJsonMap(Map<String, String> properties) {
+    if (properties == null || properties.isEmpty()) {
+      return "{}";
+    }
+    StringBuilder builder = new StringBuilder("{");
+    int index = 0;
+    for (Map.Entry<String, String> entry : properties.entrySet()) {
+      if (index++ > 0) {
+        builder.append(",");
+      }
+      builder.append(toJsonString(entry.getKey())).append(":").append(toJsonString(entry.getValue()));
+    }
+    builder.append("}");
+    return builder.toString();
+  }
+
+  private String toJsonString(String value) {
+    if (value == null) {
+      return "null";
+    }
+    return "\"" + value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t") + "\"";
   }
 }

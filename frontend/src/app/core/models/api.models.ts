@@ -498,12 +498,15 @@ export interface ConsumeMessagesResponse {
 export interface ReplayCopyJobRequest {
   topicName: string;
   subscriptionName: string;
-  operation: 'REPLAY' | 'COPY';
-  destinationTopicName: string;
+  operation?: 'REPLAY' | 'COPY';
+  operationMode?: 'ACK_ONLY' | 'ACK_AND_MOVE' | 'SEARCH_ONLY';
+  destinationTopicName: string | null;
   messageLimit: number;
   messageKey?: string | null;
   propertyFilters?: Record<string, string>;
   filterText: string | null;
+  matchField?: string | null;
+  autoReplicateSchema?: boolean;
   messagesPerSecond: number;
   reason: string;
 }
@@ -521,12 +524,51 @@ export interface ReplayCopyJobStatusResponse {
   messageKey: string | null;
   propertyFilters: Record<string, string>;
   filterText: string | null;
+  matchField: string | null;
+  autoReplicateSchema: boolean;
+  scannedMessages: number;
   matchedMessages: number;
+  nonMatchedMessages: number;
+  ackedMessages: number;
+  nackedMessages: number;
+  movedMessages: number;
+  failedMessages: number;
   publishedMessages: number;
+  searchMatchedMessages: number;
+  searchExportId: string | null;
+  searchExportReady: boolean;
+  searchExportFileName: string | null;
+  progressPercent: number;
+  messagesPerSecondActual: number;
+  estimatedRemainingSeconds: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  lastMessageId: string | null;
+  lastError: string | null;
   statusMessage: string;
   warnings?: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ReplayCopySearchExportResponse {
+  environmentId: string;
+  jobId: string;
+  topicName: string;
+  exportedCount: number;
+  fileName: string;
+  contentType: string;
+  content: string;
+  exportedAt: string;
+  message: string;
+}
+
+export interface ReplayCopyJobEventResponse {
+  id: number;
+  jobId: string;
+  eventType: string;
+  details: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface ExportMessagesRequest {

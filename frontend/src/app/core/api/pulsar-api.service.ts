@@ -33,7 +33,9 @@ import {
   PlatformSummary,
   PublishMessageRequest,
   PublishMessageResponse,
+  ReplayCopyJobEventResponse,
   ReplayCopyJobRequest,
+  ReplayCopySearchExportResponse,
   ReplayCopyJobStatusResponse,
   ResetCursorRequest,
   ResetCursorResponse,
@@ -449,12 +451,49 @@ export class PulsarApiService {
     );
   }
 
+  createReplayCopyJobMultipart(
+    environmentId: string,
+    request: ReplayCopyJobRequest,
+    idsFile: File | null
+  ): Observable<ReplayCopyJobStatusResponse> {
+    const body = new FormData();
+    body.append('request', new Blob([JSON.stringify(request)], { type: 'application/json' }));
+    if (idsFile) {
+      body.append('idsFile', idsFile, idsFile.name);
+    }
+    return this.http.post<ReplayCopyJobStatusResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/replay-copy`,
+      body,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
   getReplayCopyJob(
     environmentId: string,
     jobId: string
   ): Observable<ReplayCopyJobStatusResponse> {
     return this.http.get<ReplayCopyJobStatusResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/jobs/${jobId}`,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  getReplayCopyJobEvents(
+    environmentId: string,
+    jobId: string
+  ): Observable<ReplayCopyJobEventResponse[]> {
+    return this.http.get<ReplayCopyJobEventResponse[]>(
+      `${this.baseUrl}/environments/${environmentId}/topics/jobs/${jobId}/events`,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  getReplayCopyJobSearchExport(
+    environmentId: string,
+    jobId: string
+  ): Observable<ReplayCopySearchExportResponse> {
+    return this.http.get<ReplayCopySearchExportResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/jobs/${jobId}/search-export`,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );
   }

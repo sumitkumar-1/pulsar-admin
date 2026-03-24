@@ -13,7 +13,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 
 @SpringBootTest(properties = "app.pulsar.gateway-mode=mock")
 @AutoConfigureMockMvc
@@ -314,6 +316,39 @@ class TopicControllerTest {
   }
 
   @Test
+  void shouldCreateReplayCopyJobFromMultipart() throws Exception {
+    MockMultipartFile requestPart = new MockMultipartFile(
+        "request",
+        "",
+        "application/json",
+        """
+            {
+              "topicName": "persistent://acme/orders/payment-events",
+              "subscriptionName": "payment-settlement",
+              "operation": "COPY",
+              "destinationTopicName": "persistent://acme/dev/replay-lab",
+              "matchField": "feedId",
+              "messageLimit": 120,
+              "messagesPerSecond": 50,
+              "reason": "Copy incident-related messages into replay lab"
+            }
+            """.getBytes());
+    MockMultipartFile idsFile = new MockMultipartFile(
+        "idsFile",
+        "ids.csv",
+        "text/csv",
+        "feedId\n10412\n10413\n".getBytes());
+
+    mockMvc.perform(multipart("/api/v1/environments/prod/topics/replay-copy")
+            .file(requestPart)
+            .file(idsFile))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.jobId").exists())
+        .andExpect(jsonPath("$.jobType").value("COPY"))
+        .andExpect(jsonPath("$.matchField").value("feedId"));
+  }
+
+  @Test
   void shouldGetReplayCopyJobStatus() throws Exception {
     String response = mockMvc.perform(post("/api/v1/environments/prod/topics/replay-copy")
             .contentType("application/json")
@@ -340,7 +375,69 @@ class TopicControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.jobId").value(jobId))
         .andExpect(jsonPath("$.status").value("COMPLETED"))
-        .andExpect(jsonPath("$.publishedMessages").value(24));
+        .andExpect(jsonPath("$.publishedMessages").value(0))
+        .andExpect(jsonPath("$.ackedMessages").value(24))
+        .andExpect(jsonPath("$.nackedMessages").value(24));
+  }
+
+  @Test
+  void shouldGetReplayCopyJobEvents() throws Exception {
+    String response = mockMvc.perform(post("/api/v1/environments/prod/topics/replay-copy")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": "payment-settlement",
+                  "operation": "COPY",
+                  "destinationTopicName": "persistent://acme/dev/replay-lab",
+                  "messageLimit": 25,
+                  "filterText": "",
+                  "messagesPerSecond": 25,
+                  "reason": "Event timeline smoke test"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+
+    String jobId = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("jobId").asText();
+
+    mockMvc.perform(get("/api/v1/environments/prod/topics/jobs/{jobId}/events", jobId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].jobId").value(jobId))
+        .andExpect(jsonPath("$[0].eventType").exists());
+  }
+
+  @Test
+  void shouldCreateSearchOnlyJobAndReturnSearchExport() throws Exception {
+    String response = mockMvc.perform(post("/api/v1/environments/prod/topics/replay-copy")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": "payment-settlement",
+                  "operationMode": "SEARCH_ONLY",
+                  "matchField": "feedId",
+                  "messageLimit": 25,
+                  "messagesPerSecond": 25,
+                  "reason": "Search-only smoke test"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.jobType").value("SEARCH"))
+        .andExpect(jsonPath("$.searchExportReady").value(true))
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+
+    String jobId = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("jobId").asText();
+
+    mockMvc.perform(get("/api/v1/environments/prod/topics/jobs/{jobId}/search-export", jobId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.jobId").value(jobId))
+        .andExpect(jsonPath("$.contentType").value("application/json"))
+        .andExpect(jsonPath("$.fileName").exists());
   }
 
   @Test

@@ -27,6 +27,8 @@ import com.pulsaradmin.shared.model.PlatformSummary;
 import com.pulsaradmin.shared.model.PublishMessageRequest;
 import com.pulsaradmin.shared.model.PublishMessageResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobRequest;
+import com.pulsaradmin.shared.model.ReplayCopyJobEventResponse;
+import com.pulsaradmin.shared.model.ReplayCopySearchExportResponse;
 import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.ResetCursorRequest;
 import com.pulsaradmin.shared.model.ResetCursorResponse;
@@ -56,6 +58,8 @@ import com.pulsaradmin.shared.model.TenantYamlPreviewRequest;
 import com.pulsaradmin.shared.model.TenantYamlPreviewResponse;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
+import java.util.Collection;
+import java.util.List;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -190,8 +194,23 @@ public class PulsarCatalogService {
     return replayCopyJobService.createJob(environmentId, request);
   }
 
+  public ReplayCopyJobStatusResponse createReplayCopyJob(
+      String environmentId,
+      ReplayCopyJobRequest request,
+      Collection<String> filterValues) {
+    return replayCopyJobService.createJob(environmentId, request, filterValues);
+  }
+
   public ReplayCopyJobStatusResponse getReplayCopyJob(String environmentId, String jobId) {
     return replayCopyJobService.getJob(environmentId, jobId);
+  }
+
+  public List<ReplayCopyJobEventResponse> getReplayCopyJobEvents(String environmentId, String jobId) {
+    return replayCopyJobService.getJobEvents(environmentId, jobId);
+  }
+
+  public ReplayCopySearchExportResponse getReplayCopyJobSearchExport(String environmentId, String jobId) {
+    return replayCopyJobService.getSearchExport(environmentId, jobId);
   }
 
   public TenantYamlPreviewResponse validateYamlPreview(String environmentId, TenantYamlPreviewRequest request) {

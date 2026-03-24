@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -31,12 +32,16 @@ public class WorkerJobRepository {
   }
 
   public List<JobRecord> findQueuedReplayCopyJobs(int limit) {
-    return jdbcTemplate.query("""
-        select * from jobs
-        where status = 'QUEUED' and type in ('REPLAY', 'COPY')
-        order by created_at
-        limit ?
-        """, rowMapper, limit);
+    try {
+      return jdbcTemplate.query("""
+          select * from jobs
+          where status = 'QUEUED' and type in ('REPLAY', 'COPY', 'SEARCH')
+          order by created_at
+          limit ?
+          """, rowMapper, limit);
+    } catch (BadSqlGrammarException exception) {
+      return List.of();
+    }
   }
 
   public boolean claimJob(String jobId) {

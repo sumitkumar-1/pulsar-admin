@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe, NgClass, UpperCasePipe } from '@angular/common';
+import { DatePipe, DecimalPipe, JsonPipe, NgClass, UpperCasePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -14,7 +14,9 @@ import {
   PublishMessageRequest,
   PublishMessageResponse,
   PeekMessagesResponse,
+  ReplayCopyJobEventResponse,
   ReplayCopyJobRequest,
+  ReplayCopySearchExportResponse,
   ReplayCopyJobStatusResponse,
   ResetCursorRequest,
   ResetCursorResponse,
@@ -42,7 +44,7 @@ type ConsumeSubscriptionMode = 'AUTO_EPHEMERAL' | 'REUSE_EXISTING' | 'CREATE_NAM
 @Component({
   selector: 'app-topic-details',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, NgClass, ReactiveFormsModule, RouterLink, UpperCasePipe],
+  imports: [DatePipe, DecimalPipe, JsonPipe, NgClass, ReactiveFormsModule, RouterLink, UpperCasePipe],
   templateUrl: './topic-details.component.html',
   styleUrl: './topic-details.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -98,6 +100,12 @@ export class TopicDetailsComponent {
   readonly replaySaving = signal(false);
   readonly replayResult = signal<ReplayCopyJobStatusResponse | null>(null);
   readonly replayError = signal<string | null>(null);
+  readonly replayEvents = signal<ReplayCopyJobEventResponse[]>([]);
+  readonly replayEventsError = signal<string | null>(null);
+  readonly replayFilterFile = signal<File | null>(null);
+  readonly replayExporting = signal(false);
+  readonly replayExportError = signal<string | null>(null);
+  readonly replayExportResult = signal<ReplayCopySearchExportResponse | null>(null);
   readonly subscriptionSaving = signal(false);
   readonly subscriptionResult = signal<SubscriptionMutationResponse | null>(null);
   readonly subscriptionError = signal<string | null>(null);
@@ -173,13 +181,15 @@ export class TopicDetailsComponent {
 
   readonly replayForm = this.formBuilder.nonNullable.group({
     subscriptionName: ['', [Validators.required]],
-    operation: ['COPY' as 'COPY' | 'REPLAY', [Validators.required]],
-    destinationTopicName: ['', [Validators.required]],
-    messageLimit: [100, [Validators.required, Validators.min(1), Validators.max(5000)]],
+    operationMode: ['ACK_AND_MOVE' as 'ACK_ONLY' | 'ACK_AND_MOVE' | 'SEARCH_ONLY', [Validators.required]],
+    destinationTopicName: [''],
+    matchField: ['feedId'],
+    autoReplicateSchema: [true],
+    messageLimit: [100, [Validators.required, Validators.min(1), Validators.max(1_000_000)]],
     messageKey: [''],
     propertyFilters: [''],
     filterText: [''],
-    messagesPerSecond: [50, [Validators.required, Validators.min(1), Validators.max(1000)]],
+    messagesPerSecond: [50, [Validators.required, Validators.min(1), Validators.max(5000)]],
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
   readonly deleteTopicForm = this.formBuilder.nonNullable.group({
@@ -228,9 +238,11 @@ export class TopicDetailsComponent {
           });
           this.replayForm.patchValue({
             subscriptionName: firstSubscription,
-            operation: 'COPY',
+            operationMode: 'ACK_AND_MOVE',
             destinationTopicName: this.defaultDestinationTopic(details.fullName),
             messageLimit: 100,
+            matchField: 'feedId',
+            autoReplicateSchema: true,
             messageKey: '',
             propertyFilters: '',
             filterText: '',
@@ -266,6 +278,14 @@ export class TopicDetailsComponent {
     this.replayForm.controls.destinationTopicName.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((value) => this.loadReplayDestinationPreview(value));
+
+    this.replayForm.controls.operationMode.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.syncReplayDestinationValidators();
+        this.loadReplayDestinationPreview(this.replayForm.controls.destinationTopicName.value);
+      });
+    this.syncReplayDestinationValidators();
 
     this.consumeForm.controls.subscriptionMode.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -446,8 +466,13 @@ export class TopicDetailsComponent {
 
     if (workflow === 'replay') {
       const topic = this.details();
+      this.replayFilterFile.set(null);
       this.replayError.set(null);
       this.replayResult.set(null);
+      this.replayExportError.set(null);
+      this.replayExportResult.set(null);
+      this.replayEvents.set([]);
+      this.replayEventsError.set(null);
       this.replayDestinationLoadError.set(null);
       this.stopReplayPolling();
 
@@ -455,9 +480,11 @@ export class TopicDetailsComponent {
         const currentSubscription = this.replayForm.controls.subscriptionName.value;
         this.replayForm.patchValue({
           subscriptionName: currentSubscription || topic.subscriptions[0] || '',
-          operation: this.replayForm.controls.operation.value || 'COPY',
+          operationMode: this.replayForm.controls.operationMode.value || 'ACK_AND_MOVE',
           destinationTopicName: this.replayForm.controls.destinationTopicName.value || this.defaultDestinationTopic(topic.fullName),
           messageLimit: this.replayForm.controls.messageLimit.value || 100,
+          matchField: this.replayForm.controls.matchField.value || 'feedId',
+          autoReplicateSchema: this.replayForm.controls.autoReplicateSchema.value ?? true,
           messageKey: this.replayForm.controls.messageKey.value,
           propertyFilters: this.replayForm.controls.propertyFilters.value,
           filterText: this.replayForm.controls.filterText.value,
@@ -465,12 +492,18 @@ export class TopicDetailsComponent {
           reason: this.replayForm.controls.reason.value
         });
       }
+      this.syncReplayDestinationValidators();
     }
 
     if (workflow === 'dlq') {
       const topic = this.details();
+      this.replayFilterFile.set(null);
       this.replayError.set(null);
       this.replayResult.set(null);
+      this.replayExportError.set(null);
+      this.replayExportResult.set(null);
+      this.replayEvents.set([]);
+      this.replayEventsError.set(null);
       this.replayDestinationLoadError.set(null);
       this.stopReplayPolling();
 
@@ -478,9 +511,11 @@ export class TopicDetailsComponent {
         const currentSubscription = this.replayForm.controls.subscriptionName.value;
         this.replayForm.patchValue({
           subscriptionName: currentSubscription || topic.subscriptions[0] || '',
-          operation: 'REPLAY',
+          operationMode: 'ACK_ONLY',
           destinationTopicName: this.deriveDlqDestination(topic.fullName),
           messageLimit: 50,
+          matchField: 'feedId',
+          autoReplicateSchema: true,
           messageKey: '',
           propertyFilters: 'source=dlq',
           filterText: 'error',
@@ -488,6 +523,7 @@ export class TopicDetailsComponent {
           reason: ''
         });
       }
+      this.syncReplayDestinationValidators();
     }
 
     if (workflow === 'delete-topic') {
@@ -722,15 +758,40 @@ export class TopicDetailsComponent {
     }
 
     const formValue = this.replayForm.getRawValue();
+    const trimmedReason = formValue.reason.trim();
+    if (!trimmedReason) {
+      this.replayError.set('A reason is required before starting replay or copy.');
+      return;
+    }
+
+    const trimmedMatchField = formValue.matchField?.trim() ? formValue.matchField.trim() : null;
+    if (this.replayFilterFile() && !trimmedMatchField) {
+      this.replayError.set('Match field is required when an IDs CSV file is provided.');
+      return;
+    }
+
+    if (formValue.operationMode === 'ACK_AND_MOVE') {
+      const destinationTopic = formValue.destinationTopicName?.trim();
+      if (destinationTopic === topic.fullName) {
+        this.replayError.set('Destination topic must be different from the source topic.');
+        return;
+      }
+    }
+
+    const legacyOperation = formValue.operationMode === 'ACK_AND_MOVE' ? 'COPY' : 'REPLAY';
+
     const request: ReplayCopyJobRequest = {
       topicName: topic.fullName,
       subscriptionName: formValue.subscriptionName,
-      operation: formValue.operation,
-      destinationTopicName: formValue.destinationTopicName,
+      operation: legacyOperation,
+      operationMode: formValue.operationMode,
+      destinationTopicName: formValue.operationMode === 'ACK_AND_MOVE' ? formValue.destinationTopicName : null,
       messageLimit: Number(formValue.messageLimit),
       filterText: formValue.filterText?.trim() ? formValue.filterText.trim() : null,
+      matchField: trimmedMatchField,
+      autoReplicateSchema: formValue.autoReplicateSchema,
       messagesPerSecond: Number(formValue.messagesPerSecond),
-      reason: formValue.reason
+      reason: trimmedReason
     };
 
     const messageKey = formValue.messageKey?.trim();
@@ -746,9 +807,13 @@ export class TopicDetailsComponent {
     this.replaySaving.set(true);
     this.replayError.set(null);
     this.replayResult.set(null);
+    this.replayExportError.set(null);
+    this.replayExportResult.set(null);
+    this.replayEventsError.set(null);
+    this.replayEvents.set([]);
     this.stopReplayPolling();
 
-    this.api.createReplayCopyJob(this.environmentId(), request)
+    this.api.createReplayCopyJobMultipart(this.environmentId(), request, this.replayFilterFile())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (response) => {
@@ -761,6 +826,12 @@ export class TopicDetailsComponent {
           this.replaySaving.set(false);
         }
       });
+  }
+
+  onReplayFilterFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files && input.files.length > 0 ? input.files[0] : null;
+    this.replayFilterFile.set(file);
   }
 
   submitDeleteTopic() {
@@ -1124,20 +1195,30 @@ export class TopicDetailsComponent {
 
   replayPreview(): string {
     const topic = this.details();
-    const { subscriptionName, operation, destinationTopicName, messageLimit, messageKey, propertyFilters, filterText, messagesPerSecond } =
+    const { subscriptionName, operationMode, destinationTopicName, messageLimit, messageKey, propertyFilters, filterText, messagesPerSecond, matchField } =
       this.replayForm.getRawValue();
 
-    if (!topic || !subscriptionName || !destinationTopicName) {
-      return 'Choose a subscription and destination topic to preview this replay or copy job.';
+    if (!topic || !subscriptionName) {
+      return 'Choose a subscription to preview this replay or copy job.';
+    }
+    if (operationMode === 'ACK_AND_MOVE' && !destinationTopicName) {
+      return 'Choose a destination topic for ACK + move mode.';
     }
 
     const filterBits = [
       messageKey?.trim() ? `key ${messageKey.trim()}` : null,
       propertyFilters?.trim() ? `properties ${propertyFilters.trim()}` : null,
-      filterText?.trim() ? `text "${filterText.trim()}"` : null
+      filterText?.trim() ? `text "${filterText.trim()}"` : null,
+      this.replayFilterFile() ? `CSV IDs on field ${matchField || 'feedId'}` : null
     ].filter(Boolean).join(', ');
 
-    return `${operation === 'COPY' ? 'Copy' : 'Replay'} up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterBits ? ` filtered by ${filterBits}` : ' without additional filtering'} into ${destinationTopicName} at up to ${messagesPerSecond} msg/s.`;
+    if (operationMode === 'ACK_AND_MOVE') {
+      return `ACK + move up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterBits ? ` filtered by ${filterBits}` : ' without additional filtering'} into ${destinationTopicName} at up to ${messagesPerSecond} msg/s. Non-matches are NACKed.`;
+    }
+    if (operationMode === 'SEARCH_ONLY') {
+      return `Search up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterBits ? ` filtered by ${filterBits}` : ' without additional filtering'} at up to ${messagesPerSecond} msg/s, without ACK/NACK side effects.`;
+    }
+    return `ACK matched messages for up to ${messageLimit} messages from ${topic.topic} on subscription ${subscriptionName}${filterBits ? ` filtered by ${filterBits}` : ' without additional filtering'}. Non-matches are NACKed for redelivery.`;
   }
 
   unloadPreview(): string {
@@ -1251,22 +1332,57 @@ export class TopicDetailsComponent {
       });
   }
 
+  canDownloadReplaySearchExport(): boolean {
+    const result = this.replayResult();
+    return !!result && result.status === 'COMPLETED' && result.searchExportReady;
+  }
+
+  downloadReplaySearchExport() {
+    const result = this.replayResult();
+    if (!result) {
+      return;
+    }
+    this.replayExporting.set(true);
+    this.replayExportError.set(null);
+    this.replayExportResult.set(null);
+
+    this.api.getReplayCopyJobSearchExport(this.environmentId(), result.jobId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.replayExporting.set(false);
+          this.replayExportResult.set(response);
+          this.downloadReplaySearchExportFile(response);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.replayExporting.set(false);
+          this.replayExportError.set(error.error?.message ?? 'Unable to download replay search export.');
+        }
+      });
+  }
+
   private startReplayPolling(jobId: string) {
     this.stopReplayPolling();
 
     this.replayJobPolling = timer(900, 1200)
       .pipe(
-        switchMap(() => this.api.getReplayCopyJob(this.environmentId(), jobId)),
+        switchMap(() => combineLatest([
+          this.api.getReplayCopyJob(this.environmentId(), jobId),
+          this.api.getReplayCopyJobEvents(this.environmentId(), jobId)
+        ])),
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe({
-        next: (response) => {
+        next: ([response, events]) => {
           this.replayResult.set(response);
+          this.replayEvents.set(events);
+          this.replayEventsError.set(null);
           if (response.status === 'COMPLETED' || response.status === 'FAILED') {
             this.stopReplayPolling();
           }
         },
-        error: () => {
+        error: (error: { error?: { message?: string } }) => {
+          this.replayEventsError.set(error.error?.message ?? 'Unable to refresh replay timeline events.');
           this.stopReplayPolling();
         }
       });
@@ -1346,8 +1462,23 @@ export class TopicDetailsComponent {
     const topic = this.details();
     const destination = this.replayDestinationTopic();
     const warnings: string[] = [];
+    const operationMode = this.replayForm.controls.operationMode.value;
 
     if (!topic) {
+      return warnings;
+    }
+
+    if (this.replayFilterFile()) {
+      warnings.push(`CSV ID filter file ${this.replayFilterFile()!.name} will be applied using top-level field ${this.replayForm.controls.matchField.value || 'feedId'}.`);
+    }
+
+    if (operationMode === 'SEARCH_ONLY') {
+      warnings.push('Search mode scans and captures matched messages only. No ACK, NACK, or move side effects are applied.');
+      return warnings;
+    }
+
+    if (operationMode !== 'ACK_AND_MOVE') {
+      warnings.push('Replay mode does not publish to a destination topic. It ACKs matched messages and NACKs non-matches.');
       return warnings;
     }
 
@@ -1531,6 +1662,17 @@ export class TopicDetailsComponent {
       }, {});
   }
 
+  private syncReplayDestinationValidators() {
+    const operationMode = this.replayForm.controls.operationMode.value;
+    const destinationControl = this.replayForm.controls.destinationTopicName;
+    if (operationMode === 'ACK_AND_MOVE') {
+      destinationControl.setValidators([Validators.required]);
+    } else {
+      destinationControl.clearValidators();
+    }
+    destinationControl.updateValueAndValidity({ emitEvent: false });
+  }
+
   private applyUpdatedTopic(topic: TopicDetails) {
     this.details.set(topic);
     const firstSubscription = topic.subscriptions[0] ?? '';
@@ -1540,6 +1682,12 @@ export class TopicDetailsComponent {
   }
 
   private loadReplayDestinationPreview(topicName: string | null | undefined) {
+    if (this.replayForm.controls.operationMode.value !== 'ACK_AND_MOVE') {
+      this.replayDestinationTopic.set(null);
+      this.replayDestinationLoadError.set(null);
+      return;
+    }
+
     const currentTopic = this.details();
     const trimmed = topicName?.trim();
 
@@ -1566,6 +1714,16 @@ export class TopicDetailsComponent {
 
   private downloadExport(response: ExportMessagesResponse) {
     const blob = new Blob([response.content], { type: response.contentType });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = response.fileName;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
+  }
+
+  private downloadReplaySearchExportFile(response: ReplayCopySearchExportResponse) {
+    const blob = new Blob([response.content], { type: response.contentType || 'application/json' });
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;

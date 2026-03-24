@@ -686,7 +686,7 @@ describe('TopicDetailsComponent', () => {
   });
 
   it('submits a replay copy job and shows the queued result', async () => {
-    const createReplayCopyJob = jasmine.createSpy('createReplayCopyJob').and.returnValue(of({
+    const createReplayCopyJobMultipart = jasmine.createSpy('createReplayCopyJobMultipart').and.returnValue(of({
       jobId: 'job-1a2b3c4d',
       jobType: 'COPY',
       environmentId: 'prod',
@@ -697,8 +697,27 @@ describe('TopicDetailsComponent', () => {
       messageLimit: 120,
       messagesPerSecond: 50,
       filterText: 'payment-10412',
+      matchField: 'feedId',
+      autoReplicateSchema: true,
+      scannedMessages: 0,
       matchedMessages: 0,
+      nonMatchedMessages: 0,
+      ackedMessages: 0,
+      nackedMessages: 0,
+      movedMessages: 0,
+      failedMessages: 0,
       publishedMessages: 0,
+      searchMatchedMessages: 0,
+      searchExportId: null,
+      searchExportReady: false,
+      searchExportFileName: null,
+      progressPercent: 0,
+      messagesPerSecondActual: 0,
+      estimatedRemainingSeconds: 0,
+      startedAt: '2026-03-17T18:00:00Z',
+      completedAt: null,
+      lastMessageId: null,
+      lastError: null,
       statusMessage: 'Queued for worker pickup.',
       createdAt: '2026-03-17T18:00:00Z',
       updatedAt: '2026-03-17T18:00:00Z'
@@ -714,12 +733,32 @@ describe('TopicDetailsComponent', () => {
       messageLimit: 120,
       messagesPerSecond: 50,
       filterText: 'payment-10412',
+      matchField: 'feedId',
+      autoReplicateSchema: true,
+      scannedMessages: 36,
       matchedMessages: 36,
+      nonMatchedMessages: 0,
+      ackedMessages: 36,
+      nackedMessages: 0,
+      movedMessages: 36,
+      failedMessages: 0,
       publishedMessages: 36,
+      searchMatchedMessages: 0,
+      searchExportId: null,
+      searchExportReady: false,
+      searchExportFileName: null,
+      progressPercent: 100,
+      messagesPerSecondActual: 36,
+      estimatedRemainingSeconds: 0,
+      startedAt: '2026-03-17T18:00:00Z',
+      completedAt: '2026-03-17T18:00:01Z',
+      lastMessageId: 'ledger:1:9',
+      lastError: null,
       statusMessage: 'Copy job completed in mock mode. Matching messages were republished to the destination topic.',
       createdAt: '2026-03-17T18:00:00Z',
       updatedAt: '2026-03-17T18:00:01Z'
     }));
+    const getReplayCopyJobEvents = jasmine.createSpy('getReplayCopyJobEvents').and.returnValue(of([]));
 
     await TestBed.configureTestingModule({
       imports: [TopicDetailsComponent],
@@ -769,8 +808,9 @@ describe('TopicDetailsComponent', () => {
             resetCursor: jasmine.createSpy('resetCursor'),
             skipMessages: jasmine.createSpy('skipMessages'),
             unloadTopic: jasmine.createSpy('unloadTopic'),
-            createReplayCopyJob,
-            getReplayCopyJob
+            createReplayCopyJobMultipart,
+            getReplayCopyJob,
+            getReplayCopyJobEvents
           }
         }
       ]
@@ -783,7 +823,7 @@ describe('TopicDetailsComponent', () => {
     component.openWorkflow('replay');
     component.replayForm.patchValue({
       subscriptionName: 'payment-settlement',
-      operation: 'COPY',
+      operationMode: 'ACK_AND_MOVE',
       destinationTopicName: 'persistent://acme/dev/replay-lab',
       messageLimit: 120,
       filterText: 'payment-10412',
@@ -794,16 +834,19 @@ describe('TopicDetailsComponent', () => {
     component.submitReplayCopyJob();
     fixture.detectChanges();
 
-    expect(createReplayCopyJob).toHaveBeenCalledWith('prod', {
+    expect(createReplayCopyJobMultipart).toHaveBeenCalledWith('prod', {
       topicName: 'persistent://acme/orders/payment-events',
       subscriptionName: 'payment-settlement',
       operation: 'COPY',
+      operationMode: 'ACK_AND_MOVE',
       destinationTopicName: 'persistent://acme/dev/replay-lab',
       messageLimit: 120,
       filterText: 'payment-10412',
+      matchField: 'feedId',
+      autoReplicateSchema: true,
       messagesPerSecond: 50,
       reason: 'Copy incident-related messages into replay lab'
-    });
+    }, null);
     expect(fixture.nativeElement.textContent).toContain('Queued for worker pickup.');
   });
 });

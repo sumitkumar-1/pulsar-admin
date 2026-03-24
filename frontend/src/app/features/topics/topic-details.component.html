@@ -318,7 +318,7 @@
               <div class="action-group-buttons">
                 <button type="button" (click)="openWorkflow('reset')">Reset Cursor</button>
                 <button type="button" (click)="openWorkflow('skip')">Skip Messages</button>
-                <button type="button" (click)="openWorkflow('dlq')">DLQ / Retry</button>
+                <button type="button" (click)="openWorkflow('replay')">Replay / Retry</button>
                 <button type="button" (click)="openWorkflow('create-subscription')">Add Subscription</button>
               </div>
             </div>
@@ -329,7 +329,6 @@
                 <button type="button" (click)="openWorkflow('schema')">Schema Admin</button>
                 <button type="button" (click)="openWorkflow('policies')">Topic Policies</button>
                 <button type="button" (click)="openWorkflow('unload')">Unload Topic</button>
-                <button type="button" (click)="openWorkflow('replay')">Replay / Copy</button>
                 <button type="button" (click)="openWorkflow('terminate')" [disabled]="!canTerminateTopic()">Terminate Topic</button>
                 <button type="button" class="danger-button ghost-danger" (click)="openWorkflow('delete-topic')">Delete Topic</button>
               </div>
@@ -398,10 +397,10 @@
               <p class="workflow-copy">
                 Add a new subscription and choose whether it should start at the latest message or from the earliest retained backlog.
               </p>
-            } @else if (activeWorkflow() === 'dlq') {
-              <h3>DLQ / retry workflow</h3>
+            } @else if (activeWorkflow() === 'dlq' || activeWorkflow() === 'replay') {
+              <h3>Replay / retry workflow</h3>
               <p class="workflow-copy">
-                Use bounded replay or copy controls to requeue failed messages, quarantine them, or inspect likely DLQ traffic with tighter filters.
+                Run long-running acknowledge, move, or search jobs with strict AND filters, CSV ID input, and live progress visibility.
               </p>
             } @else if (activeWorkflow() === 'delete-topic') {
               <h3>Delete topic</h3>
@@ -607,7 +606,7 @@
                 </button>
               </div>
             </form>
-          } @else if (activeWorkflow() === 'dlq') {
+          } @else if (activeWorkflow() === 'dlq' || activeWorkflow() === 'replay') {
             <form class="reset-form" [formGroup]="replayForm" (ngSubmit)="submitReplayCopyJob()">
               <label>
                 <span>Subscription</span>
@@ -619,17 +618,36 @@
               </label>
 
               <label>
-                <span>Action</span>
-                <select formControlName="operation">
-                  <option value="REPLAY">Retry / Replay</option>
-                  <option value="COPY">Quarantine Copy</option>
+                <span>Operation Mode</span>
+                <select formControlName="operationMode">
+                  <option value="ACK_ONLY">Acknowledge only</option>
+                  <option value="ACK_AND_MOVE">Acknowledge + move</option>
+                  <option value="SEARCH_ONLY">Search only</option>
                 </select>
               </label>
 
-              <label class="full-width">
-                <span>Destination Topic</span>
-                <input formControlName="destinationTopicName" type="text" />
+              @if (replayForm.controls.operationMode.value === 'ACK_AND_MOVE') {
+                <label class="full-width">
+                  <span>Destination Topic</span>
+                  <input formControlName="destinationTopicName" type="text" />
+                </label>
+              }
+
+              <label>
+                <span>Match Field</span>
+                <input formControlName="matchField" type="text" placeholder="feedId" />
               </label>
+
+              <label>
+                <span>IDs CSV File</span>
+                <input type="file" accept=".csv,text/csv" (change)="onReplayFilterFileSelected($event)" />
+              </label>
+
+              @if (replayFilterFile(); as file) {
+                <div class="placeholder-panel full-width">
+                  <p>Using filter file <strong>{{ file.name }}</strong> ({{ file.size }} bytes)</p>
+                </div>
+              }
 
               <label>
                 <span>Message Key</span>
@@ -645,16 +663,26 @@
                 <span>Text Match</span>
                 <input formControlName="filterText" type="text" placeholder="Optional payload text match" />
               </label>
+              <div class="placeholder-panel full-width">
+                <p>Filter semantics are strict AND. A message must satisfy every provided filter to be considered a match.</p>
+              </div>
 
               <label>
                 <span>Message Limit</span>
-                <input formControlName="messageLimit" type="number" min="1" max="5000" />
+                <input formControlName="messageLimit" type="number" min="1" max="1000000" />
               </label>
 
               <label>
                 <span>Rate Limit</span>
-                <input formControlName="messagesPerSecond" type="number" min="1" max="1000" />
+                <input formControlName="messagesPerSecond" type="number" min="1" max="5000" />
               </label>
+
+              @if (replayForm.controls.operationMode.value === 'ACK_AND_MOVE') {
+                <label class="checkbox-line">
+                  <input formControlName="autoReplicateSchema" type="checkbox" />
+                  <span>Auto-replicate source schema to destination before move</span>
+                </label>
+              }
 
               <label class="full-width">
                 <span>Reason</span>
@@ -682,7 +710,10 @@
               @if (replayResult(); as result) {
                 <div class="placeholder-panel success">
                   <p>{{ result.statusMessage }}</p>
-                  <p class="result-meta">{{ result.matchedMessages }} matched · {{ result.publishedMessages }} published</p>
+                  <p class="result-meta">Scanned {{ result.scannedMessages }} · Matched {{ result.matchedMessages }} · Non-matched {{ result.nonMatchedMessages }}</p>
+                  <p class="result-meta">ACKed {{ result.ackedMessages }} · NACKed {{ result.nackedMessages }} · Moved {{ result.movedMessages }} · Failed {{ result.failedMessages }}</p>
+                  <p class="result-meta">Search matched {{ result.searchMatchedMessages }} · Export {{ result.searchExportReady ? 'ready' : 'not ready' }}</p>
+                  <p class="result-meta">Progress {{ result.progressPercent }}% · Rate {{ result.messagesPerSecondActual | number: '1.1-2' }} msg/s · ETA {{ result.estimatedRemainingSeconds }}s</p>
                   @if (result.warnings?.length) {
                     @for (warning of result.warnings; track warning) {
                       <p class="result-meta">{{ warning }}</p>
@@ -691,8 +722,42 @@
                 </div>
               }
 
+              @if (replayExportError()) {
+                <div class="placeholder-panel error"><p>{{ replayExportError() }}</p></div>
+              }
+
+              @if (replayExportResult(); as exportResult) {
+                <div class="placeholder-panel success">
+                  <p>{{ exportResult.message }}</p>
+                  <p class="result-meta">{{ exportResult.exportedCount }} messages exported to {{ exportResult.fileName }}</p>
+                </div>
+              }
+
+              @if (replayEventsError()) {
+                <div class="placeholder-panel error"><p>{{ replayEventsError() }}</p></div>
+              }
+
+              @if (replayEvents().length > 0) {
+                <div class="message-list full-width">
+                  @for (event of replayEvents(); track event.id) {
+                    <article class="message-card">
+                      <div class="message-topline">
+                        <strong>{{ event.eventType }}</strong>
+                        <span>{{ event.createdAt | date: 'medium' }}</span>
+                      </div>
+                      <pre>{{ event.details | json }}</pre>
+                    </article>
+                  }
+                </div>
+              }
+
               <div class="form-button-row">
-                <button type="submit" [disabled]="replaySaving()">{{ replaySaving() ? 'Starting...' : 'Start DLQ / Retry Job' }}</button>
+                <button type="submit" [disabled]="replaySaving()">{{ replaySaving() ? 'Starting...' : 'Start Replay / Copy Job' }}</button>
+                @if (canDownloadReplaySearchExport()) {
+                  <button type="button" class="secondary-button" [disabled]="replayExporting()" (click)="downloadReplaySearchExport()">
+                    {{ replayExporting() ? 'Preparing export...' : 'Download Search Export' }}
+                  </button>
+                }
               </div>
             </form>
           } @else if (activeWorkflow() === 'unload') {
@@ -1223,125 +1288,9 @@
               </div>
             </form>
           } @else {
-            <form class="reset-form" [formGroup]="replayForm" (ngSubmit)="submitReplayCopyJob()">
-              <label>
-                <span>Subscription</span>
-                <select formControlName="subscriptionName">
-                  @for (subscription of topic.subscriptions; track subscription) {
-                    <option [value]="subscription">{{ subscription }}</option>
-                  }
-                </select>
-              </label>
-
-              <label>
-                <span>Operation</span>
-                <select formControlName="operation">
-                  <option value="COPY">Copy</option>
-                  <option value="REPLAY">Replay</option>
-                </select>
-              </label>
-
-              <label class="full-width">
-                <span>Destination topic</span>
-                <input
-                  formControlName="destinationTopicName"
-                  type="text"
-                  placeholder="persistent://acme/dev/replay-lab"
-                />
-              </label>
-
-              <label>
-                <span>Message limit</span>
-                <input formControlName="messageLimit" type="number" min="1" max="5000" />
-              </label>
-
-              <label>
-                <span>Rate limit (msg/s)</span>
-                <input formControlName="messagesPerSecond" type="number" min="1" max="1000" />
-              </label>
-
-              <label>
-                <span>Message key</span>
-                <input formControlName="messageKey" type="text" placeholder="Optional exact key" />
-              </label>
-
-              <label class="full-width">
-                <span>Property filters</span>
-                <input
-                  formControlName="propertyFilters"
-                  type="text"
-                  placeholder="origin=retry,errorCode=500"
-                />
-              </label>
-
-              <label class="full-width">
-                <span>Text match</span>
-                <input
-                  formControlName="filterText"
-                  type="text"
-                  placeholder="Optional request id, message key, or payload fragment"
-                />
-              </label>
-
-              <label class="full-width">
-                <span>Reason</span>
-                <textarea
-                  formControlName="reason"
-                  rows="3"
-                  placeholder="Why are we replaying or copying these messages?"
-                ></textarea>
-              </label>
-
-              <div class="preview-panel">
-                <p class="eyebrow">Preview</p>
-                <p>{{ replayPreview() }}</p>
-              </div>
-
-              @if (replayWarnings().length > 0) {
-                <div class="placeholder-panel">
-                  @for (warning of replayWarnings(); track warning) {
-                    <p>{{ warning }}</p>
-                  }
-                </div>
-              }
-
-              @if (replayError()) {
-                <div class="placeholder-panel error">
-                  <p>{{ replayError() }}</p>
-                </div>
-              }
-
-              @if (replayResult(); as result) {
-                <div class="placeholder-panel success">
-                  <p>{{ result.statusMessage }}</p>
-                  <p class="result-meta">
-                    Job {{ result.jobId }} · {{ result.jobType.toLowerCase() }} · {{ result.status.toLowerCase() }}
-                  </p>
-                  <p class="result-meta">
-                    Matched {{ result.matchedMessages }} · Published {{ result.publishedMessages }} · Destination {{ result.destinationTopicName }}
-                  </p>
-                  @if (result.warnings?.length) {
-                    @for (warning of result.warnings; track warning) {
-                      <p class="result-meta">{{ warning }}</p>
-                    }
-                  }
-                </div>
-              }
-
-              <div class="form-button-row">
-                <button type="submit" [disabled]="replaySaving()">
-                  {{ replaySaving() ? 'Submitting...' : 'Start Replay / Copy Job' }}
-                </button>
-                <button type="button" class="secondary-button" [disabled]="exportSaving()" (click)="submitExport('PEEK')">
-                  {{ exportSaving() ? 'Exporting...' : 'Export Sample JSON' }}
-                </button>
-                @if (replayCanRefresh()) {
-                  <button type="button" class="secondary-button" (click)="refreshReplayJob()">
-                    Refresh Status
-                  </button>
-                }
-              </div>
-            </form>
+            <div class="placeholder-panel">
+              <p>Select a workflow action to begin.</p>
+            </div>
           }
       </section>
     </div>

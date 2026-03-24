@@ -12,3 +12,8 @@ worker:
     initial-delay-ms: ${APP_WORKER_INITIAL_DELAY_MS:5000}
     poll-interval-ms: ${APP_WORKER_POLL_INTERVAL_MS:1500}
     batch-size: ${APP_WORKER_BATCH_SIZE:5}
+    receive-timeout-ms: ${APP_WORKER_RECEIVE_TIMEOUT_MS:500}
+    idle-timeout-seconds: ${APP_WORKER_IDLE_TIMEOUT_SECONDS:15}
+    heartbeat-messages: ${APP_WORKER_HEARTBEAT_MESSAGES:100}
+    heartbeat-seconds: ${APP_WORKER_HEARTBEAT_SECONDS:5}
+    search-export-max-results: ${APP_WORKER_SEARCH_EXPORT_MAX_RESULTS:10000}
