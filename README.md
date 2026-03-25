@@ -227,11 +227,6 @@ npm run e2e:mock
 npm run e2e:live
 ```
 
-See:
-
-- [`docs/e2e-verification.md`](docs/e2e-verification.md)
-- [`docs/admin-operations.md`](docs/admin-operations.md)
-
 ## Security Note
 
 This project is currently focused on operator workflows and local/live admin capabilities. If publishing publicly, document your deployment model and add environment-specific controls such as:
