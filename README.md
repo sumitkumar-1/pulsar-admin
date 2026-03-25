@@ -1,137 +1,102 @@
 # Pulsar Admin Console
 
-Operator-focused Pulsar admin console with mock and live modes, guided workflows, and browser-level verification for local development.
+Operator-focused Pulsar admin console for day-to-day platform workflows with both safe mock mode and live REST mode.
 
-## What is included
+## Overview
 
-- Angular frontend with:
-  - environment overview
-  - environment switcher
-  - topic explorer
-  - topic details view
-- Spring Boot API with live-first routing and explicit mock override
-- Spring Boot worker that processes queued replay and copy jobs
-- PostgreSQL schema bootstrap for `environments`, `jobs`, and `job_events`
-- Local Pulsar standalone support for live verification
-- Configurable Pulsar gateway mode:
-  - `rest` for real admin REST connection and metadata sync
-  - `mock` for demos, debugging, and safe local exploration
-- Browser-level E2E suites for mock and local live verification
+This repository includes:
 
-## Local development
+- Angular frontend (`frontend/`)
+- Spring Boot API (`backend/api`)
+- Spring Boot worker for async jobs (`backend/worker`)
+- Shared backend models (`backend/shared`)
+- PostgreSQL bootstrap schema (`backend/db/init`)
+- Local Docker setup for PostgreSQL and Pulsar standalone (`docker-compose.yml`)
 
-### 1. Start local infrastructure
+The project is designed for:
+
+- environment lifecycle management (connect, test, sync)
+- topic and subscription operations
+- test publish/consume workflows
+- long-running replay/retry/search jobs with progress and timeline events
+- optional safe mock mode for local demos and development
+
+## Key Features
+
+- Environment management
+  - Add/edit/delete environments
+  - `Test + Sync` and `Sync again`
+  - Per-environment auto-refresh preference (user-controlled)
+- Topic explorer and details
+  - Health, backlog, rates, partitions, schema summary
+- Topic operations
+  - Peek messages
+  - Reset cursor
+  - Skip messages
+  - Clear backlog (subscription-scoped)
+  - Unload topic / terminate topic
+  - Topic policies and schema admin
+- Test message workflows
+  - Publish bounded test messages
+  - Consume bounded test messages with subscription mode options
+- Replay / Retry workflow
+  - `ACK_ONLY`, `ACK_AND_MOVE`, `SEARCH_ONLY`
+  - CSV header-driven multi-field matching (row `AND`, rows `OR`)
+  - Worker-backed long-running execution with status + event timeline
+  - Search export download when `SEARCH_ONLY` completes
+
+## Repository Structure
+
+```text
+backend/
+  api/        Spring Boot API (controllers, services, REST/mock gateways)
+  worker/     Spring Boot worker (queued replay/retry/search processing)
+  shared/     Shared job/model/gateway contracts
+  db/init/    Postgres init SQL
+frontend/     Angular application
+scripts/      Local helper scripts (including dev launcher)
+docs/         Additional docs and notes
+```
+
+## Prerequisites
+
+- Java 17
+- Maven 3.9+
+- Node.js 20+ and npm
+- Docker + Docker Compose
+
+## Quick Start
+
+### 1. Start infrastructure
 
 ```bash
 docker compose up -d postgres pulsar
 ```
 
-This starts:
+Services:
 
-- PostgreSQL on `localhost:5432`
-- Pulsar broker on `pulsar://localhost:6650`
-- Pulsar admin REST on `http://localhost:8081`
+- PostgreSQL: `localhost:5432`
+- Pulsar broker: `pulsar://localhost:6650`
+- Pulsar admin REST: `http://localhost:8081`
 
-### 2. Start the backend API
+### 2. Start backend API + worker
 
 ```bash
 cd backend
-mvn -pl shared,api -am -DskipTests install
+mvn -pl shared,api,worker -am -DskipTests install
+
 cd api
 mvn spring-boot:run
 ```
 
-### 3. Start the worker
+In a second terminal:
 
 ```bash
-cd backend
-mvn -pl shared,worker -am -DskipTests install
-cd worker
+cd backend/worker
 mvn spring-boot:run
 ```
 
-The install step makes sure the local `shared` module is available before running each Spring Boot app.
-Replay and copy jobs are now queued by the API and completed by the worker.
-
-### Gateway mode
-
-By default the API now runs live-first:
-
-```bash
-APP_PULSAR_GATEWAY_MODE=rest
-```
-
-To force safe demo mode by default:
-
-```bash
-APP_PULSAR_GATEWAY_MODE=mock
-```
-
-You can also override the mode per browser session by adding `?mode=mock` to the UI URL. That keeps the app in mock mode while you navigate, which is useful for demos and local debugging without changing server config. Without that flag, requests use the server's configured default mode.
-
-Example:
-
-```text
-http://localhost:4200/environments?mode=mock
-```
-
-In `rest` mode:
-
-- environment `Test Connection` and `Sync` use the configured `adminUrl` against Pulsar admin REST endpoints
-- metadata sync now captures tenant and namespace inventory plus live topic subscriptions, stats, partition summaries, and schema presence when the Pulsar cluster exposes them
-- `Peek Messages` now uses a read-only Pulsar client path against the configured `brokerUrl`
-- `Reset Cursor` and `Skip Messages` use Pulsar admin REST endpoints
-- the current live integration supports auth mode `none` and token-based environments using a raw token, `token:...`, or `env://VAR_NAME`
-- basic auth can be stored for future work, but live peek still requires `none` or `token`
-
-## Compatibility matrix
-
-The table below reflects the versions and modes we currently validate in this repository.
-
-| Area | Version / Mode | Status | Notes |
-| --- | --- | --- | --- |
-| Backend Java runtime | Java 17 | Supported | Required for Spring Boot services in this repo. |
-| Pulsar Java client in API | 3.3.5 | Supported | Backend dependency is pinned to `org.apache.pulsar:pulsar-client:3.3.5`. |
-| Local Docker Pulsar image | 4.1.1 | Supported (local dev) | Default image in `docker-compose.yml` for local standalone. |
-| Gateway mode | `rest` | Supported | Live admin + publish/consume paths. |
-| Gateway mode | `mock` | Supported | Safe local/demo mode. |
-| Auth mode (live test messaging) | `none` | Supported | Works for local standalone by default. |
-| Auth mode (live test messaging) | `token` | Supported | Token formats: raw token, `token:...`, or `env://VAR_NAME`. |
-| Auth mode (live test messaging) | `basic` | Supported | Uses Pulsar client `AuthenticationBasic` for publish/consume. |
-| Pulsar broker compatibility | Other versions | Not yet verified | We expect many versions to work, but only listed combinations are currently tested. |
-
-If you want broader confidence, add CI matrix runs across multiple Pulsar container versions and execute publish/consume smoke tests per version.
-
-### 5. One-command local dev
-
-```bash
-./scripts/dev.sh
-```
-
-That command starts:
-
-- Postgres
-- Pulsar standalone
-- backend API
-- worker
-- Angular dev server
-
-If `./scripts/dev.sh` fails on the Pulsar container step, check whether these ports are already in use:
-
-- `6650`
-- `8081`
-
-This usually means another local Pulsar container or broker is already running.
-
-## Local live environment values
-
-For a local real environment, use:
-
-- `brokerUrl`: `pulsar://localhost:6650`
-- `adminUrl`: `http://localhost:8081`
-- `authMode`: `none`
-
-### 4. Start the frontend
+### 3. Start frontend
 
 ```bash
 cd frontend
@@ -139,63 +104,141 @@ npm install
 npm start
 ```
 
-The Angular dev server proxies `/api/*` to `http://localhost:8080`.
+Frontend runs at `http://localhost:4200` and proxies `/api/*` to `http://localhost:8080`.
 
-## API endpoints
+## One-Command Dev Script
+
+```bash
+./scripts/dev.sh
+```
+
+Current behavior:
+
+- Starts Postgres
+- Builds backend modules
+- Starts API, worker, and frontend
+
+Note: local Pulsar startup in `scripts/dev.sh` is currently commented out, so run Pulsar via `docker compose` (or your own cluster) before using live features.
+
+## Configuration
+
+API defaults are in [`backend/api/src/main/resources/application.yml`](backend/api/src/main/resources/application.yml).
+
+Common environment variables:
+
+- `APP_PULSAR_GATEWAY_MODE` (default: `rest`)
+  - `rest`: live Pulsar admin + client paths
+  - `mock`: safe seeded responses for demo/dev
+- `APP_DATASOURCE_URL`
+- `APP_DATASOURCE_USERNAME`
+- `APP_DATASOURCE_PASSWORD`
+
+You can also force mock mode per browser session:
+
+```text
+http://localhost:4200/environments?mode=mock
+```
+
+## Local Environment Values (Live)
+
+For local Pulsar standalone:
+
+- `brokerUrl`: `pulsar://localhost:6650`
+- `adminUrl`: `http://localhost:8081`
+- `authMode`: `none`
+
+## Replay/Retry Matching Semantics
+
+`POST /topics/replay-copy` supports multipart with `request` + optional `idsFile` CSV.
+
+CSV semantics:
+
+- Header row defines top-level payload fields (`feedId,objectId,status`, etc.)
+- Each non-empty row is one criteria object
+- Within a row: all populated fields must match (`AND`)
+- Across rows: any row match qualifies (`OR`)
+- Blank cell means that field is not constrained for that row
+
+## API Highlights
+
+Not exhaustive, but frequently used endpoints:
 
 - `GET /api/v1/environments`
-- `GET /api/v1/environments/{envId}/health`
+- `POST /api/v1/environments/{envId}/test-connection`
+- `POST /api/v1/environments/{envId}/sync`
 - `GET /api/v1/environments/{envId}/topics`
-- `POST /api/v1/environments/{envId}/topics`
 - `GET /api/v1/environments/{envId}/topics/detail?topic=...`
-- `POST /api/v1/environments/{envId}/topics/subscriptions`
-- `DELETE /api/v1/environments/{envId}/topics/subscriptions?topic=...&subscription=...`
-- `GET /api/v1/environments/{envId}/topics/peek?topic=...&limit=...`
+- `POST /api/v1/environments/{envId}/topics/publish`
+- `POST /api/v1/environments/{envId}/topics/consume`
 - `POST /api/v1/environments/{envId}/topics/reset-cursor`
 - `POST /api/v1/environments/{envId}/topics/skip-messages`
+- `POST /api/v1/environments/{envId}/topics/clear-backlog`
 - `POST /api/v1/environments/{envId}/topics/replay-copy`
 - `GET /api/v1/environments/{envId}/topics/jobs/{jobId}`
+- `GET /api/v1/environments/{envId}/topics/jobs/{jobId}/events`
+- `GET /api/v1/environments/{envId}/topics/jobs/{jobId}/search-export`
 
-## Roadmap
+## Compatibility Matrix
 
-The current implementation already covers the first operator layer:
+| Area | Version / Mode | Status | Notes |
+| --- | --- | --- | --- |
+| Java runtime | 17 | Supported | Required for backend modules |
+| Spring Boot | 3.4.4 | Supported | Backend stack |
+| Pulsar client dependency | 3.3.5 | Supported | Backend dependency pin |
+| Local Pulsar Docker image | 4.1.1 | Supported (local) | Default in `docker-compose.yml` |
+| Gateway mode | `rest` | Supported | Live flows |
+| Gateway mode | `mock` | Supported | Demo/dev safe mode |
+| Auth mode | `none` | Supported | Local standalone default |
+| Auth mode | `token` | Supported | raw/token/env formats |
+| Auth mode | `basic` | Supported | Supported in current client integration |
 
-- environment management and sync
-- topic explorer and details
-- live or mock message peek
-- reset cursor
-- skip messages
-- replay and copy jobs
+If you need broader Pulsar version confidence, run CI smoke tests across multiple Pulsar container tags.
 
-The next planned expansion is the admin surface that makes this a fuller one-stop Pulsar console:
+## Testing
 
-- create topics
-- create, update, and delete subscriptions
-- unload and terminate topics
-- topic and namespace policy editing
-- later: namespace and tenant management
-
-Security, RBAC, approvals, and deeper governance are intentionally deferred until the broader admin surface is in place.
-
-## Verification
-
-Unit/component/controller checks:
+### Backend (API)
 
 ```bash
 cd backend
 mvn -Dmaven.repo.local=/Users/skumar/experimental/pulsar-admin/.m2 -pl api -am test
-
-cd /Users/skumar/experimental/pulsar-admin/frontend
-npm test -- --watch=false --browsers=ChromeHeadless
 ```
 
-Browser E2E:
+### Backend (Worker)
 
 ```bash
-cd /Users/skumar/experimental/pulsar-admin/frontend
+cd backend
+mvn -Dmaven.repo.local=/Users/skumar/experimental/pulsar-admin/.m2 -pl worker -am test
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm run build
+npm run test -- --watch=false --browsers=ChromeHeadless
+```
+
+### E2E
+
+```bash
+cd frontend
 npm run e2e:install
 npm run e2e:mock
 npm run e2e:live
 ```
 
-See [docs/e2e-verification.md](/Users/skumar/experimental/pulsar-admin/docs/e2e-verification.md) and [docs/admin-operations.md](/Users/skumar/experimental/pulsar-admin/docs/admin-operations.md) for the support matrix and local workflow notes.
+See:
+
+- [`docs/e2e-verification.md`](docs/e2e-verification.md)
+- [`docs/admin-operations.md`](docs/admin-operations.md)
+
+## Security Note
+
+This project is currently focused on operator workflows and local/live admin capabilities. If publishing publicly, document your deployment model and add environment-specific controls such as:
+
+- authentication and authorization (RBAC)
+- audit logging
+- secret management hardening
+- CORS/domain restrictions
+- approval policies for destructive actions
+
