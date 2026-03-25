@@ -2,6 +2,9 @@ package com.pulsaradmin.api.controller;
 
 import com.pulsaradmin.api.support.BadRequestException;
 import com.pulsaradmin.api.service.PulsarCatalogService;
+import com.pulsaradmin.api.service.ReplayCopyCriteriaInput;
+import com.pulsaradmin.shared.model.ClearBacklogRequest;
+import com.pulsaradmin.shared.model.ClearBacklogResponse;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
@@ -41,7 +44,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -215,7 +221,7 @@ public class TopicController {
       @PathVariable("envId") String envId,
       @Valid @RequestPart("request") ReplayCopyJobRequest request,
       @RequestPart(name = "idsFile", required = false) MultipartFile idsFile) {
-    return pulsarCatalogService.createReplayCopyJob(envId, request, parseFilterIds(idsFile));
+    return pulsarCatalogService.createReplayCopyJob(envId, request, parseCriteria(idsFile));
   }
 
   @GetMapping("/jobs/{jobId}")
@@ -239,9 +245,16 @@ public class TopicController {
     return pulsarCatalogService.getReplayCopyJobSearchExport(envId, jobId);
   }
 
-  private List<String> parseFilterIds(MultipartFile idsFile) {
+  @PostMapping("/clear-backlog")
+  public ClearBacklogResponse clearBacklog(
+      @PathVariable("envId") String envId,
+      @Valid @RequestBody ClearBacklogRequest request) {
+    return pulsarCatalogService.clearBacklog(envId, request);
+  }
+
+  private ReplayCopyCriteriaInput parseCriteria(MultipartFile idsFile) {
     if (idsFile == null || idsFile.isEmpty()) {
-      return List.of();
+      return ReplayCopyCriteriaInput.empty();
     }
     String filename = idsFile.getOriginalFilename();
     String contentType = idsFile.getContentType();
@@ -251,30 +264,85 @@ public class TopicController {
       throw new BadRequestException("idsFile must be a CSV file.");
     }
 
-    List<String> values = new ArrayList<>();
+    List<String> headers = new ArrayList<>();
+    List<Map<String, String>> rows = new ArrayList<>();
+    List<String> errors = new ArrayList<>();
     try (BufferedReader reader = new BufferedReader(new InputStreamReader(idsFile.getInputStream(), StandardCharsets.UTF_8))) {
       String line;
+      boolean headerRead = false;
       while ((line = reader.readLine()) != null) {
         String trimmed = line.trim();
         if (trimmed.isEmpty()) {
           continue;
         }
-        String firstColumn = trimmed.split(",", 2)[0].trim();
-        if (firstColumn.startsWith("\"") && firstColumn.endsWith("\"") && firstColumn.length() >= 2) {
-          firstColumn = firstColumn.substring(1, firstColumn.length() - 1).trim();
-        }
-        if (firstColumn.equalsIgnoreCase("id")
-            || firstColumn.equalsIgnoreCase("feedId")
-            || firstColumn.equalsIgnoreCase("objectId")) {
+        List<String> columns = parseCsvColumns(trimmed);
+        if (!headerRead) {
+          headers.addAll(columns.stream().map(String::trim).toList());
+          headerRead = true;
+          if (headers.isEmpty()) {
+            errors.add("CSV header row is empty.");
+          }
+          if (headers.stream().anyMatch(String::isBlank)) {
+            errors.add("CSV header fields must be non-empty.");
+          }
+          if (new LinkedHashSet<>(headers).size() != headers.size()) {
+            errors.add("CSV header fields must be unique.");
+          }
           continue;
         }
-        if (!firstColumn.isBlank()) {
-          values.add(firstColumn);
+
+        if (columns.size() != headers.size()) {
+          errors.add("CSV row has " + columns.size() + " values but expected " + headers.size() + ".");
+          continue;
+        }
+
+        Map<String, String> row = new LinkedHashMap<>();
+        for (int index = 0; index < headers.size(); index++) {
+          String header = headers.get(index).trim();
+          String value = columns.get(index).trim();
+          if (!header.isBlank() && !value.isBlank()) {
+            row.put(header, value);
+          }
+        }
+        if (!row.isEmpty()) {
+          rows.add(row);
         }
       }
     } catch (IOException exception) {
       throw new BadRequestException("Unable to parse IDs file: " + exception.getMessage());
     }
-    return values;
+    if (headers.isEmpty()) {
+      errors.add("CSV must include a header row.");
+    }
+    if (rows.isEmpty() && errors.isEmpty()) {
+      errors.add("CSV must include at least one criteria row.");
+    }
+    return new ReplayCopyCriteriaInput(headers, rows, errors);
+  }
+
+  private List<String> parseCsvColumns(String line) {
+    List<String> columns = new ArrayList<>();
+    StringBuilder current = new StringBuilder();
+    boolean inQuotes = false;
+    for (int index = 0; index < line.length(); index++) {
+      char character = line.charAt(index);
+      if (character == '"') {
+        if (inQuotes && index + 1 < line.length() && line.charAt(index + 1) == '"') {
+          current.append('"');
+          index++;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (character == ',' && !inQuotes) {
+        columns.add(current.toString());
+        current.setLength(0);
+        continue;
+      }
+      current.append(character);
+    }
+    columns.add(current.toString());
+    return columns;
   }
 }

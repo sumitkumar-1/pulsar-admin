@@ -414,6 +414,21 @@ export interface SkipMessagesResponse {
   message: string;
 }
 
+export interface ClearBacklogRequest {
+  topicName: string;
+  subscriptionName: string;
+  reason: string;
+}
+
+export interface ClearBacklogResponse {
+  environmentId: string;
+  topicName: string;
+  subscriptionName: string;
+  cleared: boolean;
+  message: string;
+  clearedAt: string;
+}
+
 export interface UnloadTopicRequest {
   topicName: string;
   reason: string;
@@ -502,10 +517,6 @@ export interface ReplayCopyJobRequest {
   operationMode?: 'ACK_ONLY' | 'ACK_AND_MOVE' | 'SEARCH_ONLY';
   destinationTopicName: string | null;
   messageLimit: number;
-  messageKey?: string | null;
-  propertyFilters?: Record<string, string>;
-  filterText: string | null;
-  matchField?: string | null;
   autoReplicateSchema?: boolean;
   messagesPerSecond: number;
   reason: string;
@@ -513,7 +524,7 @@ export interface ReplayCopyJobRequest {
 
 export interface ReplayCopyJobStatusResponse {
   jobId: string;
-  jobType: 'REPLAY' | 'COPY';
+  jobType: 'REPLAY' | 'COPY' | 'SEARCH';
   environmentId: string;
   status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
   topicName: string;
@@ -521,10 +532,6 @@ export interface ReplayCopyJobStatusResponse {
   destinationTopicName: string;
   messageLimit: number;
   messagesPerSecond: number;
-  messageKey: string | null;
-  propertyFilters: Record<string, string>;
-  filterText: string | null;
-  matchField: string | null;
   autoReplicateSchema: boolean;
   scannedMessages: number;
   matchedMessages: number;

@@ -11,6 +11,8 @@ import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.ConsumedMessage;
+import com.pulsaradmin.shared.model.ClearBacklogRequest;
+import com.pulsaradmin.shared.model.ClearBacklogResponse;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
@@ -627,6 +629,37 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
               + request.subscriptionName() + ".");
     } catch (RestClientException exception) {
       throw new BadRequestException("Unable to skip messages via Pulsar admin REST API: " + exception.getMessage());
+    }
+  }
+
+  @Override
+  public ClearBacklogResponse clearBacklog(EnvironmentDetails environment, ClearBacklogRequest request) {
+    PulsarTopicName topicName = PulsarTopicName.parse(request.topicName());
+    try {
+      postWithoutBody(
+          environment,
+          "/admin/v2/" + topicName.domain()
+              + "/" + topicName.tenant()
+              + "/" + topicName.namespace()
+              + "/" + topicName.topic()
+              + "/subscription/" + request.subscriptionName()
+              + "/skip_all/skipAllMessages",
+          "/admin/v2/" + topicName.domain()
+              + "/" + topicName.tenant()
+              + "/" + topicName.namespace()
+              + "/" + topicName.topic()
+              + "/subscription/" + request.subscriptionName()
+              + "/skip_all");
+
+      return new ClearBacklogResponse(
+          environment.id(),
+          request.topicName(),
+          request.subscriptionName(),
+          true,
+          "Cleared backlog via Pulsar admin REST API for subscription " + request.subscriptionName() + ".",
+          Instant.now());
+    } catch (RestClientException exception) {
+      throw new BadRequestException("Unable to clear backlog via Pulsar admin REST API: " + exception.getMessage());
     }
   }
 

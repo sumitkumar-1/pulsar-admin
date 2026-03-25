@@ -11,6 +11,8 @@ import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
+import com.pulsaradmin.shared.model.ClearBacklogRequest;
+import com.pulsaradmin.shared.model.ClearBacklogResponse;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
 import com.pulsaradmin.shared.model.ExportMessagesRequest;
 import com.pulsaradmin.shared.model.ExportMessagesResponse;
@@ -714,6 +716,38 @@ public class EnvironmentCatalogService {
     }
 
     return pulsarAdminGateway.skipMessages(environment.toDetails(), request);
+  }
+
+  public ClearBacklogResponse clearBacklog(String environmentId, ClearBacklogRequest request) {
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
+
+    if (request.topicName() == null || request.topicName().isBlank()) {
+      throw new BadRequestException("A topic name is required.");
+    }
+
+    if (request.subscriptionName() == null || request.subscriptionName().isBlank()) {
+      throw new BadRequestException("A subscription name is required.");
+    }
+
+    if (request.reason() == null || request.reason().isBlank()) {
+      throw new BadRequestException("A reason is required when clearing backlog.");
+    }
+
+    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
+
+    TopicDetails topic = snapshot.topics().stream()
+        .filter(item -> item.fullName().equals(request.topicName()))
+        .findFirst()
+        .orElseThrow(() -> new NotFoundException("Unknown topic: " + request.topicName()));
+
+    boolean subscriptionExists = topic.subscriptions().stream()
+        .anyMatch(subscription -> subscription.equals(request.subscriptionName()));
+
+    if (!subscriptionExists) {
+      throw new NotFoundException("Unknown subscription: " + request.subscriptionName());
+    }
+
+    return pulsarAdminGateway.clearBacklog(environment.toDetails(), request);
   }
 
   public UnloadTopicResponse unloadTopic(String environmentId, UnloadTopicRequest request) {

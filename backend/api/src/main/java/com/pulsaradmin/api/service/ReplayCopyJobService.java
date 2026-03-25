@@ -13,10 +13,12 @@ import com.pulsaradmin.shared.model.ReplayCopyJobStatusResponse;
 import com.pulsaradmin.shared.model.SchemaSummary;
 import com.pulsaradmin.shared.model.TopicDetails;
 import java.time.Instant;
-import java.util.Collection;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -28,7 +30,7 @@ public class ReplayCopyJobService {
   private final EnvironmentSnapshotRepository snapshotRepository;
   private final JobRepository jobRepository;
   private final JobEventRepository jobEventRepository;
-  private final ReplayCopyJobFilterRepository replayCopyJobFilterRepository;
+  private final ReplayCopyJobCriteriaRepository replayCopyJobCriteriaRepository;
   private final ReplayCopyJobSearchResultRepository replayCopyJobSearchResultRepository;
   private final PulsarAdminGateway pulsarAdminGateway;
   private final GatewayModeResolver gatewayModeResolver;
@@ -40,7 +42,7 @@ public class ReplayCopyJobService {
       EnvironmentSnapshotRepository snapshotRepository,
       JobRepository jobRepository,
       JobEventRepository jobEventRepository,
-      ReplayCopyJobFilterRepository replayCopyJobFilterRepository,
+      ReplayCopyJobCriteriaRepository replayCopyJobCriteriaRepository,
       ReplayCopyJobSearchResultRepository replayCopyJobSearchResultRepository,
       PulsarAdminGateway pulsarAdminGateway,
       GatewayModeResolver gatewayModeResolver,
@@ -49,7 +51,7 @@ public class ReplayCopyJobService {
     this.snapshotRepository = snapshotRepository;
     this.jobRepository = jobRepository;
     this.jobEventRepository = jobEventRepository;
-    this.replayCopyJobFilterRepository = replayCopyJobFilterRepository;
+    this.replayCopyJobCriteriaRepository = replayCopyJobCriteriaRepository;
     this.replayCopyJobSearchResultRepository = replayCopyJobSearchResultRepository;
     this.pulsarAdminGateway = pulsarAdminGateway;
     this.gatewayModeResolver = gatewayModeResolver;
@@ -57,36 +59,38 @@ public class ReplayCopyJobService {
   }
 
   public ReplayCopyJobStatusResponse createJob(String environmentId, ReplayCopyJobRequest request) {
-    return createJob(environmentId, request, List.of());
+    return createJob(environmentId, request, ReplayCopyCriteriaInput.empty());
   }
 
   public ReplayCopyJobStatusResponse createJob(
       String environmentId,
       ReplayCopyJobRequest request,
-      Collection<String> filterValues) {
+      ReplayCopyCriteriaInput criteriaInput) {
     validateRequest(request);
+    ReplayCopyCriteriaInput normalizedCriteriaInput =
+        criteriaInput == null ? ReplayCopyCriteriaInput.empty() : criteriaInput;
+    if (!normalizedCriteriaInput.errors().isEmpty()) {
+      throw new BadRequestException("Invalid IDs CSV file: " + String.join(" ", normalizedCriteriaInput.errors()));
+    }
     EnvironmentRecord environment = requireEnvironment(environmentId);
     TopicDetails sourceTopic = requireTopic(environmentId, request.topicName());
     requireSubscription(sourceTopic, request.subscriptionName());
     String operationMode = normalizeOperationMode(request);
     JobType jobType = toJobType(operationMode);
     String normalizedDestinationTopic = normalizeDestinationTopic(jobType, request.destinationTopicName());
-    List<String> warnings = validateSchemaCompatibility(environmentId, sourceTopic, normalizedDestinationTopic, jobType, operationMode);
-    List<String> normalizedFilterValues = normalizeFilterValues(filterValues);
-    String normalizedMatchField = blankToNull(request.matchField());
+    List<String> warnings =
+        validateSchemaCompatibility(environmentId, sourceTopic, normalizedDestinationTopic, jobType, operationMode);
+    List<Map<String, String>> normalizedCriteriaRows = normalizeCriteriaRows(normalizedCriteriaInput.rows());
+    int criteriaRowCount = normalizedCriteriaRows.size();
     boolean autoReplicateSchema = request.autoReplicateSchema() == null || request.autoReplicateSchema();
-
-    if (!normalizedFilterValues.isEmpty() && normalizedMatchField == null) {
-      throw new BadRequestException("matchField is required when a filter IDs file is provided.");
-    }
     Instant now = Instant.now();
     String jobId = "job-" + UUID.randomUUID().toString().substring(0, 8);
 
     if (isMockMode()) {
-      int scanned = Math.min(request.messageLimit(), Math.max(1, normalizedFilterValues.isEmpty() ? 48 : normalizedFilterValues.size()));
-      int matched = normalizedFilterValues.isEmpty()
+      int scanned = Math.min(request.messageLimit(), Math.max(1, criteriaRowCount == 0 ? 48 : criteriaRowCount));
+      int matched = criteriaRowCount == 0
           ? Math.min(scanned, 24)
-          : Math.min(scanned, normalizedFilterValues.size());
+          : Math.min(scanned, criteriaRowCount);
       int nacked = Math.max(0, scanned - matched);
       int moved = jobType == JobType.COPY ? matched : 0;
       int searchMatched = jobType == JobType.SEARCH ? matched : 0;
@@ -100,10 +104,6 @@ public class ReplayCopyJobService {
           normalizedDestinationTopic,
           request.messageLimit(),
           request.messagesPerSecond(),
-          blankToNull(request.messageKey()),
-          sanitizePropertyFilters(request.propertyFilters()),
-          blankToNull(request.filterText()),
-          normalizedMatchField,
           autoReplicateSchema,
           scanned,
           matched,
@@ -138,13 +138,10 @@ public class ReplayCopyJobService {
     parameters.put("destinationTopicName", normalizedDestinationTopic);
     parameters.put("messageLimit", request.messageLimit());
     parameters.put("messagesPerSecond", request.messagesPerSecond());
-    parameters.put("messageKey", blankToNull(request.messageKey()));
-    parameters.put("propertyFilters", sanitizePropertyFilters(request.propertyFilters()));
-    parameters.put("filterText", blankToNull(request.filterText()));
-    parameters.put("matchField", normalizedMatchField);
     parameters.put("autoReplicateSchema", autoReplicateSchema);
     parameters.put("operationMode", operationMode);
-    parameters.put("filterCount", normalizedFilterValues.size());
+    parameters.put("criteriaHeaders", normalizedCriteriaInput.headers());
+    parameters.put("criteriaRowCount", criteriaRowCount);
     parameters.put("reason", request.reason());
     parameters.put("statusMessage", "Queued for worker pickup.");
     parameters.put("scannedMessages", 0);
@@ -183,10 +180,15 @@ public class ReplayCopyJobService {
     queueDetails.put("topicName", request.topicName());
     queueDetails.put("destinationTopicName", normalizedDestinationTopic);
     queueDetails.put("messageLimit", request.messageLimit());
-    queueDetails.put("filterCount", normalizedFilterValues.size());
-    queueDetails.put("matchField", normalizedMatchField);
+    queueDetails.put("criteriaRowCount", criteriaRowCount);
     jobEventRepository.insert(queued.id(), "QUEUED", queueDetails);
-    replayCopyJobFilterRepository.insertValues(queued.id(), normalizedFilterValues);
+    replayCopyJobCriteriaRepository.insertRows(queued.id(), normalizedCriteriaRows);
+    if (criteriaRowCount > 0) {
+      Map<String, Object> criteriaDetails = new LinkedHashMap<>();
+      criteriaDetails.put("criteriaHeaders", normalizedCriteriaInput.headers());
+      criteriaDetails.put("criteriaRowCount", criteriaRowCount);
+      jobEventRepository.insert(queued.id(), "CSV_CRITERIA_PARSED", criteriaDetails);
+    }
 
     return toResponse(queued);
   }
@@ -372,10 +374,6 @@ public class ReplayCopyJobService {
         stringValue(parameters.get("destinationTopicName")),
         intValue(parameters.get("messageLimit")),
         intValue(parameters.get("messagesPerSecond")),
-        stringValue(parameters.get("messageKey")),
-        stringMapValue(parameters.get("propertyFilters")),
-        stringValue(parameters.get("filterText")),
-        stringValue(parameters.get("matchField")),
         booleanValue(parameters.get("autoReplicateSchema")),
         intValue(parameters.get("scannedMessages")),
         intValue(parameters.get("matchedMessages")),
@@ -464,36 +462,6 @@ public class ReplayCopyJobService {
     return Instant.parse(text);
   }
 
-  @SuppressWarnings("unchecked")
-  private Map<String, String> stringMapValue(Object value) {
-    if (value instanceof Map<?, ?> raw) {
-      Map<String, String> normalized = new LinkedHashMap<>();
-      raw.forEach((key, item) -> {
-        if (key != null && item != null) {
-          normalized.put(key.toString(), item.toString());
-        }
-      });
-      return normalized;
-    }
-    return Map.of();
-  }
-
-  private Map<String, String> sanitizePropertyFilters(Map<String, String> propertyFilters) {
-    if (propertyFilters == null || propertyFilters.isEmpty()) {
-      return Map.of();
-    }
-
-    Map<String, String> normalized = new LinkedHashMap<>();
-    propertyFilters.forEach((key, value) -> {
-      String normalizedKey = blankToNull(key);
-      String normalizedValue = blankToNull(value);
-      if (normalizedKey != null && normalizedValue != null) {
-        normalized.put(normalizedKey, normalizedValue);
-      }
-    });
-    return normalized;
-  }
-
   private List<String> validateSchemaCompatibility(
       String environmentId,
       TopicDetails sourceTopic,
@@ -548,15 +516,34 @@ public class ReplayCopyJobService {
     return blankToNull(destinationTopicName);
   }
 
-  private List<String> normalizeFilterValues(Collection<String> filterValues) {
-    if (filterValues == null || filterValues.isEmpty()) {
+  private List<Map<String, String>> normalizeCriteriaRows(List<Map<String, String>> rows) {
+    if (rows == null || rows.isEmpty()) {
       return List.of();
     }
-    return filterValues.stream()
-        .map(this::blankToNull)
-        .filter(value -> value != null)
-        .distinct()
-        .toList();
+
+    List<Map<String, String>> normalizedRows = new ArrayList<>();
+    Set<String> dedupe = new HashSet<>();
+    for (Map<String, String> row : rows) {
+      if (row == null || row.isEmpty()) {
+        continue;
+      }
+      Map<String, String> normalizedRow = new LinkedHashMap<>();
+      row.forEach((field, value) -> {
+        String normalizedField = blankToNull(field);
+        String normalizedValue = blankToNull(value);
+        if (normalizedField != null && normalizedValue != null) {
+          normalizedRow.put(normalizedField, normalizedValue);
+        }
+      });
+      if (normalizedRow.isEmpty()) {
+        continue;
+      }
+      String signature = normalizedRow.toString();
+      if (dedupe.add(signature)) {
+        normalizedRows.add(normalizedRow);
+      }
+    }
+    return normalizedRows;
   }
 
   private TopicDetails findTopic(String environmentId, String topicName) {

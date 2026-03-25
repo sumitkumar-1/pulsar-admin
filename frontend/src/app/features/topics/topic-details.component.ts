@@ -7,6 +7,8 @@ import { combineLatest, Subscription, switchMap, timer } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
 import {
+  ClearBacklogRequest,
+  ClearBacklogResponse,
   ConsumeMessagesRequest,
   ConsumeMessagesResponse,
   CreateSubscriptionRequest,
@@ -64,7 +66,7 @@ export class TopicDetailsComponent {
   readonly loadError = signal<string | null>(null);
   readonly actionFeedback = signal<{ kind: 'success' | 'error'; message: string } | null>(null);
   readonly activeTab = signal<'overview' | 'subscriptions' | 'partitions' | 'schema' | 'operations'>('overview');
-  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription' | 'delete-subscription' | null>(null);
+  readonly activeWorkflow = signal<'peek' | 'reset' | 'skip' | 'clear-backlog' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'delete-topic' | 'create-subscription' | 'delete-subscription' | null>(null);
   readonly peekState = signal<PeekMessagesResponse | null>(null);
   readonly peekLoading = signal(false);
   readonly peekError = signal<string | null>(null);
@@ -74,6 +76,9 @@ export class TopicDetailsComponent {
   readonly skipSaving = signal(false);
   readonly skipResult = signal<SkipMessagesResponse | null>(null);
   readonly skipError = signal<string | null>(null);
+  readonly clearBacklogSaving = signal(false);
+  readonly clearBacklogResult = signal<ClearBacklogResponse | null>(null);
+  readonly clearBacklogError = signal<string | null>(null);
   readonly unloadSaving = signal(false);
   readonly unloadResult = signal<UnloadTopicResponse | null>(null);
   readonly unloadError = signal<string | null>(null);
@@ -136,6 +141,11 @@ export class TopicDetailsComponent {
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
 
+  readonly clearBacklogForm = this.formBuilder.nonNullable.group({
+    subscriptionName: ['', [Validators.required]],
+    reason: ['', [Validators.required, Validators.maxLength(240)]]
+  });
+
   readonly terminateForm = this.formBuilder.nonNullable.group({
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
@@ -183,12 +193,8 @@ export class TopicDetailsComponent {
     subscriptionName: ['', [Validators.required]],
     operationMode: ['ACK_AND_MOVE' as 'ACK_ONLY' | 'ACK_AND_MOVE' | 'SEARCH_ONLY', [Validators.required]],
     destinationTopicName: [''],
-    matchField: ['feedId'],
     autoReplicateSchema: [true],
     messageLimit: [100, [Validators.required, Validators.min(1), Validators.max(1_000_000)]],
-    messageKey: [''],
-    propertyFilters: [''],
-    filterText: [''],
     messagesPerSecond: [50, [Validators.required, Validators.min(1), Validators.max(5000)]],
     reason: ['', [Validators.required, Validators.maxLength(240)]]
   });
@@ -236,16 +242,16 @@ export class TopicDetailsComponent {
             messageCount: 1,
             reason: ''
           });
+          this.clearBacklogForm.patchValue({
+            subscriptionName: firstSubscription,
+            reason: ''
+          });
           this.replayForm.patchValue({
             subscriptionName: firstSubscription,
             operationMode: 'ACK_AND_MOVE',
             destinationTopicName: this.defaultDestinationTopic(details.fullName),
             messageLimit: 100,
-            matchField: 'feedId',
             autoReplicateSchema: true,
-            messageKey: '',
-            propertyFilters: '',
-            filterText: '',
             messagesPerSecond: 50,
             reason: ''
           });
@@ -305,7 +311,7 @@ export class TopicDetailsComponent {
     return !this.details()?.partitioned;
   }
 
-  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'dlq' | 'delete-topic' | 'create-subscription') {
+  openWorkflow(workflow: 'peek' | 'reset' | 'skip' | 'clear-backlog' | 'unload' | 'terminate' | 'policies' | 'schema' | 'test-messages' | 'replay' | 'delete-topic' | 'create-subscription') {
     this.actionFeedback.set(null);
     this.activeWorkflow.set(workflow);
 
@@ -363,6 +369,20 @@ export class TopicDetailsComponent {
           subscriptionName: currentSubscription || topic.subscriptions[0] || '',
           messageCount: this.skipForm.controls.messageCount.value || 1,
           reason: this.skipForm.controls.reason.value
+        });
+      }
+    }
+
+    if (workflow === 'clear-backlog') {
+      const topic = this.details();
+      this.clearBacklogError.set(null);
+      this.clearBacklogResult.set(null);
+
+      if (topic && topic.subscriptions.length > 0) {
+        const currentSubscription = this.clearBacklogForm.controls.subscriptionName.value;
+        this.clearBacklogForm.patchValue({
+          subscriptionName: currentSubscription || topic.subscriptions[0] || '',
+          reason: this.clearBacklogForm.controls.reason.value
         });
       }
     }
@@ -483,44 +503,9 @@ export class TopicDetailsComponent {
           operationMode: this.replayForm.controls.operationMode.value || 'ACK_AND_MOVE',
           destinationTopicName: this.replayForm.controls.destinationTopicName.value || this.defaultDestinationTopic(topic.fullName),
           messageLimit: this.replayForm.controls.messageLimit.value || 100,
-          matchField: this.replayForm.controls.matchField.value || 'feedId',
           autoReplicateSchema: this.replayForm.controls.autoReplicateSchema.value ?? true,
-          messageKey: this.replayForm.controls.messageKey.value,
-          propertyFilters: this.replayForm.controls.propertyFilters.value,
-          filterText: this.replayForm.controls.filterText.value,
           messagesPerSecond: this.replayForm.controls.messagesPerSecond.value || 50,
           reason: this.replayForm.controls.reason.value
-        });
-      }
-      this.syncReplayDestinationValidators();
-    }
-
-    if (workflow === 'dlq') {
-      const topic = this.details();
-      this.replayFilterFile.set(null);
-      this.replayError.set(null);
-      this.replayResult.set(null);
-      this.replayExportError.set(null);
-      this.replayExportResult.set(null);
-      this.replayEvents.set([]);
-      this.replayEventsError.set(null);
-      this.replayDestinationLoadError.set(null);
-      this.stopReplayPolling();
-
-      if (topic && topic.subscriptions.length > 0) {
-        const currentSubscription = this.replayForm.controls.subscriptionName.value;
-        this.replayForm.patchValue({
-          subscriptionName: currentSubscription || topic.subscriptions[0] || '',
-          operationMode: 'ACK_ONLY',
-          destinationTopicName: this.deriveDlqDestination(topic.fullName),
-          messageLimit: 50,
-          matchField: 'feedId',
-          autoReplicateSchema: true,
-          messageKey: '',
-          propertyFilters: 'source=dlq',
-          filterText: 'error',
-          messagesPerSecond: 25,
-          reason: ''
         });
       }
       this.syncReplayDestinationValidators();
@@ -733,6 +718,44 @@ export class TopicDetailsComponent {
       });
   }
 
+  submitClearBacklog() {
+    const topic = this.details();
+
+    if (!topic) {
+      this.clearBacklogError.set('Topic details are still loading.');
+      return;
+    }
+
+    if (this.clearBacklogForm.invalid) {
+      this.clearBacklogForm.markAllAsTouched();
+      return;
+    }
+
+    const formValue = this.clearBacklogForm.getRawValue();
+    const request: ClearBacklogRequest = {
+      topicName: topic.fullName,
+      subscriptionName: formValue.subscriptionName,
+      reason: formValue.reason
+    };
+
+    this.clearBacklogSaving.set(true);
+    this.clearBacklogError.set(null);
+    this.clearBacklogResult.set(null);
+
+    this.api.clearBacklog(this.environmentId(), request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.clearBacklogResult.set(response);
+          this.clearBacklogSaving.set(false);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.clearBacklogError.set(error.error?.message ?? 'Unable to clear backlog for this subscription.');
+          this.clearBacklogSaving.set(false);
+        }
+      });
+  }
+
   skipPreview(): string {
     const topic = this.details();
     const { subscriptionName, messageCount } = this.skipForm.getRawValue();
@@ -742,6 +765,17 @@ export class TopicDetailsComponent {
     }
 
     return `This will advance subscription ${subscriptionName} on ${topic.topic} by ${messageCount} messages. Use this for bounded poison-message cleanup, not broad backlog removal.`;
+  }
+
+  clearBacklogPreview(): string {
+    const topic = this.details();
+    const { subscriptionName } = this.clearBacklogForm.getRawValue();
+
+    if (!topic || !subscriptionName) {
+      return 'Choose a subscription to preview the clear-backlog action.';
+    }
+
+    return `This will clear all current backlog for subscription ${subscriptionName} on ${topic.topic}. This is destructive and cannot be undone.`;
   }
 
   submitReplayCopyJob() {
@@ -764,12 +798,6 @@ export class TopicDetailsComponent {
       return;
     }
 
-    const trimmedMatchField = formValue.matchField?.trim() ? formValue.matchField.trim() : null;
-    if (this.replayFilterFile() && !trimmedMatchField) {
-      this.replayError.set('Match field is required when an IDs CSV file is provided.');
-      return;
-    }
-
     if (formValue.operationMode === 'ACK_AND_MOVE') {
       const destinationTopic = formValue.destinationTopicName?.trim();
       if (destinationTopic === topic.fullName) {
@@ -787,22 +815,10 @@ export class TopicDetailsComponent {
       operationMode: formValue.operationMode,
       destinationTopicName: formValue.operationMode === 'ACK_AND_MOVE' ? formValue.destinationTopicName : null,
       messageLimit: Number(formValue.messageLimit),
-      filterText: formValue.filterText?.trim() ? formValue.filterText.trim() : null,
-      matchField: trimmedMatchField,
       autoReplicateSchema: formValue.autoReplicateSchema,
       messagesPerSecond: Number(formValue.messagesPerSecond),
       reason: trimmedReason
     };
-
-    const messageKey = formValue.messageKey?.trim();
-    if (messageKey) {
-      request.messageKey = messageKey;
-    }
-
-    const propertyFilters = this.parseFilterProperties(formValue.propertyFilters);
-    if (Object.keys(propertyFilters).length > 0) {
-      request.propertyFilters = propertyFilters;
-    }
 
     this.replaySaving.set(true);
     this.replayError.set(null);
@@ -1195,7 +1211,7 @@ export class TopicDetailsComponent {
 
   replayPreview(): string {
     const topic = this.details();
-    const { subscriptionName, operationMode, destinationTopicName, messageLimit, messageKey, propertyFilters, filterText, messagesPerSecond, matchField } =
+    const { subscriptionName, operationMode, destinationTopicName, messageLimit, messagesPerSecond } =
       this.replayForm.getRawValue();
 
     if (!topic || !subscriptionName) {
@@ -1205,20 +1221,17 @@ export class TopicDetailsComponent {
       return 'Choose a destination topic for ACK + move mode.';
     }
 
-    const filterBits = [
-      messageKey?.trim() ? `key ${messageKey.trim()}` : null,
-      propertyFilters?.trim() ? `properties ${propertyFilters.trim()}` : null,
-      filterText?.trim() ? `text "${filterText.trim()}"` : null,
-      this.replayFilterFile() ? `CSV IDs on field ${matchField || 'feedId'}` : null
-    ].filter(Boolean).join(', ');
+    const filterBits = this.replayFilterFile()
+      ? ` using CSV multi-field criteria from ${this.replayFilterFile()!.name}`
+      : ' without CSV criteria filters';
 
     if (operationMode === 'ACK_AND_MOVE') {
-      return `ACK + move up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterBits ? ` filtered by ${filterBits}` : ' without additional filtering'} into ${destinationTopicName} at up to ${messagesPerSecond} msg/s. Non-matches are NACKed.`;
+      return `ACK + move up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterBits} into ${destinationTopicName} at up to ${messagesPerSecond} msg/s. Non-matches are NACKed.`;
     }
     if (operationMode === 'SEARCH_ONLY') {
-      return `Search up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterBits ? ` filtered by ${filterBits}` : ' without additional filtering'} at up to ${messagesPerSecond} msg/s, without ACK/NACK side effects.`;
+      return `Search up to ${messageLimit} messages from ${topic.topic} for subscription ${subscriptionName}${filterBits} at up to ${messagesPerSecond} msg/s, without ACK/NACK side effects.`;
     }
-    return `ACK matched messages for up to ${messageLimit} messages from ${topic.topic} on subscription ${subscriptionName}${filterBits ? ` filtered by ${filterBits}` : ' without additional filtering'}. Non-matches are NACKed for redelivery.`;
+    return `ACK matched messages for up to ${messageLimit} messages from ${topic.topic} on subscription ${subscriptionName}${filterBits}. Non-matches are NACKed for redelivery.`;
   }
 
   unloadPreview(): string {
@@ -1399,13 +1412,6 @@ export class TopicDetailsComponent {
       : sourceTopicName.replace(/\/([^/]+)$/, '/replay-lab');
   }
 
-  private deriveDlqDestination(sourceTopicName: string): string {
-    if (sourceTopicName.toLowerCase().includes('dlq')) {
-      return sourceTopicName.replace(/dlq/ig, 'retry');
-    }
-    return this.defaultDestinationTopic(sourceTopicName);
-  }
-
   private toIsoTimestamp(value: string): string {
     if (!value) {
       return '';
@@ -1469,7 +1475,7 @@ export class TopicDetailsComponent {
     }
 
     if (this.replayFilterFile()) {
-      warnings.push(`CSV ID filter file ${this.replayFilterFile()!.name} will be applied using top-level field ${this.replayForm.controls.matchField.value || 'feedId'}.`);
+      warnings.push(`CSV criteria file ${this.replayFilterFile()!.name} will be applied using header-based top-level payload fields. Fields in each row are ANDed; rows are ORed.`);
     }
 
     if (operationMode === 'SEARCH_ONLY') {
@@ -1649,19 +1655,6 @@ export class TopicDetailsComponent {
     };
   }
 
-  parseFilterProperties(value: string): Record<string, string> {
-    return value.split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .reduce<Record<string, string>>((accumulator, item) => {
-        const [key, ...rest] = item.split('=');
-        if (key?.trim() && rest.length > 0) {
-          accumulator[key.trim()] = rest.join('=').trim();
-        }
-        return accumulator;
-      }, {});
-  }
-
   private syncReplayDestinationValidators() {
     const operationMode = this.replayForm.controls.operationMode.value;
     const destinationControl = this.replayForm.controls.destinationTopicName;
@@ -1678,6 +1671,7 @@ export class TopicDetailsComponent {
     const firstSubscription = topic.subscriptions[0] ?? '';
     this.resetForm.patchValue({ subscriptionName: firstSubscription });
     this.skipForm.patchValue({ subscriptionName: firstSubscription });
+    this.clearBacklogForm.patchValue({ subscriptionName: firstSubscription });
     this.replayForm.patchValue({ subscriptionName: firstSubscription });
   }
 

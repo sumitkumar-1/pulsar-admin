@@ -275,6 +275,24 @@ class TopicControllerTest {
   }
 
   @Test
+  void shouldClearBacklog() throws Exception {
+    mockMvc.perform(post("/api/v1/environments/prod/topics/clear-backlog")
+            .contentType("application/json")
+            .content("""
+                {
+                  "topicName": "persistent://acme/orders/payment-events",
+                  "subscriptionName": "payment-settlement",
+                  "reason": "Clear retained backlog after incident replay."
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.environmentId").value("prod"))
+        .andExpect(jsonPath("$.topicName").value("persistent://acme/orders/payment-events"))
+        .andExpect(jsonPath("$.subscriptionName").value("payment-settlement"))
+        .andExpect(jsonPath("$.cleared").value(true));
+  }
+
+  @Test
   void shouldUnloadTopic() throws Exception {
     mockMvc.perform(post("/api/v1/environments/prod/topics/unload")
             .contentType("application/json")
@@ -302,7 +320,6 @@ class TopicControllerTest {
                   "operation": "COPY",
                   "destinationTopicName": "persistent://acme/dev/replay-lab",
                   "messageLimit": 120,
-                  "filterText": "payment-10412",
                   "messagesPerSecond": 50,
                   "reason": "Copy incident-related messages into replay lab"
                 }
@@ -327,7 +344,6 @@ class TopicControllerTest {
               "subscriptionName": "payment-settlement",
               "operation": "COPY",
               "destinationTopicName": "persistent://acme/dev/replay-lab",
-              "matchField": "feedId",
               "messageLimit": 120,
               "messagesPerSecond": 50,
               "reason": "Copy incident-related messages into replay lab"
@@ -344,8 +360,7 @@ class TopicControllerTest {
             .file(idsFile))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.jobId").exists())
-        .andExpect(jsonPath("$.jobType").value("COPY"))
-        .andExpect(jsonPath("$.matchField").value("feedId"));
+        .andExpect(jsonPath("$.jobType").value("COPY"));
   }
 
   @Test
@@ -359,7 +374,6 @@ class TopicControllerTest {
                   "operation": "REPLAY",
                   "destinationTopicName": "persistent://acme/dev/replay-lab",
                   "messageLimit": 75,
-                  "filterText": "",
                   "messagesPerSecond": 25,
                   "reason": "Replay a bounded slice for verification"
                 }
@@ -391,7 +405,6 @@ class TopicControllerTest {
                   "operation": "COPY",
                   "destinationTopicName": "persistent://acme/dev/replay-lab",
                   "messageLimit": 25,
-                  "filterText": "",
                   "messagesPerSecond": 25,
                   "reason": "Event timeline smoke test"
                 }
@@ -418,7 +431,6 @@ class TopicControllerTest {
                   "topicName": "persistent://acme/orders/payment-events",
                   "subscriptionName": "payment-settlement",
                   "operationMode": "SEARCH_ONLY",
-                  "matchField": "feedId",
                   "messageLimit": 25,
                   "messagesPerSecond": 25,
                   "reason": "Search-only smoke test"

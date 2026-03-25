@@ -5,6 +5,8 @@ import { DemoModeService } from '../demo-mode.service';
 import {
   CatalogMutationResponse,
   CatalogSummary,
+  ClearBacklogRequest,
+  ClearBacklogResponse,
   ConsumeMessagesRequest,
   ConsumeMessagesResponse,
   CreateNamespaceRequest,
@@ -376,6 +378,14 @@ export class PulsarApiService {
   skipMessages(environmentId: string, request: SkipMessagesRequest): Observable<SkipMessagesResponse> {
     return this.http.post<SkipMessagesResponse>(
       `${this.baseUrl}/environments/${environmentId}/topics/skip-messages`,
+      request,
+      { params: this.demoMode.appendHttpParams(new HttpParams()) }
+    );
+  }
+
+  clearBacklog(environmentId: string, request: ClearBacklogRequest): Observable<ClearBacklogResponse> {
+    return this.http.post<ClearBacklogResponse>(
+      `${this.baseUrl}/environments/${environmentId}/topics/clear-backlog`,
       request,
       { params: this.demoMode.appendHttpParams(new HttpParams()) }
     );

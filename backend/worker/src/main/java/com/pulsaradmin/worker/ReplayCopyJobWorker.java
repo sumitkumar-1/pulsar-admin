@@ -11,7 +11,6 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.apache.pulsar.client.api.AuthenticationFactory;
 import org.apache.pulsar.client.api.Consumer;
@@ -35,7 +34,7 @@ public class ReplayCopyJobWorker {
   private final WorkerJobRepository jobRepository;
   private final WorkerJobEventRepository jobEventRepository;
   private final WorkerEnvironmentRepository environmentRepository;
-  private final WorkerReplayCopyJobFilterRepository filterRepository;
+  private final WorkerReplayCopyJobCriteriaRepository criteriaRepository;
   private final WorkerReplayCopyJobSearchResultRepository searchResultRepository;
   private final ObjectMapper objectMapper;
   private final int batchSize;
@@ -49,7 +48,7 @@ public class ReplayCopyJobWorker {
       WorkerJobRepository jobRepository,
       WorkerJobEventRepository jobEventRepository,
       WorkerEnvironmentRepository environmentRepository,
-      WorkerReplayCopyJobFilterRepository filterRepository,
+      WorkerReplayCopyJobCriteriaRepository criteriaRepository,
       WorkerReplayCopyJobSearchResultRepository searchResultRepository,
       ObjectMapper objectMapper,
       @Value("${worker.jobs.batch-size:5}") int batchSize,
@@ -61,7 +60,7 @@ public class ReplayCopyJobWorker {
     this.jobRepository = jobRepository;
     this.jobEventRepository = jobEventRepository;
     this.environmentRepository = environmentRepository;
-    this.filterRepository = filterRepository;
+    this.criteriaRepository = criteriaRepository;
     this.searchResultRepository = searchResultRepository;
     this.objectMapper = objectMapper;
     this.batchSize = batchSize;
@@ -102,8 +101,8 @@ public class ReplayCopyJobWorker {
       Map<String, Object> updatedParameters = new LinkedHashMap<>(running.parameters());
       WorkerEnvironmentRecord environment = environmentRepository.findActiveById(running.environmentId())
           .orElseThrow(() -> new IllegalStateException("Unknown environment for job: " + running.environmentId()));
-      Set<String> filterValues = filterRepository.findValuesByJobId(jobId);
-      processReplayCopyJob(running, updatedParameters, environment, filterValues);
+      List<Map<String, String>> criteriaRows = criteriaRepository.findRowsByJobId(jobId);
+      processReplayCopyJob(running, updatedParameters, environment, criteriaRows);
     } catch (RuntimeException exception) {
       Map<String, Object> failedParameters = new LinkedHashMap<>(running.parameters());
       failedParameters.put("statusMessage", "Worker execution failed: " + exception.getMessage());
@@ -133,9 +132,9 @@ public class ReplayCopyJobWorker {
       JobRecord running,
       Map<String, Object> parameters,
       WorkerEnvironmentRecord environment,
-      Set<String> filterValues) {
+      List<Map<String, String>> criteriaRows) {
     if (environment.brokerUrl() != null && environment.brokerUrl().startsWith("mock://")) {
-      processMockReplayCopyJob(running, parameters, filterValues);
+      processMockReplayCopyJob(running, parameters, criteriaRows);
       return;
     }
 
@@ -144,11 +143,7 @@ public class ReplayCopyJobWorker {
     String destinationTopicName = stringValue(parameters.get("destinationTopicName"));
     int messageLimit = intValue(parameters.get("messageLimit"));
     int configuredRate = Math.max(1, intValue(parameters.get("messagesPerSecond")));
-    String messageKeyFilter = stringValue(parameters.get("messageKey"));
-    String filterText = stringValue(parameters.get("filterText"));
-    String matchField = stringValue(parameters.get("matchField"));
     boolean autoReplicateSchema = booleanValue(parameters.get("autoReplicateSchema"));
-    Map<String, String> propertyFilters = stringMapValue(parameters.get("propertyFilters"));
     boolean searchOnly = running.type() == JobType.SEARCH;
     String searchExportId = searchOnly ? "search-export-" + running.id() : null;
     String searchExportFileName = searchOnly ? "search-results-" + running.id() + ".json" : null;
@@ -227,13 +222,7 @@ public class ReplayCopyJobWorker {
           lastMessageAtMs = nowMs;
           scanned++;
           lastMessageId = String.valueOf(message.getMessageId());
-          boolean matches = matchesMessage(
-              message,
-              messageKeyFilter,
-              propertyFilters,
-              filterText,
-              matchField,
-              filterValues);
+          boolean matches = matchesMessage(message, criteriaRows);
 
           if (matches) {
             matched++;
@@ -241,7 +230,7 @@ public class ReplayCopyJobWorker {
               searchMatched++;
               if (searchStored < searchExportMaxResults) {
                 String payload = message.getData() == null ? "" : new String(message.getData(), StandardCharsets.UTF_8);
-                String matchedFieldValue = extractMatchFieldValue(payload, matchField);
+                String matchedFieldValue = extractMatchingCriteriaSummary(payload, criteriaRows);
                 searchResultRepository.insert(
                     running.id(),
                     String.valueOf(message.getMessageId()),
@@ -395,9 +384,10 @@ public class ReplayCopyJobWorker {
   private void processMockReplayCopyJob(
       JobRecord running,
       Map<String, Object> parameters,
-      Set<String> filterValues) {
+      List<Map<String, String>> criteriaRows) {
     int messageLimit = intValue(parameters.get("messageLimit"));
-    int simulatedScanned = Math.max(1, Math.min(messageLimit, filterValues.isEmpty() ? 12 : filterValues.size()));
+    int criteriaRowCount = criteriaRows == null ? 0 : criteriaRows.size();
+    int simulatedScanned = Math.max(1, Math.min(messageLimit, criteriaRowCount == 0 ? 12 : criteriaRowCount));
     int simulatedMatched = Math.max(1, Math.min(simulatedScanned, 12));
     int simulatedMoved = running.type() == JobType.COPY ? simulatedMatched : 0;
     int simulatedNonMatched = Math.max(0, simulatedScanned - simulatedMatched);
@@ -516,66 +506,84 @@ public class ReplayCopyJobWorker {
 
   private boolean matchesMessage(
       Message<byte[]> message,
-      String messageKeyFilter,
-      Map<String, String> propertyFilters,
-      String filterText,
-      String matchField,
-      Set<String> filterValues) {
-    if (messageKeyFilter != null && !messageKeyFilter.isBlank()) {
-      if (!message.hasKey() || !messageKeyFilter.equals(message.getKey())) {
-        return false;
-      }
+      List<Map<String, String>> criteriaRows) {
+    if (criteriaRows == null || criteriaRows.isEmpty()) {
+      return true;
     }
-
-    if (propertyFilters != null && !propertyFilters.isEmpty()) {
-      Map<String, String> messageProperties = message.getProperties();
-      for (Map.Entry<String, String> entry : propertyFilters.entrySet()) {
-        String current = messageProperties == null ? null : messageProperties.get(entry.getKey());
-        if (!entry.getValue().equals(current)) {
-          return false;
-        }
-      }
-    }
-
     String payload = message.getData() == null ? "" : new String(message.getData(), StandardCharsets.UTF_8);
-    if (filterText != null && !filterText.isBlank() && !payload.contains(filterText)) {
+    JsonNode root = parsePayload(payload);
+    if (root == null || !root.isObject()) {
       return false;
     }
 
-    if (filterValues != null && !filterValues.isEmpty()) {
-      if (matchField == null || matchField.isBlank()) {
-        return false;
+    for (Map<String, String> row : criteriaRows) {
+      if (row == null || row.isEmpty()) {
+        continue;
       }
-      try {
-        JsonNode root = objectMapper.readTree(payload);
-        JsonNode fieldNode = root.path(matchField);
+      boolean rowMatches = true;
+      for (Map.Entry<String, String> entry : row.entrySet()) {
+        JsonNode fieldNode = root.path(entry.getKey());
         if (fieldNode.isMissingNode() || fieldNode.isNull()) {
-          return false;
+          rowMatches = false;
+          break;
         }
         String fieldValue = fieldNode.isValueNode() ? fieldNode.asText() : fieldNode.toString();
-        return filterValues.contains(fieldValue);
-      } catch (Exception exception) {
-        return false;
+        if (!entry.getValue().equals(fieldValue)) {
+          rowMatches = false;
+          break;
+        }
+      }
+      if (rowMatches) {
+        return true;
       }
     }
-
-    return true;
+    return false;
   }
 
-  private String extractMatchFieldValue(String payload, String matchField) {
-    if (matchField == null || matchField.isBlank() || payload == null || payload.isBlank()) {
+  private JsonNode parsePayload(String payload) {
+    if (payload == null || payload.isBlank()) {
       return null;
     }
     try {
-      JsonNode root = objectMapper.readTree(payload);
-      JsonNode fieldNode = root.path(matchField);
-      if (fieldNode.isMissingNode() || fieldNode.isNull()) {
-        return null;
-      }
-      return fieldNode.isValueNode() ? fieldNode.asText() : fieldNode.toString();
+      return objectMapper.readTree(payload);
     } catch (Exception exception) {
       return null;
     }
+  }
+
+  private String extractMatchingCriteriaSummary(String payload, List<Map<String, String>> criteriaRows) {
+    if (criteriaRows == null || criteriaRows.isEmpty()) {
+      return null;
+    }
+    JsonNode root = parsePayload(payload);
+    if (root == null || !root.isObject()) {
+      return null;
+    }
+    for (Map<String, String> row : criteriaRows) {
+      if (row == null || row.isEmpty()) {
+        continue;
+      }
+      boolean rowMatches = true;
+      for (Map.Entry<String, String> entry : row.entrySet()) {
+        JsonNode fieldNode = root.path(entry.getKey());
+        if (fieldNode.isMissingNode() || fieldNode.isNull()) {
+          rowMatches = false;
+          break;
+        }
+        String fieldValue = fieldNode.isValueNode() ? fieldNode.asText() : fieldNode.toString();
+        if (!entry.getValue().equals(fieldValue)) {
+          rowMatches = false;
+          break;
+        }
+      }
+      if (rowMatches) {
+        return row.entrySet().stream()
+            .map(entry -> entry.getKey() + "=" + entry.getValue())
+            .reduce((left, right) -> left + "," + right)
+            .orElse(null);
+      }
+    }
+    return null;
   }
 
   private void replicateSchema(WorkerEnvironmentRecord environment, String sourceTopicName, String destinationTopicName) {
@@ -586,33 +594,37 @@ public class ReplayCopyJobWorker {
     TopicPath destinationPath = parseTopicPath(destinationTopicName);
     RestClient restClient = buildRestClient(environment);
 
-    JsonNode sourceSchema = restClient.get()
-        .uri(environment.adminUrl() + schemaPath(sourcePath))
-        .retrieve()
-        .body(JsonNode.class);
-    if (sourceSchema == null || sourceSchema.path("data").asText("").isBlank()) {
-      return;
-    }
+    try {
+      JsonNode sourceSchema = restClient.get()
+          .uri(environment.adminUrl() + schemaPath(sourcePath))
+          .retrieve()
+          .body(JsonNode.class);
+      if (sourceSchema == null || sourceSchema.path("data").asText("").isBlank()) {
+        return;
+      }
 
-    restClient.post()
-        .uri(environment.adminUrl() + schemaPath(destinationPath))
-        .body(Map.of(
-            "type", sourceSchema.path("type").asText("JSON"),
-            "schema", sourceSchema.path("data").asText("")))
-        .retrieve()
-        .toBodilessEntity();
-
-    JsonNode compatibility = restClient.get()
-        .uri(environment.adminUrl() + schemaCompatibilityPath(sourcePath.tenant(), sourcePath.namespace()))
-        .retrieve()
-        .body(JsonNode.class);
-    String compatibilityStrategy = compatibility == null ? null : compatibility.asText("");
-    if (compatibilityStrategy != null && !compatibilityStrategy.isBlank()) {
-      restClient.put()
-          .uri(environment.adminUrl() + schemaCompatibilityPath(destinationPath.tenant(), destinationPath.namespace()))
-          .body(compatibilityStrategy)
+      restClient.post()
+          .uri(environment.adminUrl() + schemaPath(destinationPath))
+          .body(Map.of(
+              "type", sourceSchema.path("type").asText("JSON"),
+              "schema", sourceSchema.path("data").asText("")))
           .retrieve()
           .toBodilessEntity();
+
+      JsonNode compatibility = restClient.get()
+          .uri(environment.adminUrl() + schemaCompatibilityPath(sourcePath.tenant(), sourcePath.namespace()))
+          .retrieve()
+          .body(JsonNode.class);
+      String compatibilityStrategy = compatibility == null ? null : compatibility.asText("");
+      if (compatibilityStrategy != null && !compatibilityStrategy.isBlank()) {
+        restClient.put()
+            .uri(environment.adminUrl() + schemaCompatibilityPath(destinationPath.tenant(), destinationPath.namespace()))
+            .body(compatibilityStrategy)
+            .retrieve()
+            .toBodilessEntity();
+      }
+    } catch (Exception exception) {
+      throw new RuntimeException("Unable to replicate schema: " + exception.getMessage(), exception);
     }
   }
 
@@ -777,20 +789,6 @@ public class ReplayCopyJobWorker {
       return false;
     }
     return Boolean.parseBoolean(value.toString());
-  }
-
-  @SuppressWarnings("unchecked")
-  private Map<String, String> stringMapValue(Object value) {
-    if (value instanceof Map<?, ?> raw) {
-      Map<String, String> normalized = new LinkedHashMap<>();
-      raw.forEach((key, item) -> {
-        if (key != null && item != null) {
-          normalized.put(key.toString(), item.toString());
-        }
-      });
-      return normalized;
-    }
-    return Map.of();
   }
 
   private record TopicPath(String domain, String tenant, String namespace, String topic) {

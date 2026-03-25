@@ -7,6 +7,8 @@ import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
+import com.pulsaradmin.shared.model.ClearBacklogRequest;
+import com.pulsaradmin.shared.model.ClearBacklogResponse;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
@@ -211,6 +213,11 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public SkipMessagesResponse skipMessages(EnvironmentDetails environment, SkipMessagesRequest request) {
     return activeGateway().skipMessages(environment, request);
+  }
+
+  @Override
+  public ClearBacklogResponse clearBacklog(EnvironmentDetails environment, ClearBacklogRequest request) {
+    return activeGateway().clearBacklog(environment, request);
   }
 
   @Override

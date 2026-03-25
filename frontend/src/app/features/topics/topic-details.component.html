@@ -318,6 +318,7 @@
               <div class="action-group-buttons">
                 <button type="button" (click)="openWorkflow('reset')">Reset Cursor</button>
                 <button type="button" (click)="openWorkflow('skip')">Skip Messages</button>
+                <button type="button" class="danger-button ghost-danger" (click)="openWorkflow('clear-backlog')">Clear Backlog</button>
                 <button type="button" (click)="openWorkflow('replay')">Replay / Retry</button>
                 <button type="button" (click)="openWorkflow('create-subscription')">Add Subscription</button>
               </div>
@@ -397,10 +398,15 @@
               <p class="workflow-copy">
                 Add a new subscription and choose whether it should start at the latest message or from the earliest retained backlog.
               </p>
-            } @else if (activeWorkflow() === 'dlq' || activeWorkflow() === 'replay') {
+            } @else if (activeWorkflow() === 'replay') {
               <h3>Replay / retry workflow</h3>
               <p class="workflow-copy">
-                Run long-running acknowledge, move, or search jobs with strict AND filters, CSV ID input, and live progress visibility.
+                Run long-running acknowledge, move, or search jobs using CSV header-based multi-field criteria with live progress visibility.
+              </p>
+            } @else if (activeWorkflow() === 'clear-backlog') {
+              <h3>Clear backlog</h3>
+              <p class="workflow-copy">
+                Clear all current backlog for one subscription on this topic. This is destructive and should be used only when you intentionally want to fast-forward processing state.
               </p>
             } @else if (activeWorkflow() === 'delete-topic') {
               <h3>Delete topic</h3>
@@ -606,7 +612,45 @@
                 </button>
               </div>
             </form>
-          } @else if (activeWorkflow() === 'dlq' || activeWorkflow() === 'replay') {
+          } @else if (activeWorkflow() === 'clear-backlog') {
+            <form class="reset-form" [formGroup]="clearBacklogForm" (ngSubmit)="submitClearBacklog()">
+              <label>
+                <span>Subscription</span>
+                <select formControlName="subscriptionName">
+                  @for (subscription of topic.subscriptions; track subscription) {
+                    <option [value]="subscription">{{ subscription }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class="full-width">
+                <span>Reason</span>
+                <textarea formControlName="reason" rows="3" placeholder="Why are we clearing backlog for this subscription?"></textarea>
+              </label>
+
+              <div class="preview-panel">
+                <p class="eyebrow">Preview</p>
+                <p>{{ clearBacklogPreview() }}</p>
+              </div>
+
+              @if (clearBacklogError()) {
+                <div class="placeholder-panel error"><p>{{ clearBacklogError() }}</p></div>
+              }
+
+              @if (clearBacklogResult(); as result) {
+                <div class="placeholder-panel success">
+                  <p>{{ result.message }}</p>
+                  <p class="result-meta">Cleared at {{ result.clearedAt | date: 'medium' }}</p>
+                </div>
+              }
+
+              <div class="form-button-row">
+                <button type="submit" class="danger-button" [disabled]="clearBacklogSaving()">
+                  {{ clearBacklogSaving() ? 'Clearing...' : 'Clear Backlog' }}
+                </button>
+              </div>
+            </form>
+          } @else if (activeWorkflow() === 'replay') {
             <form class="reset-form" [formGroup]="replayForm" (ngSubmit)="submitReplayCopyJob()">
               <label>
                 <span>Subscription</span>
@@ -633,38 +677,19 @@
                 </label>
               }
 
-              <label>
-                <span>Match Field</span>
-                <input formControlName="matchField" type="text" placeholder="feedId" />
-              </label>
-
-              <label>
+              <label class="full-width">
                 <span>IDs CSV File</span>
                 <input type="file" accept=".csv,text/csv" (change)="onReplayFilterFileSelected($event)" />
               </label>
 
               @if (replayFilterFile(); as file) {
                 <div class="placeholder-panel full-width">
-                  <p>Using filter file <strong>{{ file.name }}</strong> ({{ file.size }} bytes)</p>
+                  <p>Using criteria file <strong>{{ file.name }}</strong> ({{ file.size }} bytes)</p>
                 </div>
               }
 
-              <label>
-                <span>Message Key</span>
-                <input formControlName="messageKey" type="text" placeholder="Optional exact key" />
-              </label>
-
-              <label>
-                <span>Property Filters</span>
-                <input formControlName="propertyFilters" type="text" placeholder="origin=dlq,errorCode=500" />
-              </label>
-
-              <label>
-                <span>Text Match</span>
-                <input formControlName="filterText" type="text" placeholder="Optional payload text match" />
-              </label>
               <div class="placeholder-panel full-width">
-                <p>Filter semantics are strict AND. A message must satisfy every provided filter to be considered a match.</p>
+                <p>CSV format: row 1 is headers (field names), each next row is one criteria object. Fields in a row are ANDed, rows are ORed, blank cells mean “no constraint”.</p>
               </div>
 
               <label>

@@ -6,6 +6,8 @@ import com.pulsaradmin.shared.model.CreateTenantRequest;
 import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
+import com.pulsaradmin.shared.model.ClearBacklogRequest;
+import com.pulsaradmin.shared.model.ClearBacklogResponse;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentSnapshot;
@@ -108,6 +110,8 @@ public interface PulsarAdminGateway {
   ResetCursorResponse resetCursor(EnvironmentDetails environment, ResetCursorRequest request);
 
   SkipMessagesResponse skipMessages(EnvironmentDetails environment, SkipMessagesRequest request);
+
+  ClearBacklogResponse clearBacklog(EnvironmentDetails environment, ClearBacklogRequest request);
 
   UnloadTopicResponse unloadTopic(EnvironmentDetails environment, UnloadTopicRequest request);
 }

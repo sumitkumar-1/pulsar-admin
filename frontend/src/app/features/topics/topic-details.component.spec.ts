@@ -696,8 +696,6 @@ describe('TopicDetailsComponent', () => {
       destinationTopicName: 'persistent://acme/dev/replay-lab',
       messageLimit: 120,
       messagesPerSecond: 50,
-      filterText: 'payment-10412',
-      matchField: 'feedId',
       autoReplicateSchema: true,
       scannedMessages: 0,
       matchedMessages: 0,
@@ -732,8 +730,6 @@ describe('TopicDetailsComponent', () => {
       destinationTopicName: 'persistent://acme/dev/replay-lab',
       messageLimit: 120,
       messagesPerSecond: 50,
-      filterText: 'payment-10412',
-      matchField: 'feedId',
       autoReplicateSchema: true,
       scannedMessages: 36,
       matchedMessages: 36,
@@ -826,7 +822,6 @@ describe('TopicDetailsComponent', () => {
       operationMode: 'ACK_AND_MOVE',
       destinationTopicName: 'persistent://acme/dev/replay-lab',
       messageLimit: 120,
-      filterText: 'payment-10412',
       messagesPerSecond: 50,
       reason: 'Copy incident-related messages into replay lab'
     });
@@ -841,8 +836,6 @@ describe('TopicDetailsComponent', () => {
       operationMode: 'ACK_AND_MOVE',
       destinationTopicName: 'persistent://acme/dev/replay-lab',
       messageLimit: 120,
-      filterText: 'payment-10412',
-      matchField: 'feedId',
       autoReplicateSchema: true,
       messagesPerSecond: 50,
       reason: 'Copy incident-related messages into replay lab'

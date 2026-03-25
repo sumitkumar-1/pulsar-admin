@@ -9,6 +9,8 @@ import com.pulsaradmin.shared.model.CreateTopicRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesRequest;
 import com.pulsaradmin.shared.model.ConsumeMessagesResponse;
 import com.pulsaradmin.shared.model.ConsumedMessage;
+import com.pulsaradmin.shared.model.ClearBacklogRequest;
+import com.pulsaradmin.shared.model.ClearBacklogResponse;
 import com.pulsaradmin.shared.model.EnvironmentConnectionTestResult;
 import com.pulsaradmin.shared.model.EnvironmentDetails;
 import com.pulsaradmin.shared.model.EnvironmentHealth;
@@ -654,6 +656,17 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         request.subscriptionName(),
         skippedMessages,
         message);
+  }
+
+  @Override
+  public ClearBacklogResponse clearBacklog(EnvironmentDetails environment, ClearBacklogRequest request) {
+    return new ClearBacklogResponse(
+        environment.id(),
+        request.topicName(),
+        request.subscriptionName(),
+        true,
+        "Cleared backlog for subscription " + request.subscriptionName() + ".",
+        Instant.now());
   }
 
   @Override
