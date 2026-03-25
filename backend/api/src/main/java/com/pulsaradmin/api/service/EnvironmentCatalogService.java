@@ -747,7 +747,9 @@ public class EnvironmentCatalogService {
       throw new NotFoundException("Unknown subscription: " + request.subscriptionName());
     }
 
-    return pulsarAdminGateway.clearBacklog(environment.toDetails(), request);
+    ClearBacklogResponse response = pulsarAdminGateway.clearBacklog(environment.toDetails(), request);
+    refreshSnapshot(environment);
+    return response;
   }
 
   public UnloadTopicResponse unloadTopic(String environmentId, UnloadTopicRequest request) {

@@ -72,6 +72,30 @@
             <button type="button" (click)="syncEnvironment(environment.id, $event)">Sync again</button>
             <button type="button" class="danger" (click)="deleteEnvironment(environment.id, $event)">Delete</button>
           </div>
+
+          <div class="refresh-preferences">
+            <label (click)="$event.stopPropagation()">
+              <input
+                type="checkbox"
+                [checked]="autoRefreshEnabled(environment.id)"
+                (change)="setAutoRefreshEnabled(environment.id, $any($event.target).checked, $event)"
+              />
+              Auto refresh topic stats
+            </label>
+
+            <label (click)="$event.stopPropagation()">
+              Every
+              <input
+                type="number"
+                min="5"
+                max="300"
+                [value]="autoRefreshSeconds(environment.id)"
+                [disabled]="!autoRefreshEnabled(environment.id)"
+                (change)="setAutoRefreshSeconds(environment.id, $any($event.target).valueAsNumber, $event)"
+              />
+              sec
+            </label>
+          </div>
         </article>
       }
     }

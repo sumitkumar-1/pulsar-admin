@@ -6,6 +6,7 @@ import { RouterLink } from '@angular/router';
 import { tap } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
+import { EnvironmentRefreshPreferencesService } from '../../core/environment-refresh-preferences.service';
 import { EnvironmentDetails, EnvironmentSummary, EnvironmentUpsertRequest } from '../../core/models/api.models';
 import { EnvironmentDialogComponent } from './environment-dialog.component';
 
@@ -20,6 +21,7 @@ import { EnvironmentDialogComponent } from './environment-dialog.component';
 export class EnvironmentOverviewComponent {
   private readonly api = inject(PulsarApiService);
   private readonly demoMode = inject(DemoModeService);
+  private readonly refreshPreferences = inject(EnvironmentRefreshPreferencesService);
   private readonly formBuilder = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -204,6 +206,34 @@ export class EnvironmentOverviewComponent {
 
   modeQueryParams() {
     return this.demoMode.queryParams({});
+  }
+
+  autoRefreshEnabled(environmentId: string): boolean {
+    return this.refreshPreferences.get(environmentId).enabled;
+  }
+
+  autoRefreshSeconds(environmentId: string): number {
+    return this.refreshPreferences.get(environmentId).intervalSeconds;
+  }
+
+  setAutoRefreshEnabled(environmentId: string, enabled: boolean, event?: Event) {
+    event?.stopPropagation();
+    this.refreshPreferences.setEnabled(environmentId, enabled);
+    this.actionState.set(
+      enabled
+        ? `Auto refresh enabled for ${environmentId}.`
+        : `Auto refresh disabled for ${environmentId}.`
+    );
+    this.actionError.set(null);
+  }
+
+  setAutoRefreshSeconds(environmentId: string, intervalSeconds: number, event?: Event) {
+    event?.stopPropagation();
+    this.refreshPreferences.setIntervalSeconds(environmentId, intervalSeconds);
+    this.actionState.set(
+      `Auto refresh interval set to ${this.refreshPreferences.get(environmentId).intervalSeconds}s for ${environmentId}.`
+    );
+    this.actionError.set(null);
   }
 
   private populateForm(environment: EnvironmentDetails) {

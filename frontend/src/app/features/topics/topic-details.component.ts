@@ -6,6 +6,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { combineLatest, Subscription, switchMap, timer } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
+import { EnvironmentRefreshPreferencesService } from '../../core/environment-refresh-preferences.service';
 import {
   ClearBacklogRequest,
   ClearBacklogResponse,
@@ -54,11 +55,13 @@ type ConsumeSubscriptionMode = 'AUTO_EPHEMERAL' | 'REUSE_EXISTING' | 'CREATE_NAM
 export class TopicDetailsComponent {
   private readonly api = inject(PulsarApiService);
   private readonly demoMode = inject(DemoModeService);
+  private readonly refreshPreferences = inject(EnvironmentRefreshPreferencesService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly formBuilder = inject(FormBuilder);
   private replayJobPolling: Subscription | null = null;
+  private topicRefreshPolling: Subscription | null = null;
 
   readonly details = signal<TopicDetails | null>(null);
   readonly environmentId = signal('');
@@ -274,10 +277,12 @@ export class TopicDetailsComponent {
           });
           this.loading.set(false);
           this.loadReplayDestinationPreview(this.replayForm.controls.destinationTopicName.value);
+          this.syncTopicAutoRefreshPolling();
         },
         error: (error: { error?: { message?: string } }) => {
           this.loadError.set(error.error?.message ?? 'Unable to load topic details.');
           this.loading.set(false);
+          this.syncTopicAutoRefreshPolling();
         }
       });
 
@@ -652,6 +657,7 @@ export class TopicDetailsComponent {
         next: (response) => {
           this.resetResult.set(response);
           this.resetSaving.set(false);
+          this.refreshTopicDetails();
         },
         error: (error: { error?: { message?: string } }) => {
           this.resetError.set(error.error?.message ?? 'Unable to reset the subscription cursor.');
@@ -710,6 +716,7 @@ export class TopicDetailsComponent {
         next: (response) => {
           this.skipResult.set(response);
           this.skipSaving.set(false);
+          this.refreshTopicDetails();
         },
         error: (error: { error?: { message?: string } }) => {
           this.skipError.set(error.error?.message ?? 'Unable to skip messages for this subscription.');
@@ -748,6 +755,7 @@ export class TopicDetailsComponent {
         next: (response) => {
           this.clearBacklogResult.set(response);
           this.clearBacklogSaving.set(false);
+          this.refreshTopicDetails();
         },
         error: (error: { error?: { message?: string } }) => {
           this.clearBacklogError.set(error.error?.message ?? 'Unable to clear backlog for this subscription.');
@@ -1060,6 +1068,7 @@ export class TopicDetailsComponent {
         next: (response) => {
           this.publishSaving.set(false);
           this.publishResult.set(response);
+          this.refreshTopicDetails();
         },
         error: (error: { error?: { message?: string } }) => {
           this.publishSaving.set(false);
@@ -1097,6 +1106,7 @@ export class TopicDetailsComponent {
         next: (response) => {
           this.consumeSaving.set(false);
           this.consumeResult.set(response);
+          this.refreshTopicDetails();
         },
         error: (error: { error?: { message?: string } }) => {
           this.consumeSaving.set(false);
@@ -1392,6 +1402,7 @@ export class TopicDetailsComponent {
           this.replayEventsError.set(null);
           if (response.status === 'COMPLETED' || response.status === 'FAILED') {
             this.stopReplayPolling();
+            this.refreshTopicDetails();
           }
         },
         error: (error: { error?: { message?: string } }) => {
@@ -1673,6 +1684,49 @@ export class TopicDetailsComponent {
     this.skipForm.patchValue({ subscriptionName: firstSubscription });
     this.clearBacklogForm.patchValue({ subscriptionName: firstSubscription });
     this.replayForm.patchValue({ subscriptionName: firstSubscription });
+  }
+
+  private refreshTopicDetails() {
+    const currentTopic = this.details();
+    if (!currentTopic) {
+      return;
+    }
+
+    this.api.getTopicDetails(this.environmentId(), currentTopic.fullName)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (topic) => this.applyUpdatedTopic(topic),
+        error: () => {
+          // Keep the current UI state and result banner if the background refresh fails.
+        }
+      });
+  }
+
+  private syncTopicAutoRefreshPolling() {
+    this.topicRefreshPolling?.unsubscribe();
+    this.topicRefreshPolling = null;
+
+    if (!this.environmentId() || !this.refreshPreferences.get(this.environmentId()).enabled) {
+      return;
+    }
+
+    const currentTopic = this.details();
+    if (!currentTopic || !this.environmentId()) {
+      return;
+    }
+
+    const intervalMs = this.refreshPreferences.get(this.environmentId()).intervalSeconds * 1000;
+    this.topicRefreshPolling = timer(intervalMs, intervalMs)
+      .pipe(
+        switchMap(() => this.api.getTopicDetails(this.environmentId(), currentTopic.fullName)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: (topic) => this.applyUpdatedTopic(topic),
+        error: () => {
+          // Auto-refresh is best-effort; keep polling even if a single call fails.
+        }
+      });
   }
 
   private loadReplayDestinationPreview(topicName: string | null | undefined) {
