@@ -12,6 +12,7 @@ import {
   CreateTenantRequest,
   CreateTopicRequest,
   EnvironmentHealth,
+  EnvironmentSyncStatus,
   NamespaceDeleteRequest,
   NamespaceSummary,
   PlatformArtifactDeleteRequest,
@@ -57,12 +58,14 @@ type PlatformArtifactType = 'FUNCTION' | 'SOURCE' | 'SINK' | 'CONNECTOR';
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class TopicExplorerComponent {
+  private static readonly INITIAL_SYNC_POLL_MS = 5000;
   private readonly api = inject(PulsarApiService);
   private readonly demoMode = inject(DemoModeService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly refresh$ = new BehaviorSubject<void>(undefined);
+  private syncRetryHandle: number | null = null;
 
   readonly searchControl = new FormControl('', { nonNullable: true });
   readonly createTopicForm = new FormGroup({
@@ -109,6 +112,7 @@ export class TopicExplorerComponent {
   });
   readonly environmentId = signal('');
   readonly environmentHealth = signal<EnvironmentHealth | null>(null);
+  readonly environmentSyncStatus = signal<EnvironmentSyncStatus | null>(null);
   readonly catalogSummary = signal<CatalogSummary | null>(null);
   readonly platformSummary = signal<PlatformSummary | null>(null);
   readonly topicPage = signal<TopicPage | null>(null);
@@ -230,8 +234,11 @@ export class TopicExplorerComponent {
   readonly visibleSources = computed(() => this.filterPlatformArtifacts(this.platformSummary()?.sources ?? []));
   readonly visibleSinks = computed(() => this.filterPlatformArtifacts(this.platformSummary()?.sinks ?? []));
   readonly visibleConnectors = computed(() => this.platformSummary()?.connectors ?? []);
+  readonly awaitingInitialSync = computed(() => this.environmentSyncStatus()?.syncStatus === 'SYNCING');
 
   constructor() {
+    this.destroyRef.onDestroy(() => this.clearSyncRetry());
+
     combineLatest([this.route.paramMap, this.route.queryParamMap, this.refresh$])
       .pipe(
         switchMap(([params, queryParams]) => this.loadData(params, queryParams)),
@@ -239,7 +246,9 @@ export class TopicExplorerComponent {
       )
       .subscribe({
         next: ([health, catalog, pageResult]) => {
+          this.clearSyncRetry();
           this.environmentHealth.set(health);
+          this.environmentSyncStatus.set(null);
           this.catalogSummary.set(catalog);
           this.topicPage.set(pageResult);
           this.loading.set(false);
@@ -255,8 +264,7 @@ export class TopicExplorerComponent {
           }
         },
         error: (error: { error?: { message?: string } }) => {
-          this.loadError.set(error.error?.message ?? 'Unable to load topics right now.');
-          this.loading.set(false);
+          this.handleLoadError(error);
         }
       });
 
@@ -811,6 +819,50 @@ export class TopicExplorerComponent {
       this.api.getCatalogSummary(envId),
       this.api.getTopics(envId, { search, tenant, namespace, page, pageSize })
     ]);
+  }
+
+  private handleLoadError(error: { error?: { message?: string } }) {
+    const envId = this.environmentId();
+    this.api.getEnvironmentSyncStatus(envId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (status) => {
+          this.environmentSyncStatus.set(status);
+          this.loading.set(false);
+
+          if (status.syncStatus === 'SYNCING') {
+            this.loadError.set(null);
+            this.scheduleSyncRetry();
+            return;
+          }
+
+          this.clearSyncRetry();
+          this.loadError.set(error.error?.message ?? status.syncMessage ?? 'Unable to load topics right now.');
+        },
+        error: () => {
+          this.clearSyncRetry();
+          this.loadError.set(error.error?.message ?? 'Unable to load topics right now.');
+          this.loading.set(false);
+        }
+      });
+  }
+
+  private scheduleSyncRetry() {
+    if (this.syncRetryHandle !== null) {
+      return;
+    }
+
+    this.syncRetryHandle = window.setTimeout(() => {
+      this.syncRetryHandle = null;
+      this.refresh$.next();
+    }, TopicExplorerComponent.INITIAL_SYNC_POLL_MS);
+  }
+
+  private clearSyncRetry() {
+    if (this.syncRetryHandle !== null) {
+      window.clearTimeout(this.syncRetryHandle);
+      this.syncRetryHandle = null;
+    }
   }
 
   async selectNamespace(tenant: string, namespace: string) {

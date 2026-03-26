@@ -11,8 +11,11 @@ import com.pulsaradmin.shared.model.EnvironmentSummary;
 import com.pulsaradmin.shared.model.EnvironmentSyncStatus;
 import com.pulsaradmin.shared.model.EnvironmentUpsertRequest;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -23,18 +26,22 @@ public class EnvironmentManagementService {
   private final PulsarAdminGateway pulsarAdminGateway;
   private final GatewayModeResolver gatewayModeResolver;
   private final MockEnvironmentStore mockEnvironmentStore;
+  private final TaskExecutor taskExecutor;
+  private final Set<String> runningSyncs = ConcurrentHashMap.newKeySet();
 
   public EnvironmentManagementService(
       EnvironmentRepository environmentRepository,
       EnvironmentSnapshotRepository snapshotRepository,
       PulsarAdminGateway pulsarAdminGateway,
       GatewayModeResolver gatewayModeResolver,
-      MockEnvironmentStore mockEnvironmentStore) {
+      MockEnvironmentStore mockEnvironmentStore,
+      TaskExecutor taskExecutor) {
     this.environmentRepository = environmentRepository;
     this.snapshotRepository = snapshotRepository;
     this.pulsarAdminGateway = pulsarAdminGateway;
     this.gatewayModeResolver = gatewayModeResolver;
     this.mockEnvironmentStore = mockEnvironmentStore;
+    this.taskExecutor = taskExecutor;
   }
 
   public List<EnvironmentSummary> getEnvironments() {
@@ -178,11 +185,42 @@ public class EnvironmentManagementService {
       throw new BadRequestException("Run a successful connection test before syncing this environment.");
     }
 
-    EnvironmentSnapshot snapshot = pulsarAdminGateway.syncMetadata(environment.toDetails());
-    EnvironmentSnapshotRecord snapshotRecord = storeSnapshot(environmentId, snapshot);
+    if (isMockMode()) {
+      EnvironmentSnapshot snapshot = pulsarAdminGateway.syncMetadata(environment.toDetails());
+      EnvironmentSnapshotRecord snapshotRecord = storeSnapshot(environmentId, snapshot);
 
-    Instant syncedAt = Instant.now();
-    EnvironmentRecord syncedEnvironment = new EnvironmentRecord(
+      Instant syncedAt = Instant.now();
+      EnvironmentRecord syncedEnvironment = new EnvironmentRecord(
+          environment.id(),
+          environment.name(),
+          environment.kind(),
+          environment.region(),
+          environment.clusterLabel(),
+          environment.summary(),
+          environment.brokerUrl(),
+          environment.adminUrl(),
+          environment.authMode(),
+          environment.credentialReference(),
+          environment.syncTargets(),
+          environment.tlsEnabled(),
+          snapshot.health().status(),
+          "SYNCED",
+          snapshot.health().message(),
+          syncedAt,
+          environment.lastTestStatus(),
+          environment.lastTestMessage(),
+          environment.lastTestedAt(),
+          environment.deletedAt());
+
+      updateEnvironmentRecord(syncedEnvironment);
+      return snapshotRecord.toSyncStatus("SYNCED", snapshot.health().message(), syncedAt);
+    }
+
+    if (!runningSyncs.add(environmentId) || "SYNCING".equalsIgnoreCase(environment.syncStatus())) {
+      return buildSyncStatus(environmentId, environment, currentSnapshot(environmentId));
+    }
+
+    EnvironmentRecord syncingEnvironment = new EnvironmentRecord(
         environment.id(),
         environment.name(),
         environment.kind(),
@@ -195,18 +233,19 @@ public class EnvironmentManagementService {
         environment.credentialReference(),
         environment.syncTargets(),
         environment.tlsEnabled(),
-        snapshot.health().status(),
-        "SYNCED",
-        snapshot.health().message(),
-        syncedAt,
+        environment.status(),
+        "SYNCING",
+        "Metadata sync is running in the background.",
+        environment.lastSyncedAt(),
         environment.lastTestStatus(),
         environment.lastTestMessage(),
         environment.lastTestedAt(),
         environment.deletedAt());
+    updateEnvironmentRecord(syncingEnvironment);
 
-    updateEnvironmentRecord(syncedEnvironment);
+    taskExecutor.execute(() -> performSync(environmentId));
 
-    return snapshotRecord.toSyncStatus("SYNCED", snapshot.health().message(), syncedAt);
+    return buildSyncStatus(environmentId, syncingEnvironment, currentSnapshot(environmentId));
   }
 
   public EnvironmentSyncStatus getSyncStatus(String environmentId) {
@@ -291,6 +330,92 @@ public class EnvironmentManagementService {
 
   private boolean isMockMode() {
     return "mock".equals(gatewayModeResolver.resolveMode());
+  }
+
+  private void performSync(String environmentId) {
+    try {
+      EnvironmentRecord environment = requireEnvironment(environmentId);
+      EnvironmentSnapshot snapshot = pulsarAdminGateway.syncMetadata(environment.toDetails());
+      storeSnapshot(environmentId, snapshot);
+
+      Instant syncedAt = Instant.now();
+      EnvironmentRecord syncedEnvironment = new EnvironmentRecord(
+          environment.id(),
+          environment.name(),
+          environment.kind(),
+          environment.region(),
+          environment.clusterLabel(),
+          environment.summary(),
+          environment.brokerUrl(),
+          environment.adminUrl(),
+          environment.authMode(),
+          environment.credentialReference(),
+          environment.syncTargets(),
+          environment.tlsEnabled(),
+          snapshot.health().status(),
+          "SYNCED",
+          snapshot.health().message(),
+          syncedAt,
+          environment.lastTestStatus(),
+          environment.lastTestMessage(),
+          environment.lastTestedAt(),
+          environment.deletedAt());
+      updateEnvironmentRecord(syncedEnvironment);
+    } catch (RuntimeException exception) {
+      try {
+        EnvironmentRecord environment = requireEnvironment(environmentId);
+        EnvironmentRecord failedEnvironment = new EnvironmentRecord(
+            environment.id(),
+            environment.name(),
+            environment.kind(),
+            environment.region(),
+            environment.clusterLabel(),
+            environment.summary(),
+            environment.brokerUrl(),
+            environment.adminUrl(),
+            environment.authMode(),
+            environment.credentialReference(),
+            environment.syncTargets(),
+            environment.tlsEnabled(),
+            EnvironmentStatus.DEGRADED,
+            "FAILED",
+            "Metadata sync failed: " + exception.getMessage(),
+            environment.lastSyncedAt(),
+            environment.lastTestStatus(),
+            environment.lastTestMessage(),
+            environment.lastTestedAt(),
+            environment.deletedAt());
+        updateEnvironmentRecord(failedEnvironment);
+      } catch (RuntimeException ignored) {
+        // Ignore follow-up failures if the environment was removed while the background sync was running.
+      }
+    } finally {
+      runningSyncs.remove(environmentId);
+    }
+  }
+
+  private Optional<EnvironmentSnapshotRecord> currentSnapshot(String environmentId) {
+    if (isMockMode()) {
+      return Optional.ofNullable(mockEnvironmentStore.getSnapshot(environmentId));
+    }
+    return snapshotRepository.findByEnvironmentId(environmentId);
+  }
+
+  private EnvironmentSyncStatus buildSyncStatus(
+      String environmentId,
+      EnvironmentRecord environment,
+      Optional<EnvironmentSnapshotRecord> snapshot) {
+    if (snapshot.isPresent()) {
+      return snapshot.get().toSyncStatus(environment.syncStatus(), environment.syncMessage(), environment.lastSyncedAt());
+    }
+    return new EnvironmentSyncStatus(
+        environmentId,
+        environment.syncStatus(),
+        environment.syncMessage(),
+        environment.lastSyncedAt(),
+        0,
+        0,
+        0);
   }
 
   private String blankToNull(String value) {

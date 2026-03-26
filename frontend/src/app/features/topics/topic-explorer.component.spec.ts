@@ -1,11 +1,55 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute } from '@angular/router';
 import { convertToParamMap, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { TopicExplorerComponent } from './topic-explorer.component';
 
 describe('TopicExplorerComponent', () => {
+  it('shows a sync-in-progress state when the first snapshot is still building', async () => {
+    await TestBed.configureTestingModule({
+      imports: [TopicExplorerComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({ page: '0', pageSize: '25' }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironmentHealth: () => throwError(() => ({ error: { message: 'No synced metadata found for environment: prod' } })),
+            getCatalogSummary: () => of({
+              environmentId: 'prod',
+              tenants: [],
+              namespaces: []
+            }),
+            getTopics: () => of({ items: [], page: 0, pageSize: 25, total: 0 }),
+            getEnvironmentSyncStatus: () => of({
+              environmentId: 'prod',
+              syncStatus: 'SYNCING',
+              syncMessage: 'Metadata sync is running in the background.',
+              lastSyncedAt: null,
+              tenantCount: 0,
+              namespaceCount: 0,
+              topicCount: 0
+            })
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicExplorerComponent);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Building the first environment snapshot');
+    expect(compiled.textContent).toContain('Metadata sync is running in the background.');
+  });
+
   it('shows the namespace list first when no namespace is selected', async () => {
     await TestBed.configureTestingModule({
       imports: [TopicExplorerComponent],

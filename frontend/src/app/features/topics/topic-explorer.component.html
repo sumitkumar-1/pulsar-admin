@@ -46,6 +46,17 @@
 
   @if (loading()) {
     <div class="state-card">Loading topic inventory for {{ environmentId() }}...</div>
+  } @else if (awaitingInitialSync()) {
+    <div class="state-card sync-state">
+      <h4>Building the first environment snapshot.</h4>
+      <p>{{ environmentSyncStatus()?.syncMessage }}</p>
+      <p>
+        We will retry automatically every 5 seconds.
+        @if (environmentSyncStatus(); as syncStatus) {
+          Current snapshot counts: {{ syncStatus.tenantCount }} tenants, {{ syncStatus.namespaceCount }} namespaces, {{ syncStatus.topicCount }} topics.
+        }
+      </p>
+    </div>
   } @else if (loadError()) {
     <div class="state-card error">{{ loadError() }}</div>
   } @else if (!hasNamespaces()) {
