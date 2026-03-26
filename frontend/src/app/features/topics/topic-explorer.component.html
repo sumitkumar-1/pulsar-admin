@@ -157,40 +157,56 @@
               </div>
 
               @if (selectedTopicTotal() > 0) {
-                <div class="namespace-summary-row">
-                  <span>
-                    Showing {{ selectedTopicRangeStart() | number }}-{{ selectedTopicRangeEnd() | number }}
-                    of {{ selectedTopicTotal() | number }} topics
-                  </span>
-                  <label>
-                    Page size
-                    <select
-                      [value]="selectedTopicPageSize()"
-                      (change)="changeTopicPageSize($any($event.target).value)">
-                      <option value="10">10</option>
-                      <option value="25">25</option>
-                      <option value="50">50</option>
-                      <option value="100">100</option>
-                    </select>
-                  </label>
-                  <div class="detail-actions">
-                    <button class="ghost" type="button" (click)="goToPreviousTopicPage()" [disabled]="!hasPreviousTopicPage()">
-                      Previous
-                    </button>
-                    <button class="ghost" type="button" (click)="goToNextTopicPage()" [disabled]="!hasNextTopicPage()">
-                      Next
-                    </button>
+                <div class="topic-toolbar">
+                  <div class="topic-toolbar-copy">
+                    <span class="topic-toolbar-title">
+                      Showing {{ selectedTopicRangeStart() | number }}-{{ selectedTopicRangeEnd() | number }}
+                      of {{ selectedTopicTotal() | number }} topics
+                    </span>
+                    @if (activeSearchTerm()) {
+                      <span class="topic-toolbar-subtitle">
+                        {{ visibleSelectedTopicCount() | number }} visible on this page for "{{ searchControl.value.trim() }}"
+                      </span>
+                    }
+                  </div>
+
+                  <div class="topic-toolbar-actions">
+                    <label class="page-size-control">
+                      <span>Page size</span>
+                      <select
+                        [value]="selectedTopicPageSize()"
+                        (change)="changeTopicPageSize($any($event.target).value)">
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </label>
+
+                    <div class="pager-group">
+                      <button class="pager-button" type="button" (click)="goToPreviousTopicPage()" [disabled]="!hasPreviousTopicPage()">
+                        Previous
+                      </button>
+                      <span class="pager-index">Page {{ selectedTopicPage() + 1 }}</span>
+                      <button class="pager-button" type="button" (click)="goToNextTopicPage()" [disabled]="!hasNextTopicPage()">
+                        Next
+                      </button>
+                    </div>
                   </div>
                 </div>
               }
 
-              @if (selectedTopics().length === 0) {
+              @if (visibleSelectedTopics().length === 0) {
                 <div class="state-card compact-state">
-                  No topics are in this namespace yet. Create one to start publishing or testing workflows here.
+                  @if (activeSearchTerm()) {
+                    No topics on this page match "{{ searchControl.value.trim() }}". Try the next page or adjust the search.
+                  } @else {
+                    No topics are in this namespace yet. Create one to start publishing or testing workflows here.
+                  }
                 </div>
               } @else {
                 <div class="topic-grid">
-                  @for (topic of selectedTopics(); track topic.fullName) {
+                  @for (topic of visibleSelectedTopics(); track topic.fullName) {
                     <button type="button" class="topic-card" (click)="openTopic(topic)">
                       <div class="topic-topline">
                         <span class="health-pill" [ngClass]="healthClass(topic.health)">

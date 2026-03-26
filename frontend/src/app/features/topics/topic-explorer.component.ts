@@ -201,6 +201,22 @@ export class TopicExplorerComponent {
   readonly selectedTopics = computed(() =>
     [...(this.topicPage()?.items ?? [])].sort((left, right) => left.topic.localeCompare(right.topic))
   );
+  readonly activeSearchTerm = computed(() => this.searchControl.value.trim().toLowerCase());
+  readonly visibleSelectedTopics = computed(() => {
+    const search = this.activeSearchTerm();
+    const topics = this.selectedTopics();
+
+    if (!search) {
+      return topics;
+    }
+
+    return topics.filter((topic) =>
+      topic.fullName.toLowerCase().includes(search)
+      || topic.topic.toLowerCase().includes(search)
+      || topic.namespace.toLowerCase().includes(search)
+      || topic.summary.toLowerCase().includes(search)
+    );
+  });
   readonly selectedTopicPage = computed(() => this.topicPage()?.page ?? 0);
   readonly selectedTopicPageSize = computed(() => this.topicPage()?.pageSize ?? 25);
   readonly selectedTopicTotal = computed(() => this.topicPage()?.total ?? 0);
@@ -222,6 +238,7 @@ export class TopicExplorerComponent {
   readonly hasNextTopicPage = computed(() =>
     this.selectedTopicRangeEnd() < this.selectedTopicTotal()
   );
+  readonly visibleSelectedTopicCount = computed(() => this.visibleSelectedTopics().length);
 
   readonly totalTopicCount = computed(() =>
     this.catalogSummary()?.namespaces.reduce((sum, namespace) => sum + namespace.topicCount, 0) ?? 0

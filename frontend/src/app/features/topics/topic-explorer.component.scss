@@ -245,6 +245,91 @@
   flex-wrap: wrap;
 }
 
+.topic-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.92), rgba(255, 255, 255, 0.96));
+}
+
+.topic-toolbar-title {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.topic-toolbar-subtitle {
+  color: #64748b;
+}
+
+.topic-toolbar-actions {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: end;
+}
+
+.page-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.9);
+  color: #475569;
+  font-size: 0.92rem;
+}
+
+.page-size-control select {
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 700;
+}
+
+.pager-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.7);
+}
+
+.pager-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.6rem 0.95rem;
+  font: inherit;
+  font-weight: 600;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+
+.pager-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+}
+
+.pager-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pager-index {
+  text-align: center;
+  color: #475569;
+}
+
 .namespace-header {
   margin-bottom: 0.9rem;
 }
@@ -506,6 +591,17 @@
 
   .create-button {
     width: 100%;
+  }
+
+  .topic-toolbar,
+  .topic-toolbar-actions {
+    align-items: stretch;
+  }
+
+  .page-size-control,
+  .pager-group {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .namespace-tabs {

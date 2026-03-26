@@ -184,6 +184,105 @@ describe('TopicExplorerComponent', () => {
     expect(compiled.textContent).toContain('Backlog-heavy topic');
   });
 
+  it('filters the visible topic cards using the active search term', async () => {
+    await TestBed.configureTestingModule({
+      imports: [TopicExplorerComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({
+              tenant: 'acme',
+              namespace: 'orders',
+              search: 'invoice',
+              page: '0',
+              pageSize: '25'
+            }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironmentHealth: () => of({
+              environmentId: 'prod',
+              status: 'HEALTHY',
+              brokerUrl: 'broker',
+              adminUrl: 'admin',
+              pulsarVersion: '4.0.2',
+              message: 'healthy'
+            }),
+            getCatalogSummary: () => of({
+              environmentId: 'prod',
+              tenants: [{ name: 'acme', namespaceCount: 1, topicCount: 2 }],
+              namespaces: [{ tenant: 'acme', namespace: 'orders', topicCount: 2 }]
+            }),
+            getTopics: () => of({
+              items: [
+                {
+                  fullName: 'persistent://acme/orders/payment-events',
+                  tenant: 'acme',
+                  namespace: 'orders',
+                  topic: 'payment-events',
+                  partitioned: false,
+                  partitions: 0,
+                  schemaPresent: true,
+                  health: 'HEALTHY',
+                  stats: {
+                    backlog: 0,
+                    producers: 0,
+                    subscriptions: 0,
+                    consumers: 0,
+                    publishRateIn: 0,
+                    dispatchRateOut: 0,
+                    throughputIn: 0,
+                    throughputOut: 0,
+                    storageSize: 0
+                  },
+                  summary: 'Payment event topic'
+                },
+                {
+                  fullName: 'persistent://acme/orders/invoice-events',
+                  tenant: 'acme',
+                  namespace: 'orders',
+                  topic: 'invoice-events',
+                  partitioned: false,
+                  partitions: 0,
+                  schemaPresent: true,
+                  health: 'HEALTHY',
+                  stats: {
+                    backlog: 0,
+                    producers: 0,
+                    subscriptions: 0,
+                    consumers: 0,
+                    publishRateIn: 0,
+                    dispatchRateOut: 0,
+                    throughputIn: 0,
+                    throughputOut: 0,
+                    storageSize: 0
+                  },
+                  summary: 'Invoice event topic'
+                }
+              ],
+              page: 0,
+              pageSize: 25,
+              total: 2
+            })
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicExplorerComponent);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('invoice-events');
+    expect(compiled.textContent).not.toContain('payment-events');
+    expect(compiled.textContent).toContain('1 visible on this page for "invoice"');
+  });
+
   it('shows topic paging controls when the selected namespace has more topics than the current page', async () => {
     await TestBed.configureTestingModule({
       imports: [TopicExplorerComponent],
