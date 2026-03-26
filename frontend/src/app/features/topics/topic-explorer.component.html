@@ -30,15 +30,6 @@
         <button class="create-button" type="button" (click)="openCreateTenantDialog()">Add Tenant</button>
         <button class="create-button secondary" type="button" (click)="openCreateNamespaceDialog()">Add Namespace</button>
       </div>
-      <form class="toolbar" (ngSubmit)="applySearch()">
-        <input
-          [formControl]="searchControl"
-          type="search"
-          [placeholder]="selectedTenant() && selectedNamespace() ? 'Search topics inside the selected namespace' : 'Select a namespace to search topics'"
-          [disabled]="!selectedTenant() || !selectedNamespace()" />
-        <button type="submit" [disabled]="!selectedTenant() || !selectedNamespace()">Search</button>
-        <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
-      </form>
     </div>
   </div>
 
@@ -157,6 +148,15 @@
                   <p class="summary">Search and page only within {{ selectedNamespaceLabel() }}.</p>
                 </div>
               </div>
+
+              <form class="toolbar topic-search-toolbar" (ngSubmit)="applySearch()">
+                <input
+                  [formControl]="searchControl"
+                  type="search"
+                  placeholder="Search topic names inside this namespace" />
+                <button type="submit">Search</button>
+                <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
+              </form>
 
               @if (selectedTopicTotal() > 0) {
                 <div class="topic-toolbar">

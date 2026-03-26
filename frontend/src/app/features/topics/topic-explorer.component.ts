@@ -135,6 +135,7 @@ export class TopicExplorerComponent {
   readonly actionFeedback = signal<{ kind: 'success' | 'error'; message: string } | null>(null);
   readonly platformArtifact = signal<PlatformArtifactDetails | null>(null);
   readonly platformMode = signal<'create' | 'edit'>('create');
+  readonly canSearchTopics = computed(() => Boolean(this.selectedTenant() && this.selectedNamespace()));
 
   readonly namespaceItems = computed<NamespaceWorkspaceItem[]>(() => {
     const catalog = this.catalogSummary();
@@ -253,6 +254,14 @@ export class TopicExplorerComponent {
   constructor() {
     this.destroyRef.onDestroy(() => this.clearSyncRetry());
 
+    effect(() => {
+      if (this.canSearchTopics()) {
+        this.searchControl.enable({ emitEvent: false });
+      } else {
+        this.searchControl.disable({ emitEvent: false });
+      }
+    });
+
     combineLatest([this.route.paramMap, this.route.queryParamMap, this.refresh$])
       .pipe(
         switchMap(([params, queryParams]) => this.loadData(params, queryParams)),
@@ -323,6 +332,9 @@ export class TopicExplorerComponent {
 
   clearSearch() {
     this.searchControl.setValue('');
+    if (!this.canSearchTopics()) {
+      return;
+    }
     this.applySearch();
   }
 
@@ -921,11 +933,13 @@ export class TopicExplorerComponent {
 
   async selectNamespace(tenant: string, namespace: string) {
     this.activeTab.set('topics');
+    this.searchControl.setValue('', { emitEvent: false });
     await this.router.navigate([], {
       relativeTo: this.route,
       queryParams: this.demoMode.queryParams({
         tenant,
         namespace,
+        search: null,
         page: '0'
       }),
       queryParamsHandling: 'merge'
