@@ -174,7 +174,7 @@ describe('TopicExplorerComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('1 active workspaces');
+    expect(compiled.textContent).toContain('2 active workspaces');
     expect(compiled.textContent).toContain('Selected Namespace');
     expect(compiled.textContent).toContain('acme/orders');
     expect(compiled.textContent).toContain('Topics');

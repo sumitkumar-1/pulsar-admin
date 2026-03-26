@@ -36,7 +36,6 @@ interface NamespaceWorkspaceItem {
   tenant: string;
   namespace: string;
   topicCount: number;
-  matchingTopicCount: number;
 }
 
 type PlatformArtifactType = 'FUNCTION' | 'SOURCE' | 'SINK' | 'CONNECTOR';
@@ -139,41 +138,18 @@ export class TopicExplorerComponent {
 
   readonly namespaceItems = computed<NamespaceWorkspaceItem[]>(() => {
     const catalog = this.catalogSummary();
-    const page = this.topicPage();
-    const search = this.searchControl.value.trim().toLowerCase();
-    const hasSearch = search.length > 0;
 
     if (!catalog) {
       return [];
     }
 
-    const matchingTopicCounts = new Map<string, number>();
-
-    for (const item of page?.items ?? []) {
-      const key = `${item.tenant}/${item.namespace}`;
-      matchingTopicCounts.set(key, (matchingTopicCounts.get(key) ?? 0) + 1);
-    }
-
     return catalog.namespaces
-      .map((namespace) => {
-        const key = `${namespace.tenant}/${namespace.namespace}`;
-        const matchingTopicCount = matchingTopicCounts.get(key) ?? 0;
-        return {
-          key,
-          tenant: namespace.tenant,
-          namespace: namespace.namespace,
-          topicCount: namespace.topicCount,
-          matchingTopicCount
-        };
-      })
-      .filter((namespace) => {
-        if (!hasSearch) {
-          return true;
-        }
-
-        const haystack = `${namespace.tenant}/${namespace.namespace}`.toLowerCase();
-        return haystack.includes(search) || namespace.matchingTopicCount > 0;
-      })
+      .map((namespace) => ({
+        key: `${namespace.tenant}/${namespace.namespace}`,
+        tenant: namespace.tenant,
+        namespace: namespace.namespace,
+        topicCount: namespace.topicCount
+      }))
       .sort((left, right) => left.key.localeCompare(right.key));
   });
 
@@ -327,6 +303,14 @@ export class TopicExplorerComponent {
   }
 
   applySearch() {
+    if (!this.selectedTenant() || !this.selectedNamespace()) {
+      this.actionFeedback.set({
+        kind: 'error',
+        message: 'Select a tenant and namespace first, then search within that namespace.'
+      });
+      return;
+    }
+
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: {
@@ -869,23 +853,25 @@ export class TopicExplorerComponent {
 
   private loadData(params: ParamMap, queryParams: ParamMap) {
     const envId = params.get('envId') ?? '';
-    const search = queryParams.get('search') ?? '';
     const tenant = queryParams.get('tenant') ?? undefined;
     const namespace = queryParams.get('namespace') ?? undefined;
+    const search = tenant && namespace ? (queryParams.get('search') ?? '') : '';
     const page = Number(queryParams.get('page') ?? '0');
     const pageSize = Number(queryParams.get('pageSize') ?? '25');
+    const environmentChanged = this.environmentId() !== envId;
+    const needsInitialLoad = environmentChanged || this.catalogSummary() === null || this.environmentHealth() === null;
 
     this.environmentId.set(envId);
     this.selectedTenant.set(tenant ?? '');
     this.selectedNamespace.set(namespace ?? '');
     this.searchControl.setValue(search, { emitEvent: false });
-    this.loading.set(true);
+    this.loading.set(needsInitialLoad);
     this.loadError.set(null);
 
     return combineLatest([
       this.api.getEnvironmentHealth(envId),
       this.api.getCatalogSummary(envId),
-      this.api.getTopics(envId, { search, tenant, namespace, page, pageSize })
+      this.api.getTopics(envId, { search: search || undefined, tenant, namespace, page, pageSize })
     ]);
   }
 

@@ -31,8 +31,12 @@
         <button class="create-button secondary" type="button" (click)="openCreateNamespaceDialog()">Add Namespace</button>
       </div>
       <form class="toolbar" (ngSubmit)="applySearch()">
-        <input [formControl]="searchControl" type="search" placeholder="Filter namespaces or search topics in the active workspace" />
-        <button type="submit">Search</button>
+        <input
+          [formControl]="searchControl"
+          type="search"
+          [placeholder]="selectedTenant() && selectedNamespace() ? 'Search topics inside the selected namespace' : 'Select a namespace to search topics'"
+          [disabled]="!selectedTenant() || !selectedNamespace()" />
+        <button type="submit" [disabled]="!selectedTenant() || !selectedNamespace()">Search</button>
         <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
       </form>
     </div>
@@ -102,9 +106,6 @@
                 <span class="namespace-link">{{ namespaceItem.tenant }}/{{ namespaceItem.namespace }}</span>
                 <span>{{ namespaceItem.topicCount }} topics</span>
               </div>
-              @if (searchControl.value.trim()) {
-                <p>{{ namespaceItem.matchingTopicCount }} topics match the current search.</p>
-              }
             </button>
           }
         </div>
@@ -153,6 +154,7 @@
                 <div>
                   <p class="eyebrow">Topics</p>
                   <h4>Focused topic workspace</h4>
+                  <p class="summary">Search and page only within {{ selectedNamespaceLabel() }}.</p>
                 </div>
               </div>
 
