@@ -94,11 +94,11 @@ class EnvironmentManagementControllerTest {
   }
 
   @Test
-  void shouldTestConnectionAndTriggerSync() throws Exception {
+  void shouldTestConnectionWithoutTriggeringSync() throws Exception {
     mockMvc.perform(post("/api/v1/environments/dev/test-connection"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.successful").value(true))
-        .andExpect(jsonPath("$.syncTriggered").value(true));
+        .andExpect(jsonPath("$.syncTriggered").value(false));
 
     mockMvc.perform(post("/api/v1/environments/dev/sync"))
         .andExpect(status().isOk())

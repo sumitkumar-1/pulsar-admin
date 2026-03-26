@@ -133,6 +133,10 @@ public class EnvironmentManagementService {
     EnvironmentRecord environment = requireEnvironment(environmentId);
     EnvironmentConnectionTestResult result = pulsarAdminGateway.testConnection(environment.toDetails());
     Instant testedAt = result.testedAt();
+    boolean successful = result.successful();
+    String resultMessage = successful
+        ? result.message() + " Sync remains manual so large environments do not block the connection test."
+        : result.message();
 
     EnvironmentRecord testedEnvironment = new EnvironmentRecord(
         environment.id(),
@@ -147,23 +151,24 @@ public class EnvironmentManagementService {
         environment.credentialReference(),
         environment.syncTargets(),
         environment.tlsEnabled(),
-        result.successful() ? EnvironmentStatus.HEALTHY : EnvironmentStatus.DEGRADED,
+        successful ? EnvironmentStatus.HEALTHY : EnvironmentStatus.DEGRADED,
         environment.syncStatus(),
         environment.syncMessage(),
         environment.lastSyncedAt(),
         result.status(),
-        result.message(),
+        resultMessage,
         testedAt,
         environment.deletedAt());
 
     updateEnvironmentRecord(testedEnvironment);
 
-    if (result.successful()) {
-      syncEnvironment(environmentId);
-      return new EnvironmentConnectionTestResult(environmentId, true, result.status(), result.message(), testedAt, true);
-    }
-
-    return result;
+    return new EnvironmentConnectionTestResult(
+        environmentId,
+        successful,
+        result.status(),
+        resultMessage,
+        testedAt,
+        false);
   }
 
   public EnvironmentSyncStatus syncEnvironment(String environmentId) {
