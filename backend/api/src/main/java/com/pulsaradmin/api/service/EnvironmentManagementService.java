@@ -78,6 +78,7 @@ public class EnvironmentManagementService {
         "NOT_SYNCED",
         "Environment created. Run connection test to sync metadata.",
         null,
+        null,
         "NOT_TESTED",
         "Connection has not been tested yet.",
         null,
@@ -121,6 +122,7 @@ public class EnvironmentManagementService {
         existing.status(),
         "NOT_SYNCED",
         "Environment updated. Re-test the connection to resync metadata.",
+        null,
         existing.lastSyncedAt(),
         "NOT_TESTED",
         "Connection needs to be re-tested after the latest update.",
@@ -161,6 +163,7 @@ public class EnvironmentManagementService {
         successful ? EnvironmentStatus.HEALTHY : EnvironmentStatus.DEGRADED,
         environment.syncStatus(),
         environment.syncMessage(),
+        environment.syncStartedAt(),
         environment.lastSyncedAt(),
         result.status(),
         resultMessage,
@@ -204,8 +207,9 @@ public class EnvironmentManagementService {
           environment.syncTargets(),
           environment.tlsEnabled(),
           snapshot.health().status(),
-          "SYNCED",
+          snapshot.warnings().isEmpty() ? "SYNCED" : "PARTIAL",
           snapshot.health().message(),
+          null,
           syncedAt,
           environment.lastTestStatus(),
           environment.lastTestMessage(),
@@ -213,7 +217,12 @@ public class EnvironmentManagementService {
           environment.deletedAt());
 
       updateEnvironmentRecord(syncedEnvironment);
-      return snapshotRecord.toSyncStatus("SYNCED", snapshot.health().message(), syncedAt);
+      return snapshotRecord.toSyncStatus(
+          snapshot.warnings().isEmpty() ? "SYNCED" : "PARTIAL",
+          snapshot.health().message(),
+          syncedAt,
+          null,
+          syncedAt);
     }
 
     if (!runningSyncs.add(environmentId) || "SYNCING".equalsIgnoreCase(environment.syncStatus())) {
@@ -236,6 +245,7 @@ public class EnvironmentManagementService {
         environment.status(),
         "SYNCING",
         "Metadata sync is running in the background.",
+        Instant.now(),
         environment.lastSyncedAt(),
         environment.lastTestStatus(),
         environment.lastTestMessage(),
@@ -255,10 +265,26 @@ public class EnvironmentManagementService {
         : snapshotRepository.findByEnvironmentId(environmentId).orElse(null);
 
     if (snapshot == null) {
-      return new EnvironmentSyncStatus(environmentId, environment.syncStatus(), environment.syncMessage(), environment.lastSyncedAt(), 0, 0, 0);
+      return new EnvironmentSyncStatus(
+          environmentId,
+          environment.syncStatus(),
+          environment.syncMessage(),
+          environment.lastSyncedAt(),
+          environment.syncStartedAt(),
+          environment.lastSyncedAt(),
+          0,
+          0,
+          0,
+          0,
+          List.of());
     }
 
-    return snapshot.toSyncStatus(environment.syncStatus(), environment.syncMessage(), environment.lastSyncedAt());
+    return snapshot.toSyncStatus(
+        environment.syncStatus(),
+        environment.syncMessage(),
+        environment.lastSyncedAt(),
+        environment.syncStartedAt(),
+        environment.lastSyncedAt());
   }
 
   public void softDeleteEnvironment(String environmentId) {
@@ -279,6 +305,7 @@ public class EnvironmentManagementService {
         environment.status(),
         environment.syncStatus(),
         environment.syncMessage(),
+        environment.syncStartedAt(),
         environment.lastSyncedAt(),
         environment.lastTestStatus(),
         environment.lastTestMessage(),
@@ -353,8 +380,9 @@ public class EnvironmentManagementService {
           environment.syncTargets(),
           environment.tlsEnabled(),
           snapshot.health().status(),
-          "SYNCED",
+          snapshot.warnings().isEmpty() ? "SYNCED" : "PARTIAL",
           snapshot.health().message(),
+          null,
           syncedAt,
           environment.lastTestStatus(),
           environment.lastTestMessage(),
@@ -380,6 +408,7 @@ public class EnvironmentManagementService {
             EnvironmentStatus.DEGRADED,
             "FAILED",
             "Metadata sync failed: " + exception.getMessage(),
+            null,
             environment.lastSyncedAt(),
             environment.lastTestStatus(),
             environment.lastTestMessage(),
@@ -406,16 +435,25 @@ public class EnvironmentManagementService {
       EnvironmentRecord environment,
       Optional<EnvironmentSnapshotRecord> snapshot) {
     if (snapshot.isPresent()) {
-      return snapshot.get().toSyncStatus(environment.syncStatus(), environment.syncMessage(), environment.lastSyncedAt());
+      return snapshot.get().toSyncStatus(
+          environment.syncStatus(),
+          environment.syncMessage(),
+          environment.lastSyncedAt(),
+          environment.syncStartedAt(),
+          environment.lastSyncedAt());
     }
     return new EnvironmentSyncStatus(
         environmentId,
         environment.syncStatus(),
         environment.syncMessage(),
         environment.lastSyncedAt(),
+        environment.syncStartedAt(),
+        environment.lastSyncedAt(),
         0,
         0,
-        0);
+        0,
+        0,
+        List.of());
   }
 
   private String blankToNull(String value) {

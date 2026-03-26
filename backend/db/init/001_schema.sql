@@ -14,6 +14,7 @@ create table if not exists environments (
   status varchar(16) not null,
   sync_status varchar(32) not null default 'NOT_SYNCED',
   sync_message varchar(255),
+  sync_started_at timestamp,
   last_synced_at timestamp,
   last_test_status varchar(32) not null default 'NOT_TESTED',
   last_test_message varchar(255),
@@ -36,6 +37,7 @@ alter table if exists environments add column if not exists tls_enabled boolean 
 alter table if exists environments add column if not exists status varchar(16);
 alter table if exists environments add column if not exists sync_status varchar(32) default 'NOT_SYNCED';
 alter table if exists environments add column if not exists sync_message varchar(255);
+alter table if exists environments add column if not exists sync_started_at timestamp;
 alter table if exists environments add column if not exists last_synced_at timestamp;
 alter table if exists environments add column if not exists last_test_status varchar(32) default 'NOT_TESTED';
 alter table if exists environments add column if not exists last_test_message varchar(255);
@@ -84,12 +86,42 @@ create table if not exists environment_snapshots (
   tenant_count integer not null default 0,
   namespace_count integer not null default 0,
   topic_count integer not null default 0,
+  warning_count integer not null default 0,
+  warnings_json text not null default '[]',
   tenants_json text not null,
   namespaces_json text not null,
   topics_json text not null,
   created_at timestamp not null default current_timestamp,
   updated_at timestamp not null default current_timestamp
 );
+
+alter table if exists environment_snapshots add column if not exists health_status varchar(16);
+alter table if exists environment_snapshots add column if not exists health_message varchar(255);
+alter table if exists environment_snapshots add column if not exists pulsar_version varchar(32);
+alter table if exists environment_snapshots add column if not exists broker_url varchar(255);
+alter table if exists environment_snapshots add column if not exists admin_url varchar(255);
+alter table if exists environment_snapshots add column if not exists tenant_count integer default 0;
+alter table if exists environment_snapshots add column if not exists namespace_count integer default 0;
+alter table if exists environment_snapshots add column if not exists topic_count integer default 0;
+alter table if exists environment_snapshots add column if not exists warning_count integer default 0;
+alter table if exists environment_snapshots add column if not exists warnings_json text default '[]';
+alter table if exists environment_snapshots add column if not exists tenants_json text default '[]';
+alter table if exists environment_snapshots add column if not exists namespaces_json text default '[]';
+alter table if exists environment_snapshots add column if not exists topics_json text default '[]';
+alter table if exists environment_snapshots add column if not exists created_at timestamp default current_timestamp;
+alter table if exists environment_snapshots add column if not exists updated_at timestamp default current_timestamp;
+
+update environment_snapshots
+set tenant_count = coalesce(tenant_count, 0),
+    namespace_count = coalesce(namespace_count, 0),
+    topic_count = coalesce(topic_count, 0),
+    warning_count = coalesce(warning_count, 0),
+    warnings_json = coalesce(warnings_json, '[]'),
+    tenants_json = coalesce(tenants_json, '[]'),
+    namespaces_json = coalesce(namespaces_json, '[]'),
+    topics_json = coalesce(topics_json, '[]'),
+    created_at = coalesce(created_at, current_timestamp),
+    updated_at = coalesce(updated_at, current_timestamp);
 
 create table if not exists jobs (
   id varchar(64) primary key,

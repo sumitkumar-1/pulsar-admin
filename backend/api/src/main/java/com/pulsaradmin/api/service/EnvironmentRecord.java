@@ -21,6 +21,7 @@ public record EnvironmentRecord(
     EnvironmentStatus status,
     String syncStatus,
     String syncMessage,
+    Instant syncStartedAt,
     Instant lastSyncedAt,
     String lastTestStatus,
     String lastTestMessage,
@@ -37,6 +38,7 @@ public record EnvironmentRecord(
         clusterLabel,
         summary,
         syncStatus,
+        syncStartedAt,
         lastSyncedAt,
         lastTestStatus);
   }
@@ -58,6 +60,7 @@ public record EnvironmentRecord(
         tlsEnabled,
         syncStatus,
         syncMessage,
+        syncStartedAt,
         lastSyncedAt,
         lastTestStatus,
         lastTestMessage,

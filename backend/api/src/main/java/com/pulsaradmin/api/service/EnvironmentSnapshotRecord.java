@@ -18,6 +18,8 @@ public record EnvironmentSnapshotRecord(
     int tenantCount,
     int namespaceCount,
     int topicCount,
+    int warningCount,
+    List<String> warnings,
     List<String> tenants,
     List<String> namespaces,
     List<TopicDetails> topics,
@@ -34,10 +36,26 @@ public record EnvironmentSnapshotRecord(
   }
 
   public EnvironmentSnapshot toSnapshot() {
-    return new EnvironmentSnapshot(toHealth(), tenants, namespaces, topics);
+    return new EnvironmentSnapshot(toHealth(), tenants, namespaces, topics, warnings);
   }
 
-  public EnvironmentSyncStatus toSyncStatus(String syncStatus, String syncMessage, Instant lastSyncedAt) {
-    return new EnvironmentSyncStatus(environmentId, syncStatus, syncMessage, lastSyncedAt, tenantCount, namespaceCount, topicCount);
+  public EnvironmentSyncStatus toSyncStatus(
+      String syncStatus,
+      String syncMessage,
+      Instant lastSyncedAt,
+      Instant syncStartedAt,
+      Instant lastCompletedAt) {
+    return new EnvironmentSyncStatus(
+        environmentId,
+        syncStatus,
+        syncMessage,
+        lastSyncedAt,
+        syncStartedAt,
+        lastCompletedAt,
+        tenantCount,
+        namespaceCount,
+        topicCount,
+        warningCount,
+        warnings);
   }
 }

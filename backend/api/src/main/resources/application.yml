@@ -20,6 +20,9 @@ spring:
 app:
   pulsar:
     gateway-mode: ${APP_PULSAR_GATEWAY_MODE:rest}
+    admin-rest-connect-timeout-ms: ${APP_PULSAR_ADMIN_REST_CONNECT_TIMEOUT_MS:3000}
+    admin-rest-read-timeout-ms: ${APP_PULSAR_ADMIN_REST_READ_TIMEOUT_MS:5000}
+    inventory-sync-concurrency: ${APP_PULSAR_INVENTORY_SYNC_CONCURRENCY:8}
   cors:
     allowed-origins:
       - http://localhost:4200

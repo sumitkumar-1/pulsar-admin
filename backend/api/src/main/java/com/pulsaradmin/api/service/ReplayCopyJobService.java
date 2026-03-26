@@ -291,18 +291,7 @@ public class ReplayCopyJobService {
   }
 
   private TopicDetails requireTopic(String environmentId, String topicName) {
-    EnvironmentSnapshotRecord snapshot = isMockMode()
-        ? mockEnvironmentStore.storeSnapshot(
-            environmentId,
-            pulsarAdminGateway.syncMetadata(requireEnvironment(environmentId).toDetails()))
-        : snapshotRepository.findByEnvironmentId(environmentId)
-            .orElseThrow(() -> new NotFoundException("No synced metadata found for environment: " + environmentId));
-
-    return snapshot.topics()
-        .stream()
-        .filter(topic -> topic.fullName().equals(topicName))
-        .findFirst()
-        .orElseThrow(() -> new NotFoundException("Unknown topic: " + topicName));
+    return pulsarAdminGateway.getTopicDetails(requireEnvironment(environmentId).toDetails(), topicName);
   }
 
   private void requireSubscription(TopicDetails topic, String subscriptionName) {
@@ -477,7 +466,13 @@ public class ReplayCopyJobService {
     if (destinationTopicName == null || destinationTopicName.isBlank()) {
       throw new BadRequestException("Destination topic name is required for COPY operation.");
     }
-    TopicDetails destinationTopic = findTopic(environmentId, destinationTopicName);
+    TopicDetails destinationTopic;
+    try {
+      destinationTopic = requireTopic(environmentId, destinationTopicName);
+    } catch (NotFoundException | BadRequestException exception) {
+      return List.of(
+          "Destination topic details could not be resolved before submit, so schema compatibility will be checked by the worker during copy.");
+    }
     if (destinationTopic == null) {
       return List.of("Destination topic is not present in the current synced snapshot, so schema compatibility could not be verified.");
     }

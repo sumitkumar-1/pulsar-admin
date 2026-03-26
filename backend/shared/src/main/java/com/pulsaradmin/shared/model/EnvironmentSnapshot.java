@@ -6,5 +6,6 @@ public record EnvironmentSnapshot(
     EnvironmentHealth health,
     List<String> tenants,
     List<String> namespaces,
-    List<TopicDetails> topics) {
+    List<TopicDetails> topics,
+    List<String> warnings) {
 }

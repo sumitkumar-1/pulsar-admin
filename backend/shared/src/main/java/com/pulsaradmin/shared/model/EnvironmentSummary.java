@@ -11,6 +11,7 @@ public record EnvironmentSummary(
     String clusterLabel,
     String summary,
     String syncStatus,
+    Instant syncStartedAt,
     Instant lastSyncedAt,
     String lastTestStatus) {
 }

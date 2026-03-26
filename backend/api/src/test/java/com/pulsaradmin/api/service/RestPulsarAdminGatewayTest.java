@@ -51,7 +51,7 @@ import org.springframework.web.client.RestClient;
 
 class RestPulsarAdminGatewayTest {
   @Test
-  void shouldEnrichSyncedTopicsWithStatsSubscriptionsAndSchema() {
+  void shouldBuildInventoryFirstSnapshotWithLazyTopicEnrichment() {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
@@ -72,6 +72,7 @@ class RestPulsarAdminGatewayTest {
         true,
         "SYNCED",
         "Metadata synced successfully.",
+        null,
         Instant.parse("2026-03-17T18:00:00Z"),
         "SUCCESS",
         "Connection verified.",
@@ -101,68 +102,6 @@ class RestPulsarAdminGatewayTest {
         .andRespond(withSuccess("""
             {"partitions": 2}
             """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitioned-stats?perPartition=true"))
-        .andRespond(withSuccess("""
-            {
-              "msgRateIn": 82.4,
-              "msgRateOut": 64.7,
-              "msgThroughputIn": 30244.0,
-              "msgThroughputOut": 21910.0,
-              "storageSize": 884736,
-              "publishers": [
-                {"producerName": "payments-producer-1"},
-                {"producerName": "payments-producer-2"}
-              ],
-              "subscriptions": {
-                "payment-settlement": {
-                  "msgBacklog": 1200,
-                  "consumers": [
-                    {"consumerName": "settlement-a"}
-                  ]
-                },
-                "payment-audit": {
-                  "msgBacklog": 25,
-                  "consumers": [
-                    {"consumerName": "audit-a"},
-                    {"consumerName": "audit-b"}
-                  ]
-                }
-              },
-              "partitions": {
-                "persistent://acme/orders/payment-events-partition-0": {
-                  "msgRateIn": 44.2,
-                  "msgRateOut": 32.0,
-                  "subscriptions": {
-                    "payment-settlement": {
-                      "msgBacklog": 600,
-                      "consumers": [{"consumerName": "settlement-a"}]
-                    }
-                  }
-                },
-                "persistent://acme/orders/payment-events-partition-1": {
-                  "msgRateIn": 38.2,
-                  "msgRateOut": 32.7,
-                  "subscriptions": {
-                    "payment-settlement": {
-                      "msgBacklog": 625,
-                      "consumers": [{"consumerName": "settlement-b"}]
-                    }
-                  }
-                }
-              }
-            }
-            """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
-        .andRespond(withSuccess("""
-            {
-              "version": "12",
-              "type": "JSON",
-              "data": {
-                "type": "JSON"
-              }
-            }
-            """, MediaType.APPLICATION_JSON));
-
     EnvironmentSnapshot snapshot = gateway.syncMetadata(environment);
 
     assertThat(snapshot.tenants()).containsExactly("acme");
@@ -171,16 +110,16 @@ class RestPulsarAdminGatewayTest {
 
     var topic = snapshot.topics().get(0);
     assertThat(topic.fullName()).isEqualTo("persistent://acme/orders/payment-events");
-    assertThat(topic.stats().backlog()).isEqualTo(1225);
-    assertThat(topic.stats().producers()).isEqualTo(2);
-    assertThat(topic.stats().subscriptions()).isEqualTo(2);
-    assertThat(topic.stats().consumers()).isEqualTo(3);
-    assertThat(topic.subscriptions()).containsExactly("payment-audit", "payment-settlement");
+    assertThat(topic.stats().backlog()).isZero();
+    assertThat(topic.stats().producers()).isZero();
+    assertThat(topic.stats().subscriptions()).isZero();
+    assertThat(topic.stats().consumers()).isZero();
+    assertThat(topic.subscriptions()).isEmpty();
     assertThat(topic.partitioned()).isTrue();
     assertThat(topic.partitionSummaries()).hasSize(2);
-    assertThat(topic.schema().present()).isTrue();
-    assertThat(topic.schema().type()).isEqualTo("JSON");
-    assertThat(topic.notes()).contains("Found 2 subscriptions");
+    assertThat(topic.schema().present()).isFalse();
+    assertThat(topic.schema().type()).isEqualTo("UNKNOWN");
+    assertThat(topic.notes()).contains("Live topic stats and schema load on demand");
 
     server.verify();
   }
@@ -220,66 +159,6 @@ class RestPulsarAdminGatewayTest {
         .andRespond(withSuccess("""
             {"partitions": 3}
             """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitioned-stats?perPartition=true"))
-        .andRespond(withSuccess("""
-            {
-              "msgRateIn": 52.0,
-              "msgRateOut": 49.0,
-              "msgThroughputIn": 6400.0,
-              "msgThroughputOut": 6200.0,
-              "storageSize": 512000,
-              "publishers": [{"producerName": "payments-producer-1"}],
-              "subscriptions": {
-                "payment-settlement": {
-                  "msgBacklog": 42,
-                  "consumers": [{"consumerName": "settlement-a"}]
-                }
-              },
-              "partitions": {
-                "persistent://acme/orders/payment-events-partition-0": {
-                  "msgRateIn": 17.0,
-                  "msgRateOut": 16.0,
-                  "subscriptions": {
-                    "payment-settlement": {
-                      "msgBacklog": 11,
-                      "consumers": [{"consumerName": "settlement-a"}]
-                    }
-                  }
-                },
-                "persistent://acme/orders/payment-events-partition-1": {
-                  "msgRateIn": 18.0,
-                  "msgRateOut": 17.0,
-                  "subscriptions": {
-                    "payment-settlement": {
-                      "msgBacklog": 14,
-                      "consumers": [{"consumerName": "settlement-b"}]
-                    }
-                  }
-                },
-                "persistent://acme/orders/payment-events-partition-2": {
-                  "msgRateIn": 17.0,
-                  "msgRateOut": 16.0,
-                  "subscriptions": {
-                    "payment-settlement": {
-                      "msgBacklog": 17,
-                      "consumers": [{"consumerName": "settlement-c"}]
-                    }
-                  }
-                }
-              }
-            }
-            """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
-        .andRespond(withSuccess("""
-            {
-              "version": "4",
-              "type": "JSON",
-              "data": {
-                "type": "JSON"
-              }
-            }
-            """, MediaType.APPLICATION_JSON));
-
     EnvironmentSnapshot snapshot = gateway.syncMetadata(environment);
 
     assertThat(snapshot.topics()).hasSize(1);
@@ -313,6 +192,7 @@ class RestPulsarAdminGatewayTest {
         true,
         "SYNCED",
         "Metadata synced successfully.",
+        null,
         Instant.parse("2026-03-17T18:00:00Z"),
         "SUCCESS",
         "Connection verified.",
@@ -331,25 +211,6 @@ class RestPulsarAdminGatewayTest {
         .andRespond(withSuccess("""
             []
             """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitions"))
-        .andRespond(withSuccess("""
-            {"partitions": 0}
-            """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/stats"))
-        .andRespond(withSuccess("""
-            {
-              "msgRateIn": 1.0,
-              "msgRateOut": 1.0,
-              "msgThroughputIn": 128.0,
-              "msgThroughputOut": 128.0,
-              "storageSize": 256,
-              "publishers": [],
-              "subscriptions": {}
-            }
-            """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
-        .andRespond(withStatus(HttpStatus.NOT_FOUND));
-
     EnvironmentSnapshot snapshot = gateway.syncMetadata(environment);
 
     assertThat(snapshot.tenants()).containsExactly("acme");
@@ -409,24 +270,6 @@ class RestPulsarAdminGatewayTest {
         .andRespond(withSuccess("""
             {"partitions": 10}
             """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitioned-stats?perPartition=true"))
-        .andRespond(withSuccess("""
-            {
-              "msgRateIn": 12.0,
-              "msgRateOut": 10.0,
-              "subscriptions": {},
-              "partitions": {
-                "persistent://acme/orders/payment-events-partition-0": {
-                  "msgRateIn": 12.0,
-                  "msgRateOut": 10.0,
-                  "subscriptions": {}
-                }
-              }
-            }
-            """, MediaType.APPLICATION_JSON));
-    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
-        .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
-
     EnvironmentSnapshot snapshot = gateway.syncMetadata(environment);
 
     assertThat(snapshot.topics()).hasSize(1);
@@ -836,6 +679,7 @@ class RestPulsarAdminGatewayTest {
         true,
         "SYNCED",
         "Metadata synced successfully.",
+        null,
         Instant.parse("2026-03-17T18:00:00Z"),
         "SUCCESS",
         "Connection verified.",
@@ -860,6 +704,7 @@ class RestPulsarAdminGatewayTest {
         true,
         "SYNCED",
         "Metadata synced successfully.",
+        null,
         Instant.parse("2026-03-17T18:00:00Z"),
         "SUCCESS",
         "Connection verified.",

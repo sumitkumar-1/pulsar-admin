@@ -10,6 +10,7 @@ export interface EnvironmentSummary {
   clusterLabel: string;
   summary: string;
   syncStatus: string;
+  syncStartedAt: string | null;
   lastSyncedAt: string | null;
   lastTestStatus: string;
 }
@@ -65,9 +66,13 @@ export interface EnvironmentSyncStatus {
   syncStatus: string;
   syncMessage: string;
   lastSyncedAt: string | null;
+  syncStartedAt: string | null;
+  lastCompletedAt: string | null;
   tenantCount: number;
   namespaceCount: number;
   topicCount: number;
+  warningCount: number;
+  warnings: string[];
 }
 
 export interface TenantSummary {

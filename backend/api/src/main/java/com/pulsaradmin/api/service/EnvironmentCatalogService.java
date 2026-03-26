@@ -148,15 +148,13 @@ public class EnvironmentCatalogService {
   }
 
   public TopicDetails getTopicDetails(String environmentId, String topicName) {
-    requireEnvironment(environmentId);
+    EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
 
     if (topicName == null || topicName.isBlank()) {
       throw new BadRequestException("A topic name is required.");
     }
 
-    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
-
-    return requireTopic(snapshot, topicName);
+    return pulsarAdminGateway.getTopicDetails(environment.toDetails(), topicName);
   }
 
   public TopicDetails createTopic(String environmentId, CreateTopicRequest request) {
@@ -298,7 +296,7 @@ public class EnvironmentCatalogService {
     EnvironmentRecord environment = requireEnvironmentRecord(environmentId);
     EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
 
-    TopicDetails topic = requireTopic(snapshot, request.topicName());
+    TopicDetails topic = pulsarAdminGateway.getTopicDetails(environment.toDetails(), request.topicName());
     validateSubscriptionName(request.subscriptionName());
 
     if (topic.subscriptions().stream().anyMatch(subscription -> subscription.equals(request.subscriptionName()))) {
@@ -334,7 +332,7 @@ public class EnvironmentCatalogService {
 
     validateSubscriptionName(subscriptionName);
 
-    TopicDetails topic = requireTopic(snapshot, topicName);
+    TopicDetails topic = pulsarAdminGateway.getTopicDetails(environment.toDetails(), topicName);
     if (topic.subscriptions().stream().noneMatch(subscription -> subscription.equals(subscriptionName))) {
       throw new NotFoundException("Unknown subscription: " + subscriptionName);
     }
@@ -669,12 +667,7 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("A timestamp is required when reset target is TIMESTAMP.");
     }
 
-    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
-
-    TopicDetails topic = snapshot.topics().stream()
-        .filter(item -> item.fullName().equals(request.topicName()))
-        .findFirst()
-        .orElseThrow(() -> new NotFoundException("Unknown topic: " + request.topicName()));
+    TopicDetails topic = pulsarAdminGateway.getTopicDetails(environment.toDetails(), request.topicName());
 
     boolean subscriptionExists = topic.subscriptions().stream()
         .anyMatch(subscription -> subscription.equals(request.subscriptionName()));
@@ -701,12 +694,7 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("Message count must be between 1 and 5000.");
     }
 
-    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
-
-    TopicDetails topic = snapshot.topics().stream()
-        .filter(item -> item.fullName().equals(request.topicName()))
-        .findFirst()
-        .orElseThrow(() -> new NotFoundException("Unknown topic: " + request.topicName()));
+    TopicDetails topic = pulsarAdminGateway.getTopicDetails(environment.toDetails(), request.topicName());
 
     boolean subscriptionExists = topic.subscriptions().stream()
         .anyMatch(subscription -> subscription.equals(request.subscriptionName()));
@@ -733,12 +721,7 @@ public class EnvironmentCatalogService {
       throw new BadRequestException("A reason is required when clearing backlog.");
     }
 
-    EnvironmentSnapshotRecord snapshot = loadSnapshot(environmentId);
-
-    TopicDetails topic = snapshot.topics().stream()
-        .filter(item -> item.fullName().equals(request.topicName()))
-        .findFirst()
-        .orElseThrow(() -> new NotFoundException("Unknown topic: " + request.topicName()));
+    TopicDetails topic = pulsarAdminGateway.getTopicDetails(environment.toDetails(), request.topicName());
 
     boolean subscriptionExists = topic.subscriptions().stream()
         .anyMatch(subscription -> subscription.equals(request.subscriptionName()));

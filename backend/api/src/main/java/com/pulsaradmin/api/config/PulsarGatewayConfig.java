@@ -10,18 +10,32 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.client.RestClient;
 
 @Configuration
 public class PulsarGatewayConfig {
-  @Bean(autowireCandidate = false)
+  @Bean
   public PulsarAdminGateway mockPulsarAdminGateway() {
     return new MockPulsarAdminGateway();
   }
 
-  @Bean(autowireCandidate = false)
-  public PulsarAdminGateway restPulsarAdminGateway(ObjectMapper objectMapper) {
-    return new RestPulsarAdminGateway(RestClient.builder().build(), objectMapper);
+  @Bean
+  public PulsarAdminGateway restPulsarAdminGateway(
+      ObjectMapper objectMapper,
+      @Value("${app.pulsar.admin-rest-connect-timeout-ms:3000}") int connectTimeoutMs,
+      @Value("${app.pulsar.admin-rest-read-timeout-ms:5000}") int readTimeoutMs,
+      @Value("${app.pulsar.inventory-sync-concurrency:8}") int inventorySyncConcurrency) {
+    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+    requestFactory.setConnectTimeout(connectTimeoutMs);
+    requestFactory.setReadTimeout(readTimeoutMs);
+
+    return new RestPulsarAdminGateway(
+        RestClient.builder().requestFactory(requestFactory).build(),
+        objectMapper,
+        RestPulsarAdminGateway::buildClient,
+        inventorySyncConcurrency);
   }
 
   @Bean
@@ -34,10 +48,11 @@ public class PulsarGatewayConfig {
   @Primary
   public PulsarAdminGateway pulsarAdminGateway(
       GatewayModeResolver gatewayModeResolver,
-      ObjectMapper objectMapper) {
+      @Qualifier("mockPulsarAdminGateway") PulsarAdminGateway mockPulsarAdminGateway,
+      @Qualifier("restPulsarAdminGateway") PulsarAdminGateway restPulsarAdminGateway) {
     return new RoutingPulsarAdminGateway(
-        mockPulsarAdminGateway(),
-        restPulsarAdminGateway(objectMapper),
+        mockPulsarAdminGateway,
+        restPulsarAdminGateway,
         gatewayModeResolver);
   }
 }

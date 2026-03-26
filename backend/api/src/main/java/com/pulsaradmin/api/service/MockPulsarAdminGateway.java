@@ -1,6 +1,7 @@
 package com.pulsaradmin.api.service;
 
 import com.pulsaradmin.api.support.BadRequestException;
+import com.pulsaradmin.api.support.NotFoundException;
 import com.pulsaradmin.shared.gateway.PulsarAdminGateway;
 import com.pulsaradmin.shared.model.CreateNamespaceRequest;
 import com.pulsaradmin.shared.model.CreateSubscriptionRequest;
@@ -153,7 +154,7 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         environment.kind().equals("prod") ? "4.0.2" : "4.0.1",
         topics.isEmpty() ? "Connected, but no topic metadata is available yet." : "Metadata sync completed successfully.");
 
-    return new EnvironmentSnapshot(health, new ArrayList<>(tenants), new ArrayList<>(namespaces), topics);
+    return new EnvironmentSnapshot(health, new ArrayList<>(tenants), new ArrayList<>(namespaces), topics, List.of());
   }
 
   @Override
@@ -577,6 +578,11 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
         .computeIfAbsent(environment.id(), ignored -> new ConcurrentHashMap<>())
         .put(tenant + "/" + namespace, policies);
     return policies;
+  }
+
+  @Override
+  public TopicDetails getTopicDetails(EnvironmentDetails environment, String topicName) {
+    return findTopic(environment, topicName);
   }
 
   @Override
@@ -1122,7 +1128,7 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
     return topics.stream()
         .filter(topic -> topic.fullName().equals(topicName))
         .findFirst()
-        .orElseThrow(() -> new BadRequestException("Unknown topic: " + topicName));
+        .orElseThrow(() -> new NotFoundException("Unknown topic: " + topicName));
   }
 
   private TopicDetails createTopic(

@@ -168,7 +168,11 @@ export class EnvironmentOverviewComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (status) => {
-          this.actionState.set(status.syncMessage);
+          this.actionState.set(
+            status.warningCount > 0
+              ? `${status.syncMessage} ${status.warningCount} warning${status.warningCount === 1 ? '' : 's'} recorded.`
+              : status.syncMessage
+          );
         },
         error: (error: { error?: { message?: string } }) => {
           this.actionError.set(error.error?.message ?? 'Unable to sync environment metadata.');

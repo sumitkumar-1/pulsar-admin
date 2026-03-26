@@ -30,6 +30,7 @@ import com.pulsaradmin.shared.model.TenantUpdateRequest;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
 import com.pulsaradmin.shared.model.TopicPolicies;
+import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
 import java.util.List;
@@ -72,6 +73,8 @@ public interface PulsarAdminGateway {
       String tenant,
       String namespace,
       NamespacePolicies policies);
+
+  TopicDetails getTopicDetails(EnvironmentDetails environment, String topicName);
 
   PublishMessageResponse publishMessage(EnvironmentDetails environment, PublishMessageRequest request);
 

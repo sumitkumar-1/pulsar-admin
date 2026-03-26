@@ -42,12 +42,13 @@ public class EnvironmentSnapshotRepository {
     String tenants = write(snapshot.tenants());
     String namespaces = write(snapshot.namespaces());
     String topics = write(snapshot.topics());
+    String warnings = write(snapshot.warnings());
 
     Integer updated = jdbcTemplate.update("""
         update environment_snapshots
         set health_status = ?, health_message = ?, pulsar_version = ?, broker_url = ?, admin_url = ?,
-            tenant_count = ?, namespace_count = ?, topic_count = ?,
-            tenants_json = ?, namespaces_json = ?, topics_json = ?, updated_at = current_timestamp
+            tenant_count = ?, namespace_count = ?, topic_count = ?, warning_count = ?,
+            warnings_json = ?, tenants_json = ?, namespaces_json = ?, topics_json = ?, updated_at = current_timestamp
         where environment_id = ?
         """,
         snapshot.health().status().name(),
@@ -58,6 +59,8 @@ public class EnvironmentSnapshotRepository {
         snapshot.tenants().size(),
         snapshot.namespaces().size(),
         snapshot.topics().size(),
+        snapshot.warnings().size(),
+        warnings,
         tenants,
         namespaces,
         topics,
@@ -67,8 +70,8 @@ public class EnvironmentSnapshotRepository {
       jdbcTemplate.update("""
           insert into environment_snapshots (
             environment_id, health_status, health_message, pulsar_version, broker_url, admin_url,
-            tenant_count, namespace_count, topic_count, tenants_json, namespaces_json, topics_json
-          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            tenant_count, namespace_count, topic_count, warning_count, warnings_json, tenants_json, namespaces_json, topics_json
+          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
           environmentId,
           snapshot.health().status().name(),
@@ -79,6 +82,8 @@ public class EnvironmentSnapshotRepository {
           snapshot.tenants().size(),
           snapshot.namespaces().size(),
           snapshot.topics().size(),
+          snapshot.warnings().size(),
+          warnings,
           tenants,
           namespaces,
           topics);
@@ -96,6 +101,8 @@ public class EnvironmentSnapshotRepository {
         rs.getInt("tenant_count"),
         rs.getInt("namespace_count"),
         rs.getInt("topic_count"),
+        rs.getInt("warning_count"),
+        readStringList(rs.getString("warnings_json")),
         readStringList(rs.getString("tenants_json")),
         readStringList(rs.getString("namespaces_json")),
         readTopicList(rs.getString("topics_json")),
@@ -103,6 +110,9 @@ public class EnvironmentSnapshotRepository {
   }
 
   private List<String> readStringList(String json) {
+    if (json == null || json.isBlank()) {
+      return List.of();
+    }
     try {
       return objectMapper.readValue(json, STRING_LIST);
     } catch (JsonProcessingException exception) {

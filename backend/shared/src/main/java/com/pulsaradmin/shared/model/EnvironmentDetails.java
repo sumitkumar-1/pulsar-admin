@@ -18,6 +18,7 @@ public record EnvironmentDetails(
     boolean tlsEnabled,
     String syncStatus,
     String syncMessage,
+    Instant syncStartedAt,
     Instant lastSyncedAt,
     String lastTestStatus,
     String lastTestMessage,

@@ -57,9 +57,9 @@ public class EnvironmentRepository {
         insert into environments (
           id, name, kind, region, cluster_label, summary, broker_url, admin_url,
           auth_mode, credential_reference, sync_targets, tls_enabled, status, sync_status, sync_message,
-          last_synced_at, last_test_status, last_test_message, last_tested_at, deleted_at,
+          sync_started_at, last_synced_at, last_test_status, last_test_message, last_tested_at, deleted_at,
           created_at, updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp, current_timestamp)
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp, current_timestamp)
         """,
         environment.id(),
         environment.name(),
@@ -76,6 +76,7 @@ public class EnvironmentRepository {
         environment.status().name(),
         environment.syncStatus(),
         environment.syncMessage(),
+        timestamp(environment.syncStartedAt()),
         timestamp(environment.lastSyncedAt()),
         environment.lastTestStatus(),
         environment.lastTestMessage(),
@@ -88,7 +89,7 @@ public class EnvironmentRepository {
         update environments
         set name = ?, kind = ?, region = ?, cluster_label = ?, summary = ?, broker_url = ?, admin_url = ?,
             auth_mode = ?, credential_reference = ?, sync_targets = ?, tls_enabled = ?, status = ?, sync_status = ?, sync_message = ?,
-            last_synced_at = ?, last_test_status = ?, last_test_message = ?, last_tested_at = ?, deleted_at = ?, updated_at = current_timestamp
+            sync_started_at = ?, last_synced_at = ?, last_test_status = ?, last_test_message = ?, last_tested_at = ?, deleted_at = ?, updated_at = current_timestamp
         where id = ?
         """,
         environment.name(),
@@ -105,6 +106,7 @@ public class EnvironmentRepository {
         environment.status().name(),
         environment.syncStatus(),
         environment.syncMessage(),
+        timestamp(environment.syncStartedAt()),
         timestamp(environment.lastSyncedAt()),
         environment.lastTestStatus(),
         environment.lastTestMessage(),
@@ -130,6 +132,7 @@ public class EnvironmentRepository {
         EnvironmentStatus.valueOf(rs.getString("status")),
         rs.getString("sync_status"),
         rs.getString("sync_message"),
+        instant(rs.getTimestamp("sync_started_at")),
         instant(rs.getTimestamp("last_synced_at")),
         rs.getString("last_test_status"),
         rs.getString("last_test_message"),

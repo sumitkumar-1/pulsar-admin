@@ -30,6 +30,7 @@ import com.pulsaradmin.shared.model.TenantDetails;
 import com.pulsaradmin.shared.model.TenantUpdateRequest;
 import com.pulsaradmin.shared.model.TerminateTopicRequest;
 import com.pulsaradmin.shared.model.TerminateTopicResponse;
+import com.pulsaradmin.shared.model.TopicDetails;
 import com.pulsaradmin.shared.model.TopicPolicies;
 import com.pulsaradmin.shared.model.UnloadTopicRequest;
 import com.pulsaradmin.shared.model.UnloadTopicResponse;
@@ -136,6 +137,11 @@ public class RoutingPulsarAdminGateway implements PulsarAdminGateway {
       String namespace,
       NamespacePolicies policies) {
     return activeGateway().updateNamespacePolicies(environment, tenant, namespace, policies);
+  }
+
+  @Override
+  public TopicDetails getTopicDetails(EnvironmentDetails environment, String topicName) {
+    return activeGateway().getTopicDetails(environment, topicName);
   }
 
   @Override

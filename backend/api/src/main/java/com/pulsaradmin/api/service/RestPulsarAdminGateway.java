@@ -62,6 +62,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.StreamSupport;
 import org.apache.pulsar.client.api.Consumer;
@@ -87,19 +90,29 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   private final RestClient restClient;
   private final ObjectMapper objectMapper;
   private final PulsarClientFactory pulsarClientFactory;
+  private final int syncConcurrency;
   private final ConcurrentMap<String, PulsarClient> clientCache = new ConcurrentHashMap<>();
 
   public RestPulsarAdminGateway(RestClient restClient, ObjectMapper objectMapper) {
-    this(restClient, objectMapper, RestPulsarAdminGateway::buildClient);
+    this(restClient, objectMapper, RestPulsarAdminGateway::buildClient, 8);
   }
 
   RestPulsarAdminGateway(
       RestClient restClient,
       ObjectMapper objectMapper,
       PulsarClientFactory pulsarClientFactory) {
+    this(restClient, objectMapper, pulsarClientFactory, 8);
+  }
+
+  public RestPulsarAdminGateway(
+      RestClient restClient,
+      ObjectMapper objectMapper,
+      PulsarClientFactory pulsarClientFactory,
+      int syncConcurrency) {
     this.restClient = restClient;
     this.objectMapper = objectMapper;
     this.pulsarClientFactory = pulsarClientFactory;
+    this.syncConcurrency = Math.max(1, syncConcurrency);
   }
 
   @Override
@@ -138,7 +151,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   private EnvironmentSnapshot syncAllMetadata(EnvironmentDetails environment) throws IOException {
     try {
       JsonNode tenantsNode = getJson(environment, "/admin/v2/tenants");
-      return syncNamespacesForTenants(environment, readStringArray(tenantsNode), false, List.of());
+      return syncNamespacesForTenants(environment, readStringArray(tenantsNode), false, new ArrayList<>());
     } catch (RestClientException exception) {
       if (!isAuthorizationFailure(exception)) {
         throw exception;
@@ -170,9 +183,10 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
             continue;
           }
           EnvironmentSnapshot partialSnapshot =
-              syncNamespacesForTenants(environment, List.of(target.tenant()), true, List.of());
+              syncNamespacesForTenants(environment, List.of(target.tenant()), true, new ArrayList<>());
           tenants.addAll(partialSnapshot.tenants());
           namespaces.addAll(partialSnapshot.namespaces());
+          warnings.addAll(partialSnapshot.warnings());
           for (TopicDetails topic : partialSnapshot.topics()) {
             topics.put(topic.fullName(), topic);
           }
@@ -185,15 +199,15 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
           throw exception;
         }
       } else {
-        try {
-          syncNamespace(environment, target.tenant(), target.namespace(), tenants, namespaces, topics);
-        } catch (RestClientException exception) {
-          if (isAuthorizationFailure(exception)) {
-            warnings.add("Namespace " + target.tenant() + "/" + target.namespace() + " is not accessible with this token.");
-            continue;
+        tenants.add(target.tenant());
+        NamespaceInventoryResult result = inventoryNamespace(environment, target.tenant(), target.namespace());
+        if (!result.topics().isEmpty()) {
+          namespaces.add(target.tenant() + "/" + target.namespace());
+          for (TopicDetails topic : result.topics()) {
+            topics.put(topic.fullName(), topic);
           }
-          throw exception;
         }
+        warnings.addAll(result.warnings());
       }
     }
 
@@ -218,18 +232,66 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
       List<String> tenants,
       boolean scoped,
       List<String> warnings) throws IOException {
-    LinkedHashSet<String> namespaces = new LinkedHashSet<>();
-    LinkedHashMap<String, TopicDetails> topics = new LinkedHashMap<>();
     LinkedHashSet<String> discoveredTenants = new LinkedHashSet<>();
+    List<NamespaceInventory> namespaceInventories = new ArrayList<>();
 
     for (String tenant : tenants) {
-      JsonNode namespacesNode = getJson(environment, "/admin/v2/namespaces/" + tenant);
+      JsonNode namespacesNode;
+      try {
+        namespacesNode = getJson(environment, "/admin/v2/namespaces/" + tenant);
+      } catch (RestClientException exception) {
+        if (isSkippableInventoryFailure(exception)) {
+          warnings.add("Skipped tenant " + tenant + " because namespaces could not be listed: " + exception.getMessage());
+          continue;
+        }
+        throw exception;
+      }
       for (String namespacePath : readStringArray(namespacesNode)) {
         String[] namespaceSegments = namespacePath.split("/", 2);
         if (namespaceSegments.length != 2) {
           continue;
         }
-        syncNamespace(environment, namespaceSegments[0], namespaceSegments[1], discoveredTenants, namespaces, topics);
+        discoveredTenants.add(namespaceSegments[0]);
+        namespaceInventories.add(new NamespaceInventory(namespaceSegments[0], namespaceSegments[1]));
+      }
+    }
+
+    if (!namespaceInventories.isEmpty()) {
+      ExecutorService executor = Executors.newFixedThreadPool(Math.min(syncConcurrency, namespaceInventories.size()));
+      try {
+        List<Future<NamespaceInventoryResult>> futures = new ArrayList<>();
+        for (NamespaceInventory inventory : namespaceInventories) {
+          futures.add(executor.submit(() -> inventoryNamespace(environment, inventory.tenant(), inventory.namespace())));
+        }
+        for (int index = 0; index < futures.size(); index++) {
+          Future<NamespaceInventoryResult> future = futures.get(index);
+          try {
+            NamespaceInventoryResult result = future.get();
+            namespaceInventories.get(index).result(result);
+            warnings.addAll(result.warnings());
+          } catch (Exception exception) {
+            warnings.add("Skipped namespace "
+                + namespaceInventories.get(index).tenant()
+                + "/"
+                + namespaceInventories.get(index).namespace()
+                + " during sync because inventory loading failed: "
+                + exception.getMessage());
+          }
+        }
+      } finally {
+        executor.shutdownNow();
+      }
+    }
+
+    LinkedHashSet<String> namespaces = new LinkedHashSet<>();
+    LinkedHashMap<String, TopicDetails> topics = new LinkedHashMap<>();
+    for (NamespaceInventory inventory : namespaceInventories) {
+      if (inventory.result() == null) {
+        continue;
+      }
+      namespaces.add(inventory.tenant() + "/" + inventory.namespace());
+      for (TopicDetails topic : inventory.result().topics()) {
+        topics.put(topic.fullName(), topic);
       }
     }
 
@@ -242,26 +304,47 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         warnings);
   }
 
-  private void syncNamespace(
+  private NamespaceInventoryResult inventoryNamespace(
       EnvironmentDetails environment,
       String tenant,
-      String namespace,
-      Set<String> tenants,
-      Set<String> namespaces,
-      Map<String, TopicDetails> topics) throws IOException {
+      String namespace) throws IOException {
+    List<String> warnings = new ArrayList<>();
     String namespacePath = tenant + "/" + namespace;
-    tenants.add(tenant);
-    namespaces.add(namespacePath);
-
-    JsonNode topicsNode = getJson(environment, "/admin/v2/persistent/" + namespacePath);
-    JsonNode partitionedTopicsNode = safeGetJson(environment, "/admin/v2/persistent/" + namespacePath + "/partitioned");
-    List<String> namespaceTopics = new ArrayList<>();
-    namespaceTopics.addAll(readStringArray(topicsNode));
-    namespaceTopics.addAll(readStringArray(partitionedTopicsNode));
-
-    for (String fullTopicName : canonicalTopicNames(namespaceTopics)) {
-      topics.put(fullTopicName, toTopicDetails(environment, fullTopicName, tenant, namespace));
+    JsonNode topicsNode;
+    try {
+      topicsNode = getJson(environment, "/admin/v2/persistent/" + namespacePath);
+    } catch (RestClientException exception) {
+      if (isSkippableInventoryFailure(exception)) {
+        warnings.add("Skipped namespace " + namespacePath + " because topics could not be listed: " + exception.getMessage());
+        return new NamespaceInventoryResult(List.of(), warnings);
+      }
+      throw exception;
     }
+
+    JsonNode partitionedTopicsNode = safeGetJsonWithWarning(
+        environment,
+        "/admin/v2/persistent/" + namespacePath + "/partitioned",
+        warnings,
+        "Partitioned topics could not be listed for " + namespacePath + ".");
+
+    List<String> rawTopics = readStringArray(topicsNode);
+    List<String> partitionedTopics = readStringArray(partitionedTopicsNode);
+    Set<String> partitionedSet = new HashSet<>();
+    for (String partitionedTopic : partitionedTopics) {
+      partitionedSet.add(PulsarTopicName.parse(partitionedTopic).canonicalFullName());
+    }
+
+    List<TopicDetails> topics = new ArrayList<>();
+    for (String fullTopicName : canonicalTopicNames(combineTopicNames(rawTopics, partitionedTopics))) {
+      topics.add(toInventoryTopicDetails(environment, fullTopicName, tenant, namespace, partitionedSet.contains(fullTopicName), warnings));
+    }
+    return new NamespaceInventoryResult(topics, warnings);
+  }
+
+  private List<String> combineTopicNames(List<String> rawTopics, List<String> partitionedTopics) {
+    List<String> combined = new ArrayList<>(rawTopics);
+    combined.addAll(partitionedTopics);
+    return combined;
   }
 
   private EnvironmentSnapshot buildSnapshot(
@@ -293,7 +376,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         "rest-sync",
         message.toString());
 
-    return new EnvironmentSnapshot(health, tenants, namespaces, topics);
+    return new EnvironmentSnapshot(health, tenants, namespaces, topics, warnings);
   }
 
   private List<SyncTarget> parseSyncTargets(String syncTargets) {
@@ -327,6 +410,13 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return exception instanceof RestClientResponseException responseException
         && (responseException.getStatusCode().value() == 401
             || responseException.getStatusCode().value() == 403);
+  }
+
+  private boolean isSkippableInventoryFailure(RestClientException exception) {
+    return exception instanceof RestClientResponseException responseException
+        && (responseException.getStatusCode().value() == 401
+            || responseException.getStatusCode().value() == 403
+            || responseException.getStatusCode().value() == 404);
   }
 
   @Override
@@ -643,6 +733,12 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     } catch (IOException | RestClientException exception) {
       throw new BadRequestException("Unable to update namespace policies via Pulsar admin REST API: " + exception.getMessage());
     }
+  }
+
+  @Override
+  public TopicDetails getTopicDetails(EnvironmentDetails environment, String topicName) {
+    PulsarTopicName parsed = PulsarTopicName.parse(topicName);
+    return toTopicDetails(environment, parsed.fullName(), parsed.tenant(), parsed.namespace());
   }
 
   @Override
@@ -1094,6 +1190,61 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
         subscriptions);
   }
 
+  private TopicDetails toInventoryTopicDetails(
+      EnvironmentDetails environment,
+      String fullTopicName,
+      String tenant,
+      String namespace,
+      boolean partitioned,
+      List<String> warnings) {
+    PulsarTopicName parsed = PulsarTopicName.parse(fullTopicName);
+    int partitionCount = 0;
+    if (partitioned) {
+      JsonNode metadata = safeGetJsonWithWarning(
+          environment,
+          partitionedMetadataPath(parsed),
+          warnings,
+          "Partition metadata could not be loaded for " + parsed.canonicalFullName() + ".");
+      partitionCount = readPartitionCount(metadata);
+      if (partitionCount == 0) {
+        partitionCount = 1;
+      }
+    }
+
+    return new TopicDetails(
+        parsed.canonicalFullName(),
+        tenant,
+        namespace,
+        parsed.canonicalTopic(),
+        partitioned,
+        partitioned ? partitionCount : 0,
+        TopicHealth.INACTIVE,
+        new TopicStatsSummary(0, 0, 0, 0, 0, 0, 0, 0, 0),
+        new SchemaSummary("UNKNOWN", "-", "UNKNOWN", false),
+        "Unassigned",
+        "Inventory synced. Live topic stats and schema load on demand.",
+        buildInventoryPartitionSummaries(parsed.canonicalFullName(), partitioned ? partitionCount : 0),
+        List.of());
+  }
+
+  private List<TopicPartitionSummary> buildInventoryPartitionSummaries(String topicName, int partitionCount) {
+    if (partitionCount <= 0) {
+      return List.of();
+    }
+
+    List<TopicPartitionSummary> partitionSummaries = new ArrayList<>(partitionCount);
+    for (int index = 0; index < partitionCount; index++) {
+      partitionSummaries.add(new TopicPartitionSummary(
+          topicName + "-partition-" + index,
+          0,
+          0,
+          0.0,
+          0.0,
+          TopicHealth.INACTIVE));
+    }
+    return List.copyOf(partitionSummaries);
+  }
+
   private JsonNode getJson(EnvironmentDetails environment, String path) throws IOException {
     var request = restClient.get()
         .uri(normalizeAdminUrl(environment.adminUrl()) + path);
@@ -1126,6 +1277,19 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     try {
       return getJson(environment, path);
     } catch (IOException | RestClientException exception) {
+      return objectMapper.createObjectNode();
+    }
+  }
+
+  private JsonNode safeGetJsonWithWarning(
+      EnvironmentDetails environment,
+      String path,
+      List<String> warnings,
+      String warningPrefix) {
+    try {
+      return getJson(environment, path);
+    } catch (IOException | RestClientException exception) {
+      warnings.add(warningPrefix + " " + exception.getMessage());
       return objectMapper.createObjectNode();
     }
   }
@@ -1306,6 +1470,36 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   private record SyncTarget(String tenant, String namespace) {
+  }
+
+  private static final class NamespaceInventory {
+    private final String tenant;
+    private final String namespace;
+    private NamespaceInventoryResult result;
+
+    private NamespaceInventory(String tenant, String namespace) {
+      this.tenant = tenant;
+      this.namespace = namespace;
+    }
+
+    private String tenant() {
+      return tenant;
+    }
+
+    private String namespace() {
+      return namespace;
+    }
+
+    private NamespaceInventoryResult result() {
+      return result;
+    }
+
+    private void result(NamespaceInventoryResult result) {
+      this.result = result;
+    }
+  }
+
+  private record NamespaceInventoryResult(List<TopicDetails> topics, List<String> warnings) {
   }
 
   private String normalizeAdminUrl(String adminUrl) {
@@ -1725,7 +1919,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return created;
   }
 
-  private static PulsarClient buildClient(EnvironmentDetails environment) throws PulsarClientException {
+  public static PulsarClient buildClient(EnvironmentDetails environment) throws PulsarClientException {
     var builder = PulsarClient.builder()
         .serviceUrl(environment.brokerUrl())
         .enableTls(environment.tlsEnabled())
@@ -2038,7 +2232,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   @FunctionalInterface
-  interface PulsarClientFactory {
+  public interface PulsarClientFactory {
     PulsarClient create(EnvironmentDetails environment) throws PulsarClientException;
   }
 }
