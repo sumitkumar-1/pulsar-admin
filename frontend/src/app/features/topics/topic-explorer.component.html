@@ -156,6 +156,34 @@
                 </div>
               </div>
 
+              @if (selectedTopicTotal() > 0) {
+                <div class="namespace-summary-row">
+                  <span>
+                    Showing {{ selectedTopicRangeStart() | number }}-{{ selectedTopicRangeEnd() | number }}
+                    of {{ selectedTopicTotal() | number }} topics
+                  </span>
+                  <label>
+                    Page size
+                    <select
+                      [value]="selectedTopicPageSize()"
+                      (change)="changeTopicPageSize($any($event.target).value)">
+                      <option value="10">10</option>
+                      <option value="25">25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                  </label>
+                  <div class="detail-actions">
+                    <button class="ghost" type="button" (click)="goToPreviousTopicPage()" [disabled]="!hasPreviousTopicPage()">
+                      Previous
+                    </button>
+                    <button class="ghost" type="button" (click)="goToNextTopicPage()" [disabled]="!hasNextTopicPage()">
+                      Next
+                    </button>
+                  </div>
+                </div>
+              }
+
               @if (selectedTopics().length === 0) {
                 <div class="state-card compact-state">
                   No topics are in this namespace yet. Create one to start publishing or testing workflows here.

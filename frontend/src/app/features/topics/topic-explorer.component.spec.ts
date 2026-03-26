@@ -184,6 +184,80 @@ describe('TopicExplorerComponent', () => {
     expect(compiled.textContent).toContain('Backlog-heavy topic');
   });
 
+  it('shows topic paging controls when the selected namespace has more topics than the current page', async () => {
+    await TestBed.configureTestingModule({
+      imports: [TopicExplorerComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({ envId: 'prod' })),
+            queryParamMap: of(convertToParamMap({
+              tenant: 'acme',
+              namespace: 'orders',
+              page: '0',
+              pageSize: '25'
+            }))
+          }
+        },
+        {
+          provide: PulsarApiService,
+          useValue: {
+            getEnvironmentHealth: () => of({
+              environmentId: 'prod',
+              status: 'HEALTHY',
+              brokerUrl: 'broker',
+              adminUrl: 'admin',
+              pulsarVersion: '4.0.2',
+              message: 'healthy'
+            }),
+            getCatalogSummary: () => of({
+              environmentId: 'prod',
+              tenants: [{ name: 'acme', namespaceCount: 1, topicCount: 1585 }],
+              namespaces: [{ tenant: 'acme', namespace: 'orders', topicCount: 1585 }]
+            }),
+            getTopics: () => of({
+              items: Array.from({ length: 25 }, (_, index) => ({
+                fullName: `persistent://acme/orders/topic-${index}`,
+                tenant: 'acme',
+                namespace: 'orders',
+                topic: `topic-${index}`,
+                partitioned: false,
+                partitions: 0,
+                schemaPresent: false,
+                health: 'HEALTHY',
+                stats: {
+                  backlog: 0,
+                  producers: 0,
+                  subscriptions: 0,
+                  consumers: 0,
+                  publishRateIn: 0,
+                  dispatchRateOut: 0,
+                  throughputIn: 0,
+                  throughputOut: 0,
+                  storageSize: 0
+                },
+                summary: 'Topic summary'
+              })),
+              page: 0,
+              pageSize: 25,
+              total: 1585
+            })
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(TopicExplorerComponent);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Showing 1-25 of 1,585 topics');
+    expect(compiled.textContent).toContain('Previous');
+    expect(compiled.textContent).toContain('Next');
+  });
+
   it('prefills the create topic dialog from the selected namespace', async () => {
     await TestBed.configureTestingModule({
       imports: [TopicExplorerComponent],

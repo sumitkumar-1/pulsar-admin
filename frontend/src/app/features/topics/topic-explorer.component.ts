@@ -201,6 +201,27 @@ export class TopicExplorerComponent {
   readonly selectedTopics = computed(() =>
     [...(this.topicPage()?.items ?? [])].sort((left, right) => left.topic.localeCompare(right.topic))
   );
+  readonly selectedTopicPage = computed(() => this.topicPage()?.page ?? 0);
+  readonly selectedTopicPageSize = computed(() => this.topicPage()?.pageSize ?? 25);
+  readonly selectedTopicTotal = computed(() => this.topicPage()?.total ?? 0);
+  readonly selectedTopicRangeStart = computed(() => {
+    const total = this.selectedTopicTotal();
+    if (total === 0) {
+      return 0;
+    }
+    return this.selectedTopicPage() * this.selectedTopicPageSize() + 1;
+  });
+  readonly selectedTopicRangeEnd = computed(() => {
+    const total = this.selectedTopicTotal();
+    if (total === 0) {
+      return 0;
+    }
+    return Math.min(total, this.selectedTopicRangeStart() + this.selectedTopics().length - 1);
+  });
+  readonly hasPreviousTopicPage = computed(() => this.selectedTopicPage() > 0);
+  readonly hasNextTopicPage = computed(() =>
+    this.selectedTopicRangeEnd() < this.selectedTopicTotal()
+  );
 
   readonly totalTopicCount = computed(() =>
     this.catalogSummary()?.namespaces.reduce((sum, namespace) => sum + namespace.topicCount, 0) ?? 0
@@ -302,6 +323,36 @@ export class TopicExplorerComponent {
   clearSearch() {
     this.searchControl.setValue('');
     this.applySearch();
+  }
+
+  changeTopicPageSize(rawValue: string) {
+    const pageSize = Number(rawValue);
+    if (![10, 25, 50, 100].includes(pageSize)) {
+      return;
+    }
+
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        pageSize,
+        page: 0
+      },
+      queryParamsHandling: 'merge'
+    });
+  }
+
+  goToPreviousTopicPage() {
+    if (!this.hasPreviousTopicPage()) {
+      return;
+    }
+    this.goToTopicPage(this.selectedTopicPage() - 1);
+  }
+
+  goToNextTopicPage() {
+    if (!this.hasNextTopicPage()) {
+      return;
+    }
+    this.goToTopicPage(this.selectedTopicPage() + 1);
   }
 
   openTopic(topic: TopicListItem) {
@@ -874,6 +925,16 @@ export class TopicExplorerComponent {
         namespace,
         page: '0'
       }),
+      queryParamsHandling: 'merge'
+    });
+  }
+
+  private goToTopicPage(page: number) {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        page: Math.max(0, page)
+      },
       queryParamsHandling: 'merge'
     });
   }
