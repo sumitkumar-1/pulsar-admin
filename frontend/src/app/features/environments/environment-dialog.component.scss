@@ -84,7 +84,8 @@
 }
 
 .environment-form input,
-.environment-form select {
+.environment-form select,
+.environment-form textarea {
   padding: 0.9rem 1rem;
   border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 1rem;
@@ -92,8 +93,14 @@
   font: inherit;
 }
 
+.environment-form textarea {
+  resize: vertical;
+  min-height: 7rem;
+}
+
 .environment-form label.invalid input,
-.environment-form label.invalid select {
+.environment-form label.invalid select,
+.environment-form label.invalid textarea {
   border-color: rgba(220, 38, 38, 0.5);
   background: rgba(254, 242, 242, 0.8);
 }

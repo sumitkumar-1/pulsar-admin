@@ -28,6 +28,7 @@ export interface EnvironmentDetails extends EnvironmentSummary {
   adminUrl: string;
   authMode: string;
   credentialReference: string | null;
+  syncTargets: string | null;
   tlsEnabled: boolean;
   syncMessage: string | null;
   lastTestMessage: string | null;
@@ -46,6 +47,7 @@ export interface EnvironmentUpsertRequest {
   adminUrl: string;
   authMode: string;
   credentialReference: string;
+  syncTargets: string;
   tlsEnabled: boolean;
 }
 

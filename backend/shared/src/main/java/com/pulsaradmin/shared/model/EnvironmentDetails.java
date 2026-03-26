@@ -14,6 +14,7 @@ public record EnvironmentDetails(
     String adminUrl,
     String authMode,
     String credentialReference,
+    String syncTargets,
     boolean tlsEnabled,
     String syncStatus,
     String syncMessage,

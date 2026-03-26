@@ -47,6 +47,7 @@ export class EnvironmentOverviewComponent {
     adminUrl: ['', [Validators.required, Validators.maxLength(255)]],
     authMode: ['none', [Validators.required]],
     credentialReference: [''],
+    syncTargets: ['', [Validators.maxLength(2000)]],
     tlsEnabled: [false]
   });
 
@@ -79,6 +80,7 @@ export class EnvironmentOverviewComponent {
       adminUrl: '',
       authMode: 'none',
       credentialReference: '',
+      syncTargets: '',
       tlsEnabled: false
     });
     this.environmentForm.controls.id.enable();
@@ -250,6 +252,7 @@ export class EnvironmentOverviewComponent {
       adminUrl: environment.adminUrl,
       authMode: environment.authMode,
       credentialReference: environment.credentialReference ?? '',
+      syncTargets: environment.syncTargets ?? '',
       tlsEnabled: environment.tlsEnabled
     });
     this.environmentForm.controls.id.disable();
@@ -263,7 +266,7 @@ export class EnvironmentOverviewComponent {
     if (authMode === 'none') {
       credentialControl.clearValidators();
     } else {
-      credentialControl.setValidators([Validators.required, Validators.maxLength(255)]);
+      credentialControl.setValidators([Validators.required, Validators.maxLength(500)]);
     }
 
     credentialControl.updateValueAndValidity({ emitEvent: false });

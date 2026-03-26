@@ -8,7 +8,8 @@ create table if not exists environments (
   broker_url varchar(255) not null,
   admin_url varchar(255) not null,
   auth_mode varchar(32) not null,
-  credential_reference varchar(255),
+  credential_reference varchar(500),
+  sync_targets text,
   tls_enabled boolean not null default false,
   status varchar(16) not null,
   sync_status varchar(32) not null default 'NOT_SYNCED',
@@ -29,7 +30,8 @@ alter table if exists environments add column if not exists region varchar(64);
 alter table if exists environments add column if not exists cluster_label varchar(64);
 alter table if exists environments add column if not exists summary varchar(255);
 alter table if exists environments add column if not exists auth_mode varchar(32);
-alter table if exists environments add column if not exists credential_reference varchar(255);
+alter table if exists environments add column if not exists credential_reference varchar(500);
+alter table if exists environments add column if not exists sync_targets text;
 alter table if exists environments add column if not exists tls_enabled boolean default false;
 alter table if exists environments add column if not exists status varchar(16);
 alter table if exists environments add column if not exists sync_status varchar(32) default 'NOT_SYNCED';
@@ -41,6 +43,7 @@ alter table if exists environments add column if not exists last_tested_at times
 alter table if exists environments add column if not exists deleted_at timestamp;
 alter table if exists environments add column if not exists created_at timestamp default current_timestamp;
 alter table if exists environments add column if not exists updated_at timestamp default current_timestamp;
+alter table if exists environments alter column credential_reference type varchar(500);
 
 update environments
 set kind = coalesce(kind, id),

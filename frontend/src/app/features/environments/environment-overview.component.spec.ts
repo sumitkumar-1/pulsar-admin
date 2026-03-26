@@ -80,6 +80,7 @@ describe('EnvironmentOverviewComponent', () => {
       adminUrl: '',
       authMode: 'none',
       credentialReference: '',
+      syncTargets: '',
       tlsEnabled: false
     });
 
@@ -188,6 +189,7 @@ describe('EnvironmentOverviewComponent', () => {
               adminUrl: 'https://dev-admin.internal',
               authMode: 'none',
               credentialReference: '',
+              syncTargets: '',
               tlsEnabled: false,
               syncMessage: 'Metadata synced successfully.',
               lastTestMessage: 'Connection successful.',

@@ -65,6 +65,7 @@ public class EnvironmentManagementService {
         request.adminUrl(),
         request.authMode(),
         blankToNull(request.credentialReference()),
+        blankToNull(request.syncTargets()),
         request.tlsEnabled(),
         EnvironmentStatus.DEGRADED,
         "NOT_SYNCED",
@@ -108,6 +109,7 @@ public class EnvironmentManagementService {
         request.adminUrl(),
         request.authMode(),
         blankToNull(request.credentialReference()),
+        blankToNull(request.syncTargets()),
         request.tlsEnabled(),
         existing.status(),
         "NOT_SYNCED",
@@ -143,6 +145,7 @@ public class EnvironmentManagementService {
         environment.adminUrl(),
         environment.authMode(),
         environment.credentialReference(),
+        environment.syncTargets(),
         environment.tlsEnabled(),
         result.successful() ? EnvironmentStatus.HEALTHY : EnvironmentStatus.DEGRADED,
         environment.syncStatus(),
@@ -185,10 +188,11 @@ public class EnvironmentManagementService {
         environment.adminUrl(),
         environment.authMode(),
         environment.credentialReference(),
+        environment.syncTargets(),
         environment.tlsEnabled(),
         snapshot.health().status(),
         "SYNCED",
-        "Metadata synced successfully.",
+        snapshot.health().message(),
         syncedAt,
         environment.lastTestStatus(),
         environment.lastTestMessage(),
@@ -197,7 +201,7 @@ public class EnvironmentManagementService {
 
     updateEnvironmentRecord(syncedEnvironment);
 
-    return snapshotRecord.toSyncStatus("SYNCED", "Metadata synced successfully.", syncedAt);
+    return snapshotRecord.toSyncStatus("SYNCED", snapshot.health().message(), syncedAt);
   }
 
   public EnvironmentSyncStatus getSyncStatus(String environmentId) {
@@ -226,6 +230,7 @@ public class EnvironmentManagementService {
         environment.adminUrl(),
         environment.authMode(),
         environment.credentialReference(),
+        environment.syncTargets(),
         environment.tlsEnabled(),
         environment.status(),
         environment.syncStatus(),

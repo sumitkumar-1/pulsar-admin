@@ -56,10 +56,10 @@ public class EnvironmentRepository {
     jdbcTemplate.update("""
         insert into environments (
           id, name, kind, region, cluster_label, summary, broker_url, admin_url,
-          auth_mode, credential_reference, tls_enabled, status, sync_status, sync_message,
+          auth_mode, credential_reference, sync_targets, tls_enabled, status, sync_status, sync_message,
           last_synced_at, last_test_status, last_test_message, last_tested_at, deleted_at,
           created_at, updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp, current_timestamp)
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp, current_timestamp)
         """,
         environment.id(),
         environment.name(),
@@ -71,6 +71,7 @@ public class EnvironmentRepository {
         environment.adminUrl(),
         environment.authMode(),
         environment.credentialReference(),
+        environment.syncTargets(),
         environment.tlsEnabled(),
         environment.status().name(),
         environment.syncStatus(),
@@ -86,7 +87,7 @@ public class EnvironmentRepository {
     jdbcTemplate.update("""
         update environments
         set name = ?, kind = ?, region = ?, cluster_label = ?, summary = ?, broker_url = ?, admin_url = ?,
-            auth_mode = ?, credential_reference = ?, tls_enabled = ?, status = ?, sync_status = ?, sync_message = ?,
+            auth_mode = ?, credential_reference = ?, sync_targets = ?, tls_enabled = ?, status = ?, sync_status = ?, sync_message = ?,
             last_synced_at = ?, last_test_status = ?, last_test_message = ?, last_tested_at = ?, deleted_at = ?, updated_at = current_timestamp
         where id = ?
         """,
@@ -99,6 +100,7 @@ public class EnvironmentRepository {
         environment.adminUrl(),
         environment.authMode(),
         environment.credentialReference(),
+        environment.syncTargets(),
         environment.tlsEnabled(),
         environment.status().name(),
         environment.syncStatus(),
@@ -123,6 +125,7 @@ public class EnvironmentRepository {
         rs.getString("admin_url"),
         rs.getString("auth_mode"),
         rs.getString("credential_reference"),
+        rs.getString("sync_targets"),
         rs.getBoolean("tls_enabled"),
         EnvironmentStatus.valueOf(rs.getString("status")),
         rs.getString("sync_status"),

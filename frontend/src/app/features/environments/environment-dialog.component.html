@@ -96,6 +96,21 @@
           <small>{{ credentialHint() }}</small>
         </label>
 
+        <label class="full-width" [ngClass]="{ invalid: isInvalid('syncTargets') }">
+          <span>Scoped sync targets</span>
+          <textarea
+            formControlName="syncTargets"
+            rows="4"
+            placeholder="team-a/payments&#10;team-a/orders"></textarea>
+          <small>
+            Optional. Use one tenant or tenant/namespace per line when the token cannot list all tenants. Example:
+            <code>team-a</code> or <code>team-a/payments</code>.
+          </small>
+          @if (isInvalid('syncTargets')) {
+            <small>Scoped sync targets must be 2000 characters or less.</small>
+          }
+        </label>
+
         <label class="checkbox-row">
           <input formControlName="tlsEnabled" type="checkbox" />
           <span>TLS enabled</span>

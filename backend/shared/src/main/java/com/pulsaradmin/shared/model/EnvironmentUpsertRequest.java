@@ -32,7 +32,9 @@ public record EnvironmentUpsertRequest(
     @NotBlank
     @Size(max = 32)
     String authMode,
-    @Size(max = 255)
+    @Size(max = 500)
     String credentialReference,
+    @Size(max = 2000)
+    String syncTargets,
     boolean tlsEnabled) {
 }

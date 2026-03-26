@@ -53,6 +53,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.List;
@@ -74,6 +75,7 @@ import org.apache.pulsar.client.api.SubscriptionInitialPosition;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 public class RestPulsarAdminGateway implements PulsarAdminGateway {
   private static final int CLIENT_OPERATION_TIMEOUT_SECONDS = 5;
@@ -127,47 +129,204 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public EnvironmentSnapshot syncMetadata(EnvironmentDetails environment) {
     try {
-      JsonNode tenantsNode = getJson(environment, "/admin/v2/tenants");
-      List<String> tenants = readStringArray(tenantsNode);
-      List<String> namespaces = new ArrayList<>();
-      List<TopicDetails> topics = new ArrayList<>();
-
-      for (String tenant : tenants) {
-        JsonNode namespacesNode = getJson(environment, "/admin/v2/namespaces/" + tenant);
-        for (String namespacePath : readStringArray(namespacesNode)) {
-          namespaces.add(namespacePath);
-          String[] namespaceSegments = namespacePath.split("/", 2);
-          if (namespaceSegments.length != 2) {
-            continue;
-          }
-
-          JsonNode topicsNode = getJson(environment, "/admin/v2/persistent/" + namespacePath);
-          JsonNode partitionedTopicsNode = safeGetJson(environment, "/admin/v2/persistent/" + namespacePath + "/partitioned");
-          List<String> namespaceTopics = new ArrayList<>();
-          namespaceTopics.addAll(readStringArray(topicsNode));
-          namespaceTopics.addAll(readStringArray(partitionedTopicsNode));
-
-          for (String fullTopicName : canonicalTopicNames(namespaceTopics)) {
-            topics.add(toTopicDetails(environment, fullTopicName, namespaceSegments[0], namespaceSegments[1]));
-          }
-        }
-      }
-
-      EnvironmentHealth health = new EnvironmentHealth(
-          environment.id(),
-          topics.isEmpty() ? EnvironmentStatus.DEGRADED : EnvironmentStatus.HEALTHY,
-          environment.brokerUrl(),
-          environment.adminUrl(),
-          "rest-sync",
-          "Metadata synced from Pulsar admin REST API. "
-              + tenants.size() + " tenants, "
-              + namespaces.size() + " namespaces, "
-              + topics.size() + " topics.");
-
-      return new EnvironmentSnapshot(health, tenants, namespaces, topics);
+      return syncAllMetadata(environment);
     } catch (RestClientException | IOException exception) {
       throw new BadRequestException("Unable to sync metadata from Pulsar admin REST API: " + exception.getMessage());
     }
+  }
+
+  private EnvironmentSnapshot syncAllMetadata(EnvironmentDetails environment) throws IOException {
+    try {
+      JsonNode tenantsNode = getJson(environment, "/admin/v2/tenants");
+      return syncNamespacesForTenants(environment, readStringArray(tenantsNode), false, List.of());
+    } catch (RestClientException exception) {
+      if (!isAuthorizationFailure(exception)) {
+        throw exception;
+      }
+      return syncScopedMetadata(environment, exception);
+    }
+  }
+
+  private EnvironmentSnapshot syncScopedMetadata(EnvironmentDetails environment, RestClientException tenantListFailure)
+      throws IOException {
+    List<SyncTarget> scopedTargets = parseSyncTargets(environment.syncTargets());
+    if (scopedTargets.isEmpty()) {
+      throw new BadRequestException(
+          "Global tenant listing is not permitted for this token. Add scoped sync targets using one tenant or tenant/namespace per line.");
+    }
+
+    LinkedHashSet<String> tenants = new LinkedHashSet<>();
+    LinkedHashSet<String> namespaces = new LinkedHashSet<>();
+    LinkedHashMap<String, TopicDetails> topics = new LinkedHashMap<>();
+    List<String> warnings = new ArrayList<>();
+
+    for (SyncTarget target : scopedTargets) {
+      if (target.namespace() == null) {
+        try {
+          JsonNode namespacesNode = getJson(environment, "/admin/v2/namespaces/" + target.tenant());
+          List<String> tenantNamespaces = readStringArray(namespacesNode);
+          if (tenantNamespaces.isEmpty()) {
+            warnings.add("No namespaces were returned for tenant " + target.tenant() + ".");
+            continue;
+          }
+          EnvironmentSnapshot partialSnapshot =
+              syncNamespacesForTenants(environment, List.of(target.tenant()), true, List.of());
+          tenants.addAll(partialSnapshot.tenants());
+          namespaces.addAll(partialSnapshot.namespaces());
+          for (TopicDetails topic : partialSnapshot.topics()) {
+            topics.put(topic.fullName(), topic);
+          }
+        } catch (RestClientException exception) {
+          if (isAuthorizationFailure(exception)) {
+            warnings.add(
+                "Tenant " + target.tenant() + " cannot be expanded into namespaces with this token. Add explicit tenant/namespace targets instead.");
+            continue;
+          }
+          throw exception;
+        }
+      } else {
+        try {
+          syncNamespace(environment, target.tenant(), target.namespace(), tenants, namespaces, topics);
+        } catch (RestClientException exception) {
+          if (isAuthorizationFailure(exception)) {
+            warnings.add("Namespace " + target.tenant() + "/" + target.namespace() + " is not accessible with this token.");
+            continue;
+          }
+          throw exception;
+        }
+      }
+    }
+
+    if (namespaces.isEmpty() && topics.isEmpty()) {
+      String reason = warnings.isEmpty()
+          ? tenantListFailure.getMessage()
+          : String.join(" ", warnings);
+      throw new BadRequestException("Scoped sync could not discover any accessible namespaces or topics. " + reason);
+    }
+
+    return buildSnapshot(
+        environment,
+        new ArrayList<>(tenants),
+        new ArrayList<>(namespaces),
+        new ArrayList<>(topics.values()),
+        true,
+        warnings);
+  }
+
+  private EnvironmentSnapshot syncNamespacesForTenants(
+      EnvironmentDetails environment,
+      List<String> tenants,
+      boolean scoped,
+      List<String> warnings) throws IOException {
+    LinkedHashSet<String> namespaces = new LinkedHashSet<>();
+    LinkedHashMap<String, TopicDetails> topics = new LinkedHashMap<>();
+    LinkedHashSet<String> discoveredTenants = new LinkedHashSet<>();
+
+    for (String tenant : tenants) {
+      JsonNode namespacesNode = getJson(environment, "/admin/v2/namespaces/" + tenant);
+      for (String namespacePath : readStringArray(namespacesNode)) {
+        String[] namespaceSegments = namespacePath.split("/", 2);
+        if (namespaceSegments.length != 2) {
+          continue;
+        }
+        syncNamespace(environment, namespaceSegments[0], namespaceSegments[1], discoveredTenants, namespaces, topics);
+      }
+    }
+
+    return buildSnapshot(
+        environment,
+        new ArrayList<>(discoveredTenants),
+        new ArrayList<>(namespaces),
+        new ArrayList<>(topics.values()),
+        scoped,
+        warnings);
+  }
+
+  private void syncNamespace(
+      EnvironmentDetails environment,
+      String tenant,
+      String namespace,
+      Set<String> tenants,
+      Set<String> namespaces,
+      Map<String, TopicDetails> topics) throws IOException {
+    String namespacePath = tenant + "/" + namespace;
+    tenants.add(tenant);
+    namespaces.add(namespacePath);
+
+    JsonNode topicsNode = getJson(environment, "/admin/v2/persistent/" + namespacePath);
+    JsonNode partitionedTopicsNode = safeGetJson(environment, "/admin/v2/persistent/" + namespacePath + "/partitioned");
+    List<String> namespaceTopics = new ArrayList<>();
+    namespaceTopics.addAll(readStringArray(topicsNode));
+    namespaceTopics.addAll(readStringArray(partitionedTopicsNode));
+
+    for (String fullTopicName : canonicalTopicNames(namespaceTopics)) {
+      topics.put(fullTopicName, toTopicDetails(environment, fullTopicName, tenant, namespace));
+    }
+  }
+
+  private EnvironmentSnapshot buildSnapshot(
+      EnvironmentDetails environment,
+      List<String> tenants,
+      List<String> namespaces,
+      List<TopicDetails> topics,
+      boolean scoped,
+      List<String> warnings) {
+    StringBuilder message = new StringBuilder();
+    if (scoped) {
+      message.append("Metadata synced from Pulsar admin REST API using scoped targets. ");
+    } else {
+      message.append("Metadata synced from Pulsar admin REST API. ");
+    }
+    message
+        .append(tenants.size()).append(" tenants, ")
+        .append(namespaces.size()).append(" namespaces, ")
+        .append(topics.size()).append(" topics.");
+    if (!warnings.isEmpty()) {
+      message.append(" Warnings: ").append(String.join(" ", warnings));
+    }
+
+    EnvironmentHealth health = new EnvironmentHealth(
+        environment.id(),
+        topics.isEmpty() ? EnvironmentStatus.DEGRADED : EnvironmentStatus.HEALTHY,
+        environment.brokerUrl(),
+        environment.adminUrl(),
+        "rest-sync",
+        message.toString());
+
+    return new EnvironmentSnapshot(health, tenants, namespaces, topics);
+  }
+
+  private List<SyncTarget> parseSyncTargets(String syncTargets) {
+    if (syncTargets == null || syncTargets.isBlank()) {
+      return List.of();
+    }
+
+    List<SyncTarget> targets = new ArrayList<>();
+    LinkedHashSet<String> seen = new LinkedHashSet<>();
+    for (String candidate : syncTargets.split("[,\\r\\n]+")) {
+      String trimmed = candidate == null ? "" : candidate.trim();
+      if (trimmed.isBlank() || !seen.add(trimmed)) {
+        continue;
+      }
+      String[] segments = trimmed.split("/");
+      if (segments.length == 1 && !segments[0].isBlank()) {
+        targets.add(new SyncTarget(segments[0], null));
+        continue;
+      }
+      if (segments.length == 2 && !segments[0].isBlank() && !segments[1].isBlank()) {
+        targets.add(new SyncTarget(segments[0], segments[1]));
+        continue;
+      }
+      throw new BadRequestException(
+          "Invalid scoped sync target `" + trimmed + "`. Use `tenant` or `tenant/namespace`.");
+    }
+    return targets;
+  }
+
+  private boolean isAuthorizationFailure(RestClientException exception) {
+    return exception instanceof RestClientResponseException responseException
+        && (responseException.getStatusCode().value() == 401
+            || responseException.getStatusCode().value() == 403);
   }
 
   @Override
@@ -1144,6 +1303,9 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
       canonicalNames.add(PulsarTopicName.parse(fullTopicName).canonicalFullName());
     }
     return new ArrayList<>(canonicalNames);
+  }
+
+  private record SyncTarget(String tenant, String namespace) {
   }
 
   private String normalizeAdminUrl(String adminUrl) {

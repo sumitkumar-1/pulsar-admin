@@ -68,6 +68,7 @@ class RestPulsarAdminGatewayTest {
         "https://pulsar-admin.prod.example.com",
         "none",
         null,
+        null,
         true,
         "SYNCED",
         "Metadata synced successfully.",
@@ -286,6 +287,93 @@ class RestPulsarAdminGatewayTest {
     assertThat(snapshot.topics().get(0).partitioned()).isTrue();
     assertThat(snapshot.topics().get(0).partitions()).isEqualTo(3);
     assertThat(snapshot.topics().get(0).partitionSummaries()).hasSize(3);
+
+    server.verify();
+  }
+
+  @Test
+  void shouldFallbackToScopedNamespaceTargetsWhenTenantListIsUnauthorized() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    EnvironmentDetails environment = new EnvironmentDetails(
+        "prod",
+        "Production",
+        "prod",
+        EnvironmentStatus.HEALTHY,
+        "us-east-1",
+        "prod-east",
+        "Primary production cluster",
+        "pulsar+ssl://prod-brokers:6651",
+        "https://pulsar-admin.prod.example.com",
+        "none",
+        null,
+        "acme/orders",
+        true,
+        "SYNCED",
+        "Metadata synced successfully.",
+        Instant.parse("2026-03-17T18:00:00Z"),
+        "SUCCESS",
+        "Connection verified.",
+        Instant.parse("2026-03-17T17:59:00Z"),
+        false);
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/tenants"))
+        .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body("""
+            {"reason":"not allowed"}
+            """).contentType(MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders"))
+        .andRespond(withSuccess("""
+            ["persistent://acme/orders/payment-events"]
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/partitioned"))
+        .andRespond(withSuccess("""
+            []
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/partitions"))
+        .andRespond(withSuccess("""
+            {"partitions": 0}
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/persistent/acme/orders/payment-events/stats"))
+        .andRespond(withSuccess("""
+            {
+              "msgRateIn": 1.0,
+              "msgRateOut": 1.0,
+              "msgThroughputIn": 128.0,
+              "msgThroughputOut": 128.0,
+              "storageSize": 256,
+              "publishers": [],
+              "subscriptions": {}
+            }
+            """, MediaType.APPLICATION_JSON));
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/schemas/acme/orders/payment-events/schema"))
+        .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+    EnvironmentSnapshot snapshot = gateway.syncMetadata(environment);
+
+    assertThat(snapshot.tenants()).containsExactly("acme");
+    assertThat(snapshot.namespaces()).containsExactly("acme/orders");
+    assertThat(snapshot.topics()).hasSize(1);
+    assertThat(snapshot.health().message()).contains("using scoped targets");
+
+    server.verify();
+  }
+
+  @Test
+  void shouldExplainHowToRecoverWhenTenantListIsUnauthorizedWithoutScopedTargets() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(builder.build(), new ObjectMapper());
+
+    server.expect(requestTo("https://pulsar-admin.prod.example.com/admin/v2/tenants"))
+        .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body("""
+            {"reason":"not allowed"}
+            """).contentType(MediaType.APPLICATION_JSON));
+
+    assertThatThrownBy(() -> gateway.syncMetadata(environment()))
+        .hasMessageContaining("Global tenant listing is not permitted")
+        .hasMessageContaining("scoped sync targets");
 
     server.verify();
   }
@@ -744,6 +832,7 @@ class RestPulsarAdminGatewayTest {
         "https://pulsar-admin.prod.example.com",
         "none",
         null,
+        null,
         true,
         "SYNCED",
         "Metadata synced successfully.",
@@ -767,6 +856,7 @@ class RestPulsarAdminGatewayTest {
         "https://pulsar-admin.prod.example.com",
         "token",
         credentialReference,
+        null,
         true,
         "SYNCED",
         "Metadata synced successfully.",
