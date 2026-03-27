@@ -588,9 +588,10 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit) {
     try {
-      PulsarClient client = getOrCreateClient(environment);
-      List<String> targetTopics = resolveTargetTopics(client, topicName);
-      List<com.pulsaradmin.shared.model.PeekMessage> messages = readMessages(client, targetTopics, limit);
+      List<com.pulsaradmin.shared.model.PeekMessage> messages = executeWithClientRetry(environment, client -> {
+        List<String> targetTopics = resolveTargetTopics(client, topicName);
+        return readMessages(client, targetTopics, limit);
+      });
 
       return new PeekMessagesResponse(
           environment.id(),
@@ -599,7 +600,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
           messages.size(),
           messages.size() == limit,
           messages);
-    } catch (PulsarClientException | ExecutionException | InterruptedException exception) {
+    } catch (Exception exception) {
       if (exception instanceof InterruptedException) {
         Thread.currentThread().interrupt();
       }
@@ -744,30 +745,31 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public PublishMessageResponse publishMessage(EnvironmentDetails environment, PublishMessageRequest request) {
     try {
-      PulsarClient client = getOrCreateClient(environment);
-      try (Producer<byte[]> producer = client.newProducer()
-          .topic(request.topicName())
-          .create()) {
-        var builder = producer.newMessage()
-            .value(request.payload().getBytes(StandardCharsets.UTF_8));
-        if (request.key() != null && !request.key().isBlank()) {
-          builder.key(request.key());
+      return executeWithClientRetry(environment, client -> {
+        try (Producer<byte[]> producer = client.newProducer()
+            .topic(request.topicName())
+            .create()) {
+          var builder = producer.newMessage()
+              .value(request.payload().getBytes(StandardCharsets.UTF_8));
+          if (request.key() != null && !request.key().isBlank()) {
+            builder.key(request.key());
+          }
+          if (request.properties() != null && !request.properties().isEmpty()) {
+            builder.properties(request.properties());
+          }
+          var messageId = builder.sendAsync().get(CLIENT_OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+          return new PublishMessageResponse(
+              environment.id(),
+              request.topicName(),
+              String.valueOf(messageId),
+              request.key(),
+              request.properties() == null ? Map.of() : request.properties(),
+              request.schemaMode() == null || request.schemaMode().isBlank() ? "RAW" : request.schemaMode(),
+              Instant.now(),
+              "Published a test message through the Pulsar client.",
+              List.of());
         }
-        if (request.properties() != null && !request.properties().isEmpty()) {
-          builder.properties(request.properties());
-        }
-        var messageId = builder.sendAsync().get(CLIENT_OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        return new PublishMessageResponse(
-            environment.id(),
-            request.topicName(),
-            String.valueOf(messageId),
-            request.key(),
-            request.properties() == null ? Map.of() : request.properties(),
-            request.schemaMode() == null || request.schemaMode().isBlank() ? "RAW" : request.schemaMode(),
-            Instant.now(),
-            "Published a test message through the Pulsar client.",
-            List.of());
-      }
+      });
     } catch (Throwable throwable) {
       String detail = throwable.getMessage() == null || throwable.getMessage().isBlank()
           ? throwable.getClass().getSimpleName()
@@ -779,55 +781,56 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public ConsumeMessagesResponse consumeMessages(EnvironmentDetails environment, ConsumeMessagesRequest request) {
     try {
-      PulsarClient client = getOrCreateClient(environment);
       String subscriptionName = request.ephemeral()
           ? "ui-test-" + Math.abs((request.topicName() + Instant.now()).hashCode())
           : request.subscriptionName();
 
-      try (Consumer<byte[]> consumer = client.newConsumer()
-          .topic(request.topicName())
-          .subscriptionName(subscriptionName)
-          .subscriptionType(SubscriptionType.Exclusive)
-          .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
-          .subscribe()) {
-        List<ConsumedMessage> messages = new ArrayList<>();
-        long waitMillis = TimeUnit.SECONDS.toMillis(request.waitTimeSeconds());
-        long deadline = System.currentTimeMillis() + waitMillis;
+      return executeWithClientRetry(environment, client -> {
+        try (Consumer<byte[]> consumer = client.newConsumer()
+            .topic(request.topicName())
+            .subscriptionName(subscriptionName)
+            .subscriptionType(SubscriptionType.Exclusive)
+            .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
+            .subscribe()) {
+          List<ConsumedMessage> messages = new ArrayList<>();
+          long waitMillis = TimeUnit.SECONDS.toMillis(request.waitTimeSeconds());
+          long deadline = System.currentTimeMillis() + waitMillis;
 
-        while (messages.size() < request.maxMessages() && System.currentTimeMillis() < deadline) {
-          long remainingMillis = Math.max(1, deadline - System.currentTimeMillis());
-          int receiveTimeoutMillis = (int) Math.min(500L, remainingMillis);
-          Message<byte[]> message = consumer.receive(receiveTimeoutMillis, TimeUnit.MILLISECONDS);
-          if (message == null) {
-            continue;
+          while (messages.size() < request.maxMessages() && System.currentTimeMillis() < deadline) {
+            long remainingMillis = Math.max(1, deadline - System.currentTimeMillis());
+            int receiveTimeoutMillis = (int) Math.min(500L, remainingMillis);
+            Message<byte[]> message = consumer.receive(receiveTimeoutMillis, TimeUnit.MILLISECONDS);
+            if (message == null) {
+              continue;
+            }
+            messages.add(new ConsumedMessage(
+                String.valueOf(message.getMessageId()),
+                message.hasKey() ? message.getKey() : null,
+                message.getPublishTime() > 0 ? Instant.ofEpochMilli(message.getPublishTime()) : null,
+                message.getEventTime() > 0 ? Instant.ofEpochMilli(message.getEventTime()) : null,
+                message.getProperties(),
+                message.getProducerName(),
+                formatPayload(message.getData())));
+            consumer.acknowledge(message);
           }
-          messages.add(new ConsumedMessage(
-              String.valueOf(message.getMessageId()),
-              message.hasKey() ? message.getKey() : null,
-              message.getPublishTime() > 0 ? Instant.ofEpochMilli(message.getPublishTime()) : null,
-              message.getEventTime() > 0 ? Instant.ofEpochMilli(message.getEventTime()) : null,
-              message.getProperties(),
-              message.getProducerName(),
-              formatPayload(message.getData())));
-          consumer.acknowledge(message);
-        }
 
-        return new ConsumeMessagesResponse(
-            environment.id(),
-            request.topicName(),
-            subscriptionName,
-            request.ephemeral(),
-            request.maxMessages(),
-            messages.size(),
-            request.waitTimeSeconds(),
-            true,
-            Instant.now(),
-            messages.isEmpty()
-                ? "No messages were available within the bounded consume window."
-                : "Consumed " + messages.size() + " messages through the Pulsar client.",
-            messages,
-            List.of());
-      }
+          return new ConsumeMessagesResponse(
+              environment.id(),
+              request.topicName(),
+              subscriptionName,
+              request.ephemeral(),
+              request.maxMessages(),
+              messages.size(),
+              request.waitTimeSeconds(),
+              true,
+              Instant.now(),
+              messages.isEmpty()
+                  ? "No messages were available within the bounded consume window."
+                  : "Consumed " + messages.size() + " messages through the Pulsar client.",
+              messages,
+              List.of());
+        }
+      });
     } catch (Throwable throwable) {
       String detail = throwable.getMessage() == null || throwable.getMessage().isBlank()
           ? throwable.getClass().getSimpleName()
@@ -1899,11 +1902,7 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   }
 
   private PulsarClient getOrCreateClient(EnvironmentDetails environment) throws PulsarClientException {
-    String cacheKey = environment.id()
-        + "|" + environment.brokerUrl()
-        + "|" + environment.tlsEnabled()
-        + "|" + environment.authMode()
-        + "|" + environment.credentialReference();
+    String cacheKey = clientCacheKey(environment);
     PulsarClient existing = clientCache.get(cacheKey);
     if (existing != null) {
       return existing;
@@ -1917,6 +1916,14 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     }
 
     return created;
+  }
+
+  private String clientCacheKey(EnvironmentDetails environment) {
+    return environment.id()
+        + "|" + environment.brokerUrl()
+        + "|" + environment.tlsEnabled()
+        + "|" + environment.authMode()
+        + "|" + environment.credentialReference();
   }
 
   public static PulsarClient buildClient(EnvironmentDetails environment) throws PulsarClientException {
@@ -2024,6 +2031,39 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
       for (Reader<byte[]> reader : readers) {
         closeQuietly(reader);
       }
+    }
+  }
+
+  private <T> T executeWithClientRetry(EnvironmentDetails environment, ClientOperation<T> operation) throws Exception {
+    PulsarClient client = getOrCreateClient(environment);
+    try {
+      return operation.execute(client);
+    } catch (Exception exception) {
+      if (!isClosedConnectionFailure(exception)) {
+        throw exception;
+      }
+
+      invalidateCachedClient(environment, client);
+      return operation.execute(getOrCreateClient(environment));
+    }
+  }
+
+  private boolean isClosedConnectionFailure(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      String message = current.getMessage();
+      if (message != null && message.toLowerCase().contains("connection already closed")) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  private void invalidateCachedClient(EnvironmentDetails environment, PulsarClient expectedClient) {
+    String cacheKey = clientCacheKey(environment);
+    if (clientCache.remove(cacheKey, expectedClient)) {
+      closeQuietly(expectedClient);
     }
   }
 
@@ -2234,5 +2274,10 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   @FunctionalInterface
   public interface PulsarClientFactory {
     PulsarClient create(EnvironmentDetails environment) throws PulsarClientException;
+  }
+
+  @FunctionalInterface
+  private interface ClientOperation<T> {
+    T execute(PulsarClient client) throws Exception;
   }
 }

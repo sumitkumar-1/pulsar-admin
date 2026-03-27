@@ -8,6 +8,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.times;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.mockito.Mockito.mock;
@@ -36,6 +37,7 @@ import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.Reader;
@@ -344,6 +346,54 @@ class RestPulsarAdminGatewayTest {
     assertThat(response.messages().get(1).producerName()).isEqualTo("Unknown producer");
     assertThat(response.messages().get(1).schemaVersion()).isEqualTo("unknown");
 
+    verify(reader).close();
+  }
+
+  @Test
+  void shouldRebuildCachedClientWhenPeekConnectionIsAlreadyClosed() throws Exception {
+    PulsarClient staleClient = mock(PulsarClient.class);
+    PulsarClient freshClient = mock(PulsarClient.class);
+    @SuppressWarnings("unchecked")
+    ReaderBuilder<byte[]> readerBuilder = mock(ReaderBuilder.class);
+    @SuppressWarnings("unchecked")
+    Reader<byte[]> reader = mock(Reader.class);
+    @SuppressWarnings("unchecked")
+    Message<byte[]> message = mock(Message.class);
+
+    CompletableFuture<java.util.List<String>> failedPartitions = new CompletableFuture<>();
+    failedPartitions.completeExceptionally(new PulsarClientException("Connection already closed"));
+    when(staleClient.getPartitionsForTopic("persistent://acme/orders/payment-events")).thenReturn(failedPartitions);
+
+    when(freshClient.getPartitionsForTopic("persistent://acme/orders/payment-events"))
+        .thenReturn(CompletableFuture.completedFuture(java.util.List.of()));
+    when(freshClient.newReader()).thenReturn(readerBuilder);
+    when(readerBuilder.topic("persistent://acme/orders/payment-events")).thenReturn(readerBuilder);
+    when(readerBuilder.startMessageFromRollbackDuration(3650, java.util.concurrent.TimeUnit.DAYS)).thenReturn(readerBuilder);
+    when(readerBuilder.create()).thenReturn(reader);
+    when(reader.readNext(250, java.util.concurrent.TimeUnit.MILLISECONDS)).thenReturn(message, null);
+
+    when(message.getMessageId()).thenReturn(mock(org.apache.pulsar.client.api.MessageId.class));
+    when(message.getMessageId().toString()).thenReturn("ledger:91:2050");
+    when(message.hasKey()).thenReturn(false);
+    when(message.getPublishTime()).thenReturn(1_742_240_020_000L);
+    when(message.getEventTime()).thenReturn(0L);
+    when(message.getProducerName()).thenReturn("peek-producer");
+    when(message.getData()).thenReturn("{\"state\":\"WAITING\"}".getBytes());
+    when(message.getSchemaVersion()).thenReturn(null);
+
+    RestPulsarAdminGateway.PulsarClientFactory factory = mock(RestPulsarAdminGateway.PulsarClientFactory.class);
+    when(factory.create(environment())).thenReturn(staleClient, freshClient);
+
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(
+        RestClient.builder().build(),
+        new ObjectMapper(),
+        factory);
+
+    PeekMessagesResponse response = gateway.peekMessages(environment(), "persistent://acme/orders/payment-events", 1);
+
+    assertThat(response.returnedCount()).isEqualTo(1);
+    verify(factory, times(2)).create(environment());
+    verify(staleClient).close();
     verify(reader).close();
   }
 
