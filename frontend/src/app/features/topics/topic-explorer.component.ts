@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
-import { BehaviorSubject, combineLatest, switchMap } from 'rxjs';
+import { BehaviorSubject, catchError, combineLatest, debounceTime, distinctUntilChanged, of, switchMap } from 'rxjs';
 import { PulsarApiService } from '../../core/api/pulsar-api.service';
 import { DemoModeService } from '../../core/demo-mode.service';
 import {
@@ -64,6 +64,7 @@ export class TopicExplorerComponent {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly refresh$ = new BehaviorSubject<void>(undefined);
+  private readonly topicRefresh$ = new BehaviorSubject<void>(undefined);
   private syncRetryHandle: number | null = null;
 
   readonly searchControl = new FormControl('', { nonNullable: true });
@@ -119,6 +120,7 @@ export class TopicExplorerComponent {
   readonly selectedNamespace = signal('');
   readonly activeTab = signal<'topics' | 'namespace' | 'platform'>('topics');
   readonly loading = signal(true);
+  readonly topicLoading = signal(false);
   readonly loadError = signal<string | null>(null);
   readonly tenantDialogOpen = signal(false);
   readonly namespaceDialogOpen = signal(false);
@@ -178,24 +180,10 @@ export class TopicExplorerComponent {
   readonly selectedTopics = computed(() =>
     [...(this.topicPage()?.items ?? [])].sort((left, right) => left.topic.localeCompare(right.topic))
   );
-  readonly activeSearchTerm = computed(() => this.searchControl.value.trim().toLowerCase());
-  readonly visibleSelectedTopics = computed(() => {
-    const search = this.activeSearchTerm();
-    const topics = this.selectedTopics();
-
-    if (!search) {
-      return topics;
-    }
-
-    return topics.filter((topic) =>
-      topic.fullName.toLowerCase().includes(search)
-      || topic.topic.toLowerCase().includes(search)
-      || topic.namespace.toLowerCase().includes(search)
-      || topic.summary.toLowerCase().includes(search)
-    );
-  });
-  readonly selectedTopicPage = computed(() => this.topicPage()?.page ?? 0);
-  readonly selectedTopicPageSize = computed(() => this.topicPage()?.pageSize ?? 25);
+  readonly activeSearchTerm = signal('');
+  readonly visibleSelectedTopics = computed(() => this.selectedTopics());
+  readonly selectedTopicPage = computed(() => this.topicPage()?.page ?? this.topicPageIndex());
+  readonly selectedTopicPageSize = computed(() => this.topicPage()?.pageSize ?? this.topicPageSizeState());
   readonly selectedTopicTotal = computed(() => this.topicPage()?.total ?? 0);
   readonly selectedTopicRangeStart = computed(() => {
     const total = this.selectedTopicTotal();
@@ -250,6 +238,8 @@ export class TopicExplorerComponent {
   readonly visibleSinks = computed(() => this.filterPlatformArtifacts(this.platformSummary()?.sinks ?? []));
   readonly visibleConnectors = computed(() => this.platformSummary()?.connectors ?? []);
   readonly awaitingInitialSync = computed(() => this.environmentSyncStatus()?.syncStatus === 'SYNCING');
+  private readonly topicPageIndex = signal(0);
+  private readonly topicPageSizeState = signal(25);
 
   constructor() {
     this.destroyRef.onDestroy(() => this.clearSyncRetry());
@@ -268,13 +258,14 @@ export class TopicExplorerComponent {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe({
-        next: ([health, catalog, pageResult]) => {
+        next: ([health, catalog]) => {
           this.clearSyncRetry();
           this.environmentHealth.set(health);
           this.environmentSyncStatus.set(null);
           this.catalogSummary.set(catalog);
-          this.topicPage.set(pageResult);
           this.loading.set(false);
+          this.reconcileSelectedNamespace();
+          this.queueTopicRefresh();
           if (typeof this.api.getPlatformSummary === 'function') {
             this.api.getPlatformSummary(this.environmentId())
               .pipe(takeUntilDestroyed(this.destroyRef))
@@ -291,51 +282,56 @@ export class TopicExplorerComponent {
         }
       });
 
-    effect(() => {
-      const namespaces = this.namespaceItems();
-      const tenant = this.selectedTenant();
-      const namespace = this.selectedNamespace();
+    this.searchControl.valueChanges
+      .pipe(
+        debounceTime(300),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((value) => {
+        if (!this.canSearchTopics()) {
+          return;
+        }
 
-      if (!tenant && !namespace) {
-        return;
-      }
+        const normalized = value.trim().toLowerCase();
+        if (this.activeSearchTerm() === normalized) {
+          return;
+        }
 
-      const selectedExists = namespaces.some((item) => item.tenant === tenant && item.namespace === namespace);
-      if (selectedExists) {
-        return;
-      }
-
-      const nextNamespace = namespaces[0];
-      this.selectedTenant.set(nextNamespace?.tenant ?? '');
-      this.selectedNamespace.set(nextNamespace?.namespace ?? '');
-    });
-  }
-
-  applySearch() {
-    if (!this.selectedTenant() || !this.selectedNamespace()) {
-      this.actionFeedback.set({
-        kind: 'error',
-        message: 'Select a tenant and namespace first, then search within that namespace.'
+        this.activeSearchTerm.set(normalized);
+        this.topicPageIndex.set(0);
+        this.queueTopicRefresh();
       });
-      return;
-    }
 
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: {
-        search: this.searchControl.value || null,
-        page: 0
-      },
-      queryParamsHandling: 'merge'
-    });
-  }
+    this.topicRefresh$
+      .pipe(
+        switchMap(() => {
+          const tenant = this.selectedTenant();
+          const namespace = this.selectedNamespace();
+          const envId = this.environmentId();
 
-  clearSearch() {
-    this.searchControl.setValue('');
-    if (!this.canSearchTopics()) {
-      return;
-    }
-    this.applySearch();
+          if (!envId || !tenant || !namespace) {
+            this.topicLoading.set(false);
+            return of(null);
+          }
+
+          this.topicLoading.set(true);
+          return this.api.getTopics(envId, {
+            tenant,
+            namespace,
+            search: this.activeSearchTerm() || undefined,
+            page: this.topicPageIndex(),
+            pageSize: this.topicPageSizeState()
+          }).pipe(
+            catchError(() => of(null))
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((pageResult) => {
+        this.topicLoading.set(false);
+        this.topicPage.set(pageResult);
+      });
   }
 
   changeTopicPageSize(rawValue: string) {
@@ -344,28 +340,25 @@ export class TopicExplorerComponent {
       return;
     }
 
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: {
-        pageSize,
-        page: 0
-      },
-      queryParamsHandling: 'merge'
-    });
+    this.topicPageSizeState.set(pageSize);
+    this.topicPageIndex.set(0);
+    this.queueTopicRefresh();
   }
 
   goToPreviousTopicPage() {
     if (!this.hasPreviousTopicPage()) {
       return;
     }
-    this.goToTopicPage(this.selectedTopicPage() - 1);
+    this.topicPageIndex.set(Math.max(0, this.selectedTopicPage() - 1));
+    this.queueTopicRefresh();
   }
 
   goToNextTopicPage() {
     if (!this.hasNextTopicPage()) {
       return;
     }
-    this.goToTopicPage(this.selectedTopicPage() + 1);
+    this.topicPageIndex.set(this.selectedTopicPage() + 1);
+    this.queueTopicRefresh();
   }
 
   openTopic(topic: TopicListItem) {
@@ -865,25 +858,25 @@ export class TopicExplorerComponent {
 
   private loadData(params: ParamMap, queryParams: ParamMap) {
     const envId = params.get('envId') ?? '';
-    const tenant = queryParams.get('tenant') ?? undefined;
-    const namespace = queryParams.get('namespace') ?? undefined;
-    const search = tenant && namespace ? (queryParams.get('search') ?? '') : '';
-    const page = Number(queryParams.get('page') ?? '0');
-    const pageSize = Number(queryParams.get('pageSize') ?? '25');
     const environmentChanged = this.environmentId() !== envId;
     const needsInitialLoad = environmentChanged || this.catalogSummary() === null || this.environmentHealth() === null;
 
     this.environmentId.set(envId);
-    this.selectedTenant.set(tenant ?? '');
-    this.selectedNamespace.set(namespace ?? '');
-    this.searchControl.setValue(search, { emitEvent: false });
     this.loading.set(needsInitialLoad);
     this.loadError.set(null);
+    if (environmentChanged) {
+      this.selectedTenant.set(queryParams.get('tenant') ?? '');
+      this.selectedNamespace.set(queryParams.get('namespace') ?? '');
+      this.searchControl.setValue('', { emitEvent: false });
+      this.activeSearchTerm.set('');
+      this.topicPageIndex.set(0);
+      this.topicPageSizeState.set(25);
+      this.topicPage.set(null);
+    }
 
     return combineLatest([
       this.api.getEnvironmentHealth(envId),
-      this.api.getCatalogSummary(envId),
-      this.api.getTopics(envId, { search: search || undefined, tenant, namespace, page, pageSize })
+      this.api.getCatalogSummary(envId)
     ]);
   }
 
@@ -931,29 +924,46 @@ export class TopicExplorerComponent {
     }
   }
 
-  async selectNamespace(tenant: string, namespace: string) {
+  selectNamespace(tenant: string, namespace: string) {
+    if (tenant === this.selectedTenant() && namespace === this.selectedNamespace()) {
+      return;
+    }
+
     this.activeTab.set('topics');
+    this.selectedTenant.set(tenant);
+    this.selectedNamespace.set(namespace);
     this.searchControl.setValue('', { emitEvent: false });
-    await this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: this.demoMode.queryParams({
-        tenant,
-        namespace,
-        search: null,
-        page: '0'
-      }),
-      queryParamsHandling: 'merge'
-    });
+    this.activeSearchTerm.set('');
+    this.topicPageIndex.set(0);
+    this.topicPage.set(null);
+    this.queueTopicRefresh();
   }
 
-  private goToTopicPage(page: number) {
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: {
-        page: Math.max(0, page)
-      },
-      queryParamsHandling: 'merge'
-    });
+  private reconcileSelectedNamespace() {
+    const namespaces = this.namespaceItems();
+    const tenant = this.selectedTenant();
+    const namespace = this.selectedNamespace();
+
+    if (!tenant && !namespace) {
+      this.topicPage.set(null);
+      return;
+    }
+
+    const selectedExists = namespaces.some((item) => item.tenant === tenant && item.namespace === namespace);
+    if (selectedExists) {
+      return;
+    }
+
+    const nextNamespace = namespaces[0];
+    this.selectedTenant.set(nextNamespace?.tenant ?? '');
+    this.selectedNamespace.set(nextNamespace?.namespace ?? '');
+    this.searchControl.setValue('', { emitEvent: false });
+    this.activeSearchTerm.set('');
+    this.topicPageIndex.set(0);
+  }
+
+  private queueTopicRefresh() {
+    this.topicRefresh$.next();
   }
 
   private toCsvList(value: string): string[] {

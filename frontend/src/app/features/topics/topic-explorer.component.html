@@ -149,14 +149,12 @@
                 </div>
               </div>
 
-              <form class="toolbar topic-search-toolbar" (ngSubmit)="applySearch()">
+              <div class="toolbar topic-search-toolbar">
                 <input
                   [formControl]="searchControl"
                   type="search"
                   placeholder="Search topic names inside this namespace" />
-                <button type="submit">Search</button>
-                <button class="ghost" type="button" (click)="clearSearch()">Clear</button>
-              </form>
+              </div>
 
               @if (selectedTopicTotal() > 0) {
                 <div class="topic-toolbar">
@@ -167,7 +165,7 @@
                     </span>
                     @if (activeSearchTerm()) {
                       <span class="topic-toolbar-subtitle">
-                        {{ visibleSelectedTopicCount() | number }} visible on this page for "{{ searchControl.value.trim() }}"
+                        Filtered inside {{ selectedNamespaceLabel() }} for "{{ searchControl.value.trim() }}"
                       </span>
                     }
                   </div>
@@ -201,7 +199,7 @@
               @if (visibleSelectedTopics().length === 0) {
                 <div class="state-card compact-state">
                   @if (activeSearchTerm()) {
-                    No topics on this page match "{{ searchControl.value.trim() }}". Try the next page or adjust the search.
+                    No topics in {{ selectedNamespaceLabel() }} match "{{ searchControl.value.trim() }}".
                   } @else {
                     No topics are in this namespace yet. Create one to start publishing or testing workflows here.
                   }
