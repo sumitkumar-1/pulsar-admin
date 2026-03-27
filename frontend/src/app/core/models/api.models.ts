@@ -373,6 +373,8 @@ export interface PeekMessagesResponse {
   requestedCount: number;
   returnedCount: number;
   truncated: boolean;
+  scannedTopicCount: number;
+  message: string;
   messages: PeekMessage[];
 }
 

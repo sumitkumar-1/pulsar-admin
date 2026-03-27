@@ -588,18 +588,21 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   @Override
   public PeekMessagesResponse peekMessages(EnvironmentDetails environment, String topicName, int limit) {
     try {
-      List<com.pulsaradmin.shared.model.PeekMessage> messages = executeWithClientRetry(environment, client -> {
+      PeekResult peekResult = executeWithClientRetry(environment, client -> {
         List<String> targetTopics = resolveTargetTopics(client, topicName);
-        return readMessages(client, targetTopics, limit);
+        List<com.pulsaradmin.shared.model.PeekMessage> messages = readMessages(client, targetTopics, limit);
+        return new PeekResult(targetTopics.size(), messages);
       });
 
       return new PeekMessagesResponse(
           environment.id(),
           topicName,
           limit,
-          messages.size(),
-          messages.size() == limit,
-          messages);
+          peekResult.messages().size(),
+          peekResult.messages().size() == limit,
+          peekResult.scannedTopicCount(),
+          buildPeekMessage(topicName, peekResult.scannedTopicCount(), peekResult.messages().size(), limit),
+          peekResult.messages());
     } catch (Exception exception) {
       if (exception instanceof InterruptedException) {
         Thread.currentThread().interrupt();
@@ -2060,6 +2063,28 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
     return false;
   }
 
+  private String buildPeekMessage(String topicName, int scannedTopicCount, int returnedCount, int requestedCount) {
+    if (returnedCount == 0) {
+      if (scannedTopicCount > 1) {
+        return "No retained messages were found across " + scannedTopicCount
+            + " partitions for " + topicName + ".";
+      }
+      return "No retained messages were found for " + topicName + ".";
+    }
+
+    if (scannedTopicCount > 1) {
+      return "Peeked " + returnedCount + " messages across " + scannedTopicCount
+          + " partitions for " + topicName + ".";
+    }
+
+    if (returnedCount < requestedCount) {
+      return "Peeked " + returnedCount + " messages for " + topicName
+          + " because fewer retained messages were currently available.";
+    }
+
+    return "Peeked " + returnedCount + " messages for " + topicName + ".";
+  }
+
   private void invalidateCachedClient(EnvironmentDetails environment, PulsarClient expectedClient) {
     String cacheKey = clientCacheKey(environment);
     if (clientCache.remove(cacheKey, expectedClient)) {
@@ -2279,5 +2304,8 @@ public class RestPulsarAdminGateway implements PulsarAdminGateway {
   @FunctionalInterface
   private interface ClientOperation<T> {
     T execute(PulsarClient client) throws Exception;
+  }
+
+  private record PeekResult(int scannedTopicCount, List<com.pulsaradmin.shared.model.PeekMessage> messages) {
   }
 }

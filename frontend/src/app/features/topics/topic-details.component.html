@@ -457,6 +457,7 @@
             @if (peekState(); as peek) {
               <div class="peek-meta">
                 <span>{{ peek.returnedCount }} messages returned</span>
+                <span>{{ peek.scannedTopicCount }} {{ peek.scannedTopicCount === 1 ? 'topic scanned' : 'topics scanned' }}</span>
                 @if (peek.truncated) {
                   <span>Showing the first {{ peek.requestedCount }} available messages</span>
                 }
@@ -465,9 +466,13 @@
                 </button>
               </div>
 
+              <div class="placeholder-panel">
+                <p>{{ peek.message }}</p>
+              </div>
+
               @if (peek.messages.length === 0) {
                 <div class="placeholder-panel">
-                  <p>No peekable messages are currently available for this topic.</p>
+                  <p>Try again after publishing to this topic, or verify retained messages exist on at least one partition.</p>
                 </div>
               } @else {
                 <div class="message-list">

@@ -340,6 +340,8 @@ class RestPulsarAdminGatewayTest {
 
     assertThat(response.environmentId()).isEqualTo("prod");
     assertThat(response.returnedCount()).isEqualTo(2);
+    assertThat(response.scannedTopicCount()).isEqualTo(1);
+    assertThat(response.message()).contains("Peeked 2 messages");
     assertThat(response.messages()).hasSize(2);
     assertThat(response.messages().get(0).key()).isEqualTo("payment-10412");
     assertThat(response.messages().get(0).schemaVersion()).isEqualTo("0c");
@@ -392,9 +394,50 @@ class RestPulsarAdminGatewayTest {
     PeekMessagesResponse response = gateway.peekMessages(environment(), "persistent://acme/orders/payment-events", 1);
 
     assertThat(response.returnedCount()).isEqualTo(1);
+    assertThat(response.message()).contains("Peeked 1 messages");
     verify(factory, times(2)).create(environment());
     verify(staleClient).close();
     verify(reader).close();
+  }
+
+  @Test
+  void shouldPeekAcrossAllPartitionsAndExplainWhenNoMessagesAreFound() throws Exception {
+    PulsarClient client = mock(PulsarClient.class);
+    @SuppressWarnings("unchecked")
+    ReaderBuilder<byte[]> partitionZeroBuilder = mock(ReaderBuilder.class);
+    @SuppressWarnings("unchecked")
+    ReaderBuilder<byte[]> partitionOneBuilder = mock(ReaderBuilder.class);
+    @SuppressWarnings("unchecked")
+    Reader<byte[]> partitionZeroReader = mock(Reader.class);
+    @SuppressWarnings("unchecked")
+    Reader<byte[]> partitionOneReader = mock(Reader.class);
+
+    when(client.getPartitionsForTopic("persistent://acme/orders/payment-events"))
+        .thenReturn(CompletableFuture.completedFuture(java.util.List.of(
+            "persistent://acme/orders/payment-events-partition-0",
+            "persistent://acme/orders/payment-events-partition-1")));
+    when(client.newReader()).thenReturn(partitionZeroBuilder, partitionOneBuilder);
+    when(partitionZeroBuilder.topic("persistent://acme/orders/payment-events-partition-0")).thenReturn(partitionZeroBuilder);
+    when(partitionOneBuilder.topic("persistent://acme/orders/payment-events-partition-1")).thenReturn(partitionOneBuilder);
+    when(partitionZeroBuilder.startMessageFromRollbackDuration(3650, java.util.concurrent.TimeUnit.DAYS)).thenReturn(partitionZeroBuilder);
+    when(partitionOneBuilder.startMessageFromRollbackDuration(3650, java.util.concurrent.TimeUnit.DAYS)).thenReturn(partitionOneBuilder);
+    when(partitionZeroBuilder.create()).thenReturn(partitionZeroReader);
+    when(partitionOneBuilder.create()).thenReturn(partitionOneReader);
+    when(partitionZeroReader.readNext(250, java.util.concurrent.TimeUnit.MILLISECONDS)).thenReturn(null);
+    when(partitionOneReader.readNext(250, java.util.concurrent.TimeUnit.MILLISECONDS)).thenReturn(null);
+
+    RestPulsarAdminGateway gateway = new RestPulsarAdminGateway(
+        RestClient.builder().build(),
+        new ObjectMapper(),
+        environment -> client);
+
+    PeekMessagesResponse response = gateway.peekMessages(environment(), "persistent://acme/orders/payment-events", 5);
+
+    assertThat(response.returnedCount()).isZero();
+    assertThat(response.scannedTopicCount()).isEqualTo(2);
+    assertThat(response.message()).contains("No retained messages were found across 2 partitions");
+    verify(partitionZeroReader).close();
+    verify(partitionOneReader).close();
   }
 
   @Test

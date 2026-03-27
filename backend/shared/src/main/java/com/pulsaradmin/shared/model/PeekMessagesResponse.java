@@ -8,5 +8,7 @@ public record PeekMessagesResponse(
     int requestedCount,
     int returnedCount,
     boolean truncated,
+    int scannedTopicCount,
+    String message,
     List<PeekMessage> messages) {
 }

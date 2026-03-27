@@ -342,7 +342,17 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
               message.payload(),
               "mock-live"))
           .toList();
-      return new PeekMessagesResponse(environment.id(), topicName, limit, fromPublished.size(), published.size() > limit, fromPublished);
+      return new PeekMessagesResponse(
+          environment.id(),
+          topicName,
+          limit,
+          fromPublished.size(),
+          published.size() > limit,
+          1,
+          fromPublished.isEmpty()
+              ? "No retained messages were found for " + topicName + "."
+              : "Peeked " + fromPublished.size() + " messages for " + topicName + ".",
+          fromPublished);
     }
 
     List<PeekMessage> seededMessages = switch (topicName) {
@@ -468,7 +478,17 @@ public class MockPulsarAdminGateway implements PulsarAdminGateway {
     };
 
     List<PeekMessage> messages = seededMessages.stream().limit(limit).toList();
-    return new PeekMessagesResponse(environment.id(), topicName, limit, messages.size(), seededMessages.size() > limit, messages);
+    return new PeekMessagesResponse(
+        environment.id(),
+        topicName,
+        limit,
+        messages.size(),
+        seededMessages.size() > limit,
+        1,
+        messages.isEmpty()
+            ? "No retained messages were found for " + topicName + "."
+            : "Peeked " + messages.size() + " messages for " + topicName + ".",
+        messages);
   }
 
   @Override
